@@ -1,26 +1,43 @@
+# PYTHON_ARGCOMPLETE_OK
 """The ``beancount-envelope-budget`` command line interface.
 
 A thin ``argparse`` front end over :mod:`beancount_envelope_budget.core`. The
-full command tree grows across milestones; ``schema`` and ``docs`` exist from
-the start so the generated documentation and its ``--check`` gate are in place
-before the behaviour they describe.
+CLI never edits your ledger; commands that generate directives print them to
+stdout. ``schema`` and ``docs`` exist from the start so the generated
+documentation and its ``--check`` gate are in place; ``check``, ``report``,
+``suggest`` and ``completion`` are the read-only reporting commands.
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 import sys
+from dataclasses import dataclass
+from datetime import date
+from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import argcomplete
+from argcomplete.completers import FilesCompleter
+from beancount import loader
+
+from beancount_envelope_budget.core import (
+    BudgetResult,
+    Diagnostic,
+    MonthRow,
+    compute,
+)
 from beancount_envelope_budget.schema import (
+    Severity,
     dump_schema_json,
     errors_markdown,
     schema_markdown,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
 __all__ = ["build_parser", "cli_markdown", "main", "render_docs"]
 
@@ -29,6 +46,30 @@ _GENERATED_BANNER = (
 )
 
 _GENERATED_FILES = ("cli.md", "schema.md", "errors.md")
+
+_LEDGER_EXTENSIONS = ("bean", "beancount")
+
+_MONTH_PATTERN = re.compile(r"^\d{4}-\d{2}$")
+
+_CENT = Decimal("0.01")
+
+
+@dataclass(frozen=True, slots=True)
+class _Loaded:
+    """A loaded ledger and its computed budget.
+
+    Attributes:
+        path: The ledger path.
+        result: The computed :class:`BudgetResult`.
+        beancount_errors: Beancount's own load errors, excluding ours.
+    """
+
+    path: Path
+    result: BudgetResult
+    beancount_errors: tuple[object, ...]
+
+
+# --- Filesystem helpers --------------------------------------------------------
 
 
 def _repo_root() -> Path:
@@ -49,72 +90,74 @@ def _docs_dir() -> Path:
     return _repo_root() / "docs"
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the full argument parser.
+def _read(path: Path) -> str | None:
+    """Read a text file if it exists.
+
+    Args:
+        path: The file to read.
 
     Returns:
-        The configured :class:`argparse.ArgumentParser` with every subcommand
-        and flag registered.
+        The file's contents, or ``None`` when it does not exist.
     """
-    parser = argparse.ArgumentParser(
-        prog="beancount-envelope-budget",
-        description="Ledger-driven envelope budgeting for Beancount.",
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version="%(prog)s 0.0.1",
-        help="show the program version and exit",
-    )
-    subparsers = parser.add_subparsers(
-        dest="command",
-        metavar="COMMAND",
-        required=True,
-    )
-
-    schema = subparsers.add_parser(
-        "schema",
-        help="print the directive, metadata and reserved-value schema",
-        description=(
-            "Print every directive, metadata key and reserved value the "
-            "plugin understands, from the schema registry."
-        ),
-    )
-    schema.add_argument(
-        "--json",
-        action="store_true",
-        help="print the schema as JSON instead of Markdown",
-    )
-    schema.set_defaults(func=_cmd_schema)
-
-    docs = subparsers.add_parser(
-        "docs",
-        help="regenerate the generated documentation",
-        description=(
-            "Regenerate docs/cli.md, docs/schema.md and docs/errors.md. With "
-            "--check, write nothing and exit non-zero if any is out of date."
-        ),
-    )
-    docs.add_argument(
-        "--check",
-        action="store_true",
-        help="write nothing and exit non-zero if any generated file is stale",
-    )
-    docs.set_defaults(func=_cmd_docs)
-
-    return parser
+    return path.read_text(encoding="utf-8") if path.exists() else None
 
 
-def _cmd_schema(args: argparse.Namespace) -> int:
+# --- Ledger loading ------------------------------------------------------------
+
+
+def _load(path: Path) -> _Loaded:
+    """Load a ledger and compute its budget.
+
+    Beancount's own plugins run as usual; any diagnostics produced by our plugin
+    are dropped here, because the CLI recomputes them itself.
+
+    Args:
+        path: The ledger path.
+
+    Returns:
+        The loaded ledger and its budget.
+    """
+    entries, errors, options = loader.load_file(path)
+    beancount_errors = tuple(
+        error for error in errors if type(error).__name__ != "EnvelopeBudgetError"
+    )
+    return _Loaded(path, compute(entries, options), beancount_errors)
+
+
+def _error_location(error: object, diagnostic: Diagnostic) -> str:
+    """Return a ``file:line`` location for an error or diagnostic.
+
+    Args:
+        error: A Beancount error, used when it carries a source.
+        diagnostic: A core diagnostic.
+
+    Returns:
+        The location text, or ``"-"`` when unknown.
+    """
+    source = getattr(error, "source", None)
+    if isinstance(source, dict) and source.get("filename"):
+        return f"{source['filename']}:{source.get('lineno', 0)}"
+    meta = diagnostic.entry.meta if diagnostic.entry is not None else None
+    if meta and meta.get("filename"):
+        return f"{meta['filename']}:{meta.get('lineno', 0)}"
+    if diagnostic.source is not None:
+        return f"{diagnostic.source.filename}:{diagnostic.source.lineno}"
+    return "-"
+
+
+# --- Command handlers ----------------------------------------------------------
+
+
+def _cmd_schema(_args: argparse.Namespace) -> int:
     """Print the schema registry.
 
     Args:
-        args: Parsed arguments; ``args.json`` selects the output format.
+        _args: Parsed arguments; ``_args.json`` selects the output format.
 
     Returns:
         The process exit status.
     """
-    sys.stdout.write(dump_schema_json() if args.json else schema_markdown())
+    sys.stdout.write(dump_schema_json() if _args.json else schema_markdown())
     return 0
 
 
@@ -153,16 +196,474 @@ def _cmd_docs(args: argparse.Namespace) -> int:
     return 0
 
 
-def _read(path: Path) -> str | None:
-    """Read a text file if it exists.
+def _cmd_check(args: argparse.Namespace) -> int:
+    """Validate a ledger and report every error and warning.
 
     Args:
-        path: The file to read.
+        args: Parsed arguments; ``args.ledger`` is the ledger path.
 
     Returns:
-        The file's contents, or ``None`` when it does not exist.
+        The process exit status: non-zero when any error is found.
     """
-    return path.read_text(encoding="utf-8") if path.exists() else None
+    if not args.ledger.exists():
+        print(f"no such ledger: {args.ledger}", file=sys.stderr)
+        return 2
+    loaded = _load(args.ledger)
+    errors = [
+        diagnostic
+        for diagnostic in loaded.result.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    ]
+    warnings = [
+        diagnostic
+        for diagnostic in loaded.result.diagnostics
+        if diagnostic.severity is Severity.WARNING
+    ]
+    for error in loaded.beancount_errors:
+        location = _error_location(error, Diagnostic("", Severity.ERROR, ""))
+        print(f"BEANCOUNT  error    {getattr(error, 'message', error)}  ({location})")
+    for diagnostic in [*errors, *warnings]:
+        location = _error_location(None, diagnostic)
+        print(
+            f"{diagnostic.code:<9}  {diagnostic.severity.value:<7}  "
+            f"{diagnostic.message}  ({location})"
+        )
+    print(
+        f"{len(errors) + len(loaded.beancount_errors)} error(s), "
+        f"{len(warnings)} warning(s)"
+    )
+    return 1 if errors or loaded.beancount_errors else 0
+
+
+def _cmd_report(args: argparse.Namespace) -> int:
+    """Print opening, allocated, activity and closing per envelope.
+
+    Args:
+        args: Parsed arguments; ``args.ledger`` and ``args.month``.
+
+    Returns:
+        The process exit status.
+    """
+    if not args.ledger.exists():
+        print(f"no such ledger: {args.ledger}", file=sys.stderr)
+        return 2
+    loaded = _load(args.ledger)
+    result = loaded.result
+    if result.start is None:
+        print("there is no start directive; nothing to report", file=sys.stderr)
+        return 0
+    month = _resolve_month(result, args.month)
+    print(_format_report(result, month))
+    return 0
+
+
+def _cmd_suggest(args: argparse.Namespace) -> int:
+    """Print the monthly amount each goal envelope needs to hit its target.
+
+    Args:
+        args: Parsed arguments; ``args.ledger`` is the ledger path.
+
+    Returns:
+        The process exit status.
+    """
+    if not args.ledger.exists():
+        print(f"no such ledger: {args.ledger}", file=sys.stderr)
+        return 2
+    result = _load(args.ledger).result
+    if result.start is None:
+        print("there is no start directive; nothing to suggest", file=sys.stderr)
+        return 0
+    rows = _suggest_rows(result)
+    if not rows:
+        print("no goal envelopes with a target and a `by` date")
+        return 0
+    print(_table(("Envelope", "Balance", "Target", "By", "Months", "Per month"), rows))
+    return 0
+
+
+def _cmd_completion(args: argparse.Namespace) -> int:
+    """Print the shell snippet that enables tab completion.
+
+    Args:
+        args: Parsed arguments; ``args.shell`` is ``bash`` or ``zsh``.
+
+    Returns:
+        The process exit status.
+    """
+    if args.shell == "zsh":
+        print("autoload -U bashcompinit && bashcompinit")
+    print('eval "$(register-python-argcomplete beancount-envelope-budget)"')
+    return 0
+
+
+# --- Report formatting ---------------------------------------------------------
+
+
+def _parse_month(value: str) -> date:
+    """Parse a ``YYYY-MM`` argument into the first of that month.
+
+    Args:
+        value: The month string.
+
+    Returns:
+        The first day of the month.
+
+    Raises:
+        argparse.ArgumentTypeError: If the value is not ``YYYY-MM``.
+    """
+    if not _MONTH_PATTERN.match(value):
+        message = f"expected a month as YYYY-MM, got {value!r}"
+        raise argparse.ArgumentTypeError(message)
+    try:
+        year, month = (int(part) for part in value.split("-", 1))
+        return date(year, month, 1)
+    except ValueError as error:
+        message = f"expected a month as YYYY-MM, got {value!r}"
+        raise argparse.ArgumentTypeError(message) from error
+
+
+def _resolve_month(result: BudgetResult, requested: date | None) -> date:
+    """Choose the month to report, clamped to the computed range.
+
+    Args:
+        result: The computed budget.
+        requested: The requested month, or ``None`` for the latest month.
+
+    Returns:
+        The month to report.
+    """
+    if requested is None or requested in result.months:
+        return requested if requested is not None else result.months[-1]
+    if requested < result.months[0]:
+        print(
+            f"{requested:%Y-%m} is before the first month; "
+            f"showing {result.months[0]:%Y-%m}",
+            file=sys.stderr,
+        )
+        return result.months[0]
+    print(
+        f"{requested:%Y-%m} is after the last month; showing {result.months[-1]:%Y-%m}",
+        file=sys.stderr,
+    )
+    return result.months[-1]
+
+
+def _row_for(rows: Sequence[MonthRow], month: date) -> MonthRow:
+    """Return the monthly row for a month.
+
+    Args:
+        rows: The rows to search.
+        month: The month to find.
+
+    Returns:
+        The matching row.
+    """
+    return next(row for row in rows if row.month == month)
+
+
+def _money(value: Decimal) -> str:
+    """Format a money amount with two decimal places.
+
+    Args:
+        value: The amount.
+
+    Returns:
+        The formatted amount.
+    """
+    return f"{value:.2f}"
+
+
+def _format_report(result: BudgetResult, month: date) -> str:
+    """Render the report table for one month.
+
+    Args:
+        result: The computed budget.
+        month: The month to report.
+
+    Returns:
+        The rendered table.
+    """
+    rows: list[tuple[str, ...]] = [
+        (report.name, *_money_cells(_row_for(report.rows, month)))
+        for report in result.envelopes
+    ]
+    pool = _row_for(result.pool, month)
+    rows.append(("Pool", *_money_cells(pool)))
+    cash = next(row for row in result.cash if row.month == month)
+    previous = _previous_cash(result, month)
+    rows.append(("Cash", _money(previous), "", "", _money(cash.balance)))
+
+    heading = f"Envelope report for {month:%Y-%m}"
+    currency = (
+        f"Amounts in {result.operating_currency}" if result.operating_currency else ""
+    )
+    table = _table(("Envelope", "Opening", "Allocated", "Activity", "Closing"), rows)
+    return f"{heading}\n{currency}\n\n{table}"
+
+
+def _money_cells(row: MonthRow) -> tuple[str, str, str, str]:
+    """Format a monthly row's four amounts.
+
+    Args:
+        row: The monthly row.
+
+    Returns:
+        Opening, allocated, activity and closing, formatted.
+    """
+    return (
+        _money(row.opening),
+        _money(row.allocated),
+        _money(row.activity),
+        _money(row.closing),
+    )
+
+
+def _previous_cash(result: BudgetResult, month: date) -> Decimal:
+    """Return the cash balance at the end of the previous month.
+
+    Args:
+        result: The computed budget.
+        month: The month being reported.
+
+    Returns:
+        The previous month-end cash balance, or zero.
+    """
+    index = result.months.index(month)
+    return result.cash[index - 1].balance if index > 0 else Decimal(0)
+
+
+def _suggest_rows(result: BudgetResult) -> list[tuple[str, ...]]:
+    """Build the suggestion table rows.
+
+    Args:
+        result: The computed budget.
+
+    Returns:
+        One row per goal envelope.
+    """
+    anchor = result.months[-1]
+    rows: list[tuple[str, ...]] = []
+    for report in result.envelopes:
+        envelope = report.envelope
+        if envelope.target is None or envelope.by is None:
+            continue
+        balance = report.closing_at(anchor)
+        remaining = _months_remaining(anchor, envelope.by)
+        need = _monthly_need(envelope.target, balance, remaining)
+        rows.append(
+            (
+                envelope.name,
+                _money(balance),
+                _money(envelope.target),
+                envelope.by.isoformat(),
+                str(remaining),
+                _money(need),
+            )
+        )
+    return rows
+
+
+def _months_remaining(anchor: date, by: date) -> int:
+    """Count the funding months from an anchor to a deadline.
+
+    Args:
+        anchor: The current month (the last month in the ledger).
+        by: The deadline.
+
+    Returns:
+        The number of whole months from the anchor month to ``by``, inclusive.
+    """
+    return (by.year - anchor.year) * 12 + (by.month - anchor.month)
+
+
+def _monthly_need(target: Decimal, balance: Decimal, remaining: int) -> Decimal:
+    """Compute the monthly amount needed to reach a target.
+
+    Args:
+        target: The goal balance.
+        balance: The current balance.
+        remaining: The number of funding months left.
+
+    Returns:
+        The monthly amount, rounded up to the cent; zero when already met.
+    """
+    shortfall = target - balance
+    if shortfall <= 0:
+        return Decimal(0)
+    if remaining <= 0:
+        return shortfall.quantize(_CENT, rounding=ROUND_CEILING)
+    return (shortfall / remaining).quantize(_CENT, rounding=ROUND_CEILING)
+
+
+def _table(headers: tuple[str, ...], rows: list[tuple[str, ...]]) -> str:
+    """Render a left-aligned first column and right-aligned numeric columns.
+
+    Args:
+        headers: The column headings.
+        rows: The body rows.
+
+    Returns:
+        The rendered table.
+    """
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for index, cell in enumerate(row):
+            widths[index] = max(widths[index], len(cell))
+
+    def render(cells: Sequence[str]) -> str:
+        parts = [
+            cell.ljust(widths[index]) if index == 0 else cell.rjust(widths[index])
+            for index, cell in enumerate(cells)
+        ]
+        return "  ".join(parts)
+
+    lines = [render(headers), "  ".join("-" * width for width in widths)]
+    lines.extend(render(row) for row in rows)
+    return "\n".join(lines)
+
+
+# --- Argument parser -----------------------------------------------------------
+
+
+def _ledger_argument(parser: argparse.ArgumentParser) -> None:
+    """Add the shared ``ledger`` positional with file completion.
+
+    Args:
+        parser: The subcommand parser.
+    """
+    action = parser.add_argument(
+        "ledger",
+        type=Path,
+        help="path to the Beancount ledger (.bean or .beancount)",
+    )
+    setattr(action, "completer", FilesCompleter(_LEDGER_EXTENSIONS))  # noqa: B010
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the full argument parser.
+
+    Returns:
+        The configured :class:`argparse.ArgumentParser` with every subcommand
+        and flag registered.
+    """
+    parser = argparse.ArgumentParser(
+        prog="beancount-envelope-budget",
+        description="Ledger-driven envelope budgeting for Beancount.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="%(prog)s 0.0.1",
+        help="show the program version and exit",
+    )
+    subparsers = parser.add_subparsers(
+        dest="command",
+        metavar="COMMAND",
+        required=True,
+    )
+
+    _add_schema_parser(subparsers)
+    _add_docs_parser(subparsers)
+
+    check = subparsers.add_parser(
+        "check",
+        help="run validation and the invariant",
+        description=(
+            "Run validation and the month-end invariant. Prints every error "
+            "and warning and exits non-zero if any error is found."
+        ),
+    )
+    _ledger_argument(check)
+    check.set_defaults(func=_cmd_check)
+
+    report = subparsers.add_parser(
+        "report",
+        help="print per-envelope balances for a month",
+        description=(
+            "Print opening, allocated, activity and closing for every "
+            "envelope, plus the pool and cash rows."
+        ),
+    )
+    _ledger_argument(report)
+    report.add_argument(
+        "--month",
+        type=_parse_month,
+        metavar="YYYY-MM",
+        help="the month to report; defaults to the latest month in the ledger",
+    )
+    report.set_defaults(func=_cmd_report)
+
+    suggest = subparsers.add_parser(
+        "suggest",
+        help="print the monthly amount goal envelopes need",
+        description=(
+            "For envelopes with a `target` and a `by` date, print the monthly "
+            "amount needed to reach the target on time."
+        ),
+    )
+    _ledger_argument(suggest)
+    suggest.set_defaults(func=_cmd_suggest)
+
+    completion = subparsers.add_parser(
+        "completion",
+        help="print the shell tab-completion snippet",
+        description="Print the snippet that enables tab completion.",
+    )
+    completion.add_argument(
+        "shell",
+        choices=("bash", "zsh"),
+        help="the shell to print a completion snippet for",
+    )
+    completion.set_defaults(func=_cmd_completion)
+
+    return parser
+
+
+def _add_schema_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``schema`` subcommand.
+
+    Args:
+        subparsers: The subparsers action to extend.
+    """
+    schema = subparsers.add_parser(
+        "schema",
+        help="print the directive, metadata and reserved-value schema",
+        description=(
+            "Print every directive, metadata key and reserved value the "
+            "plugin understands, from the schema registry."
+        ),
+    )
+    schema.add_argument(
+        "--json",
+        action="store_true",
+        help="print the schema as JSON instead of Markdown",
+    )
+    schema.set_defaults(func=_cmd_schema)
+
+
+def _add_docs_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``docs`` subcommand.
+
+    Args:
+        subparsers: The subparsers action to extend.
+    """
+    docs = subparsers.add_parser(
+        "docs",
+        help="regenerate the generated documentation",
+        description=(
+            "Regenerate docs/cli.md, docs/schema.md and docs/errors.md. With "
+            "--check, write nothing and exit non-zero if any is out of date."
+        ),
+    )
+    docs.add_argument(
+        "--check",
+        action="store_true",
+        help="write nothing and exit non-zero if any generated file is stale",
+    )
+    docs.set_defaults(func=_cmd_docs)
+
+
+# --- Documentation generation --------------------------------------------------
 
 
 def _walk_commands(
@@ -271,8 +772,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         The process exit status.
     """
     parser = build_parser()
+    argcomplete.autocomplete(parser)
     args = parser.parse_args(argv)
-    return args.func(args)
+    handler: Callable[[argparse.Namespace], int] = args.func
+    return handler(args)
 
 
 if __name__ == "__main__":  # pragma: no cover

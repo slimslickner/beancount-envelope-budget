@@ -39,6 +39,22 @@ Validation errors then appear as ordinary Beancount errors (on Fava's errors
 page). Add `"resolved"` after the plugin path to also write each posting's
 resolved envelope to `envelope-resolved` metadata for BQL.
 
+## Commands
+
+```sh
+beancount-envelope-budget check  LEDGER
+beancount-envelope-budget report LEDGER [--month YYYY-MM]
+beancount-envelope-budget suggest LEDGER
+beancount-envelope-budget schema [--json]
+beancount-envelope-budget docs [--check]
+beancount-envelope-budget completion SHELL   # bash or zsh
+```
+
+`check` exits non-zero on any error. `report` prints opening, allocated,
+activity and closing for every envelope plus the pool and cash rows. `suggest`
+prints the monthly amount each goal envelope needs. See `docs/cli.md` for the
+full reference.
+
 ## Development
 
 A change is complete when the gate passes:

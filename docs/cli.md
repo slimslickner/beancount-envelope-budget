@@ -33,3 +33,44 @@ Regenerate docs/cli.md, docs/schema.md and docs/errors.md. With --check, write n
 | --- | --- |
 | `-h, --help` | show this help message and exit |
 | `--check` | write nothing and exit non-zero if any generated file is stale |
+
+## `beancount-envelope-budget check`
+
+Run validation and the month-end invariant. Prints every error and warning and exits non-zero if any error is found.
+
+
+| Option | Help |
+| --- | --- |
+| `-h, --help` | show this help message and exit |
+| `ledger` | path to the Beancount ledger (.bean or .beancount) |
+
+## `beancount-envelope-budget report`
+
+Print opening, allocated, activity and closing for every envelope, plus the pool and cash rows.
+
+
+| Option | Help |
+| --- | --- |
+| `-h, --help` | show this help message and exit |
+| `ledger` | path to the Beancount ledger (.bean or .beancount) |
+| `--month` | the month to report; defaults to the latest month in the ledger |
+
+## `beancount-envelope-budget suggest`
+
+For envelopes with a `target` and a `by` date, print the monthly amount needed to reach the target on time.
+
+
+| Option | Help |
+| --- | --- |
+| `-h, --help` | show this help message and exit |
+| `ledger` | path to the Beancount ledger (.bean or .beancount) |
+
+## `beancount-envelope-budget completion`
+
+Print the snippet that enables tab completion.
+
+
+| Option | Help |
+| --- | --- |
+| `-h, --help` | show this help message and exit |
+| `shell` | the shell to print a completion snippet for |

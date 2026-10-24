@@ -21,3 +21,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Beancount plugin: it returns the entries unchanged and appends the
   validation diagnostics as ordinary Beancount errors, and with the `"resolved"`
   config writes each posting's resolved envelope under `envelope-resolved`.
+- Read-only CLI commands: `check`, `report [--month]`, `suggest` and
+  `completion` (bash/zsh), on top of the existing `schema` and `docs`.
