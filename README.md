@@ -126,6 +126,10 @@ See `docs/cli.md` for the full reference and `beancount-envelope-budget --help`.
 - [`docs/schema.md`](docs/schema.md) — generated directive, metadata and
   reserved-value reference.
 - [`docs/errors.md`](docs/errors.md) — generated error and warning reference.
+- [`docs/style-guide.md`](docs/style-guide.md) — conventions for code and docs.
+- [`docs/original_design.md`](docs/original_design.md) — the original design
+  spec (historical).
+- [`AGENTS.md`](AGENTS.md) — repository guide for AI agents.
 - [`examples/household.bean`](examples/household.bean) — a complete example
   ledger that also runs as an integration test.
 

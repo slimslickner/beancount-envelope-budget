@@ -1,5 +1,11 @@
 # Envelope Budgeting for Beancount: Spec
 
+> **Historical design document.** This is the original specification the project
+> was built from. It records the design rationale and the full decision log,
+> including items left out of scope. For the current, user-facing description see
+> [`concepts.md`](concepts.md); for the file map and conventions see
+> [`../AGENTS.md`](../AGENTS.md).
+
 Oct 24, 2026 · @Tim
 
 ## Goals and non-goals

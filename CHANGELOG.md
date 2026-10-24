@@ -43,3 +43,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An OpenCode skill (`.opencode/skills/beancount-envelope-budget`) outlining the
   safe CLI workflow for setup, topup, backfill and pin, with `references/workflows.md`.
 - `report --json`, machine-readable output for the report.
+- `AGENTS.md` (with a `CLAUDE.md` pointer) and `docs/style-guide.md`; the
+  original design spec moved to `docs/original_design.md`.
