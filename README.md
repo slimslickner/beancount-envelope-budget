@@ -26,6 +26,19 @@ Install the optional Fava report with:
 uv sync --extra fava
 ```
 
+## Use it
+
+Add two lines to your ledger and load it as usual:
+
+```beancount
+plugin "beancount_envelope_budget.plugin"
+2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext"
+```
+
+Validation errors then appear as ordinary Beancount errors (on Fava's errors
+page). Add `"resolved"` after the plugin path to also write each posting's
+resolved envelope to `envelope-resolved` metadata for BQL.
+
 ## Development
 
 A change is complete when the gate passes:
