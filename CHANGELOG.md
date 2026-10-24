@@ -23,3 +23,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   config writes each posting's resolved envelope under `envelope-resolved`.
 - Read-only CLI commands: `check`, `report [--month]`, `suggest` and
   `completion` (bash/zsh), on top of the existing `schema` and `docs`.
+- `fund`, with the `actuals`, `overspend` and `copy` backfill modes and the
+  priority-ordered `topup` mode, plus ledger-derived `--envelopes` completion
+  cached on the ledger's modification time.

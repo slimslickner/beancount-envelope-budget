@@ -45,10 +45,17 @@ resolved envelope to `envelope-resolved` metadata for BQL.
 beancount-envelope-budget check  LEDGER
 beancount-envelope-budget report LEDGER [--month YYYY-MM]
 beancount-envelope-budget suggest LEDGER
+beancount-envelope-budget fund LEDGER --from YYYY-MM --to YYYY-MM [--mode actuals|overspend|copy] [--envelopes REGEX] [--force]
+beancount-envelope-budget fund LEDGER --mode topup [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]
 beancount-envelope-budget schema [--json]
 beancount-envelope-budget docs [--check]
 beancount-envelope-budget completion SHELL   # bash or zsh
 ```
+
+`fund` prints `allocate` directives to stdout (redirect them into a file you
+include); it never edits your ledger. The `actuals`, `overspend` and `copy`
+modes backfill a month range and skip months that already have an allocation;
+`topup` funds envelopes up to their level in priority order from the pool.
 
 `check` exits non-zero on any error. `report` prints opening, allocated,
 activity and closing for every envelope plus the pool and cash rows. `suggest`

@@ -14,7 +14,7 @@ import argparse
 import re
 import sys
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -22,12 +22,17 @@ from typing import TYPE_CHECKING
 import argcomplete
 from argcomplete.completers import FilesCompleter
 from beancount import loader
+from beancount.core.amount import Amount
+from beancount.core.data import Custom
 
 from beancount_envelope_budget.core import (
     BudgetResult,
     Diagnostic,
+    EnvelopeReport,
     MonthRow,
     compute,
+    iter_months,
+    month_of,
 )
 from beancount_envelope_budget.schema import (
     Severity,
@@ -38,6 +43,8 @@ from beancount_envelope_budget.schema import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+
+    from beancount.core.data import Directive
 
 __all__ = ["build_parser", "cli_markdown", "main", "render_docs"]
 
@@ -52,6 +59,9 @@ _LEDGER_EXTENSIONS = ("bean", "beancount")
 _MONTH_PATTERN = re.compile(r"^\d{4}-\d{2}$")
 
 _CENT = Decimal("0.01")
+_MONTHS_PER_YEAR = 12
+_DECEMBER = 12
+_ALLOCATE_ARGS = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,11 +70,13 @@ class _Loaded:
 
     Attributes:
         path: The ledger path.
+        entries: The parsed ledger entries.
         result: The computed :class:`BudgetResult`.
         beancount_errors: Beancount's own load errors, excluding ours.
     """
 
     path: Path
+    entries: list[Directive]
     result: BudgetResult
     beancount_errors: tuple[object, ...]
 
@@ -121,7 +133,7 @@ def _load(path: Path) -> _Loaded:
     beancount_errors = tuple(
         error for error in errors if type(error).__name__ != "EnvelopeBudgetError"
     )
-    return _Loaded(path, compute(entries, options), beancount_errors)
+    return _Loaded(path, entries, compute(entries, options), beancount_errors)
 
 
 def _error_location(error: object, diagnostic: Diagnostic) -> str:
@@ -294,6 +306,499 @@ def _cmd_completion(args: argparse.Namespace) -> int:
         print("autoload -U bashcompinit && bashcompinit")
     print('eval "$(register-python-argcomplete beancount-envelope-budget)"')
     return 0
+
+
+# --- Funding -------------------------------------------------------------------
+
+
+def _cmd_fund(args: argparse.Namespace) -> int:
+    """Print ``allocate`` directives for a range or a topup run.
+
+    Args:
+        args: Parsed arguments.
+
+    Returns:
+        The process exit status.
+    """
+    if not args.ledger.exists():
+        print(f"no such ledger: {args.ledger}", file=sys.stderr)
+        return 2
+    pattern = _compile_pattern(args.envelopes)
+    if pattern is _INVALID_PATTERN:
+        return 2
+    loaded = _load(args.ledger)
+    result = loaded.result
+    if result.start is None:
+        print("there is no start directive; nothing to fund", file=sys.stderr)
+        return 0
+    if args.mode == "topup":
+        return _fund_topup(args, result, pattern)
+    return _fund_range(args, loaded, pattern)
+
+
+def _fund_topup(
+    args: argparse.Namespace,
+    result: BudgetResult,
+    pattern: re.Pattern[str] | None,
+) -> int:
+    """Run the ``topup`` mode.
+
+    Args:
+        args: Parsed arguments.
+        result: The computed budget.
+        pattern: An optional envelope-name filter.
+
+    Returns:
+        The process exit status.
+    """
+    if args.from_month is not None or args.to_month is not None:
+        print("--mode topup takes --date, not --from/--to", file=sys.stderr)
+        return 2
+    on = args.date or date.today()  # noqa: DTZ011 - local today is intended
+    lines, unfunded = _plan_topup(result, on, args.reserve, pattern)
+    for line in lines:
+        print(line)
+    for name, amount in unfunded:
+        print(f"; UNFUNDED {name}: needs {_money(amount)} {result.operating_currency}")
+    return 1 if args.strict and unfunded else 0
+
+
+def _fund_range(
+    args: argparse.Namespace,
+    loaded: _Loaded,
+    pattern: re.Pattern[str] | None,
+) -> int:
+    """Run the ``actuals``, ``overspend`` or ``copy`` mode over a month range.
+
+    Args:
+        args: Parsed arguments.
+        loaded: The loaded ledger and its budget.
+        pattern: An optional envelope-name filter.
+
+    Returns:
+        The process exit status.
+    """
+    if args.date is not None:
+        print("--date is only valid with --mode topup", file=sys.stderr)
+        return 2
+    if args.from_month is None or args.to_month is None:
+        print("--from and --to are required for this mode", file=sys.stderr)
+        return 2
+    if args.from_month > args.to_month:
+        print("--from must not be after --to", file=sys.stderr)
+        return 2
+    requested = iter_months(args.from_month, args.to_month)
+    lines = _plan_fund(
+        loaded.result,
+        loaded.entries,
+        args.mode,
+        requested,
+        pattern,
+        force=args.force,
+    )
+    for line in lines:
+        print(line)
+    return 0
+
+
+def _compile_pattern(value: str | None) -> re.Pattern[str] | None:
+    """Compile the ``--envelopes`` filter.
+
+    Args:
+        value: The regular expression, or ``None``.
+
+    Returns:
+        The compiled pattern, ``None`` when unfiltered, or
+        :data:`_INVALID_PATTERN` on a bad expression.
+    """
+    if value is None:
+        return None
+    try:
+        return re.compile(value)
+    except re.error as error:
+        print(f"invalid --envelopes pattern: {error}", file=sys.stderr)
+        return _INVALID_PATTERN
+
+
+def _existing_allocations(
+    entries: list[Directive],
+) -> dict[tuple[str, date], Decimal]:
+    """Sum existing ``allocate`` directives by envelope and month.
+
+    Args:
+        entries: The ledger entries.
+
+    Returns:
+        A mapping from ``(envelope, month)`` to the summed allocation.
+    """
+    totals: dict[tuple[str, date], Decimal] = {}
+    for entry in entries:
+        if not isinstance(entry, Custom) or entry.type != "envelope":
+            continue
+        values = [getattr(value, "value", value) for value in entry.values]
+        if len(values) < _ALLOCATE_ARGS or values[0] != "allocate":
+            continue
+        name, amount = values[1], values[2]
+        if not isinstance(name, str) or not isinstance(amount, Amount):
+            continue
+        key = (name, month_of(entry.date))
+        totals[key] = totals.get(key, Decimal(0)) + (amount.number or Decimal(0))
+    return totals
+
+
+def _last_day_of(month: date) -> date:
+    """Return the last calendar day of a month.
+
+    Args:
+        month: Any date within the month.
+
+    Returns:
+        The last day of that month.
+    """
+    first = month_of(month)
+    if first.month == _DECEMBER:
+        return date(first.year, _DECEMBER, 31)
+    return date(first.year, first.month + 1, 1) - timedelta(days=1)
+
+
+def _shift_month(month: date, delta: int) -> date:
+    """Shift a month by a signed number of months.
+
+    Args:
+        month: Any date within the month.
+        delta: The number of months to shift, positive or negative.
+
+    Returns:
+        The first day of the shifted month.
+    """
+    index = month.year * 12 + (month.month - 1) + delta
+    return date(index // 12, index % 12 + 1, 1)
+
+
+def _allocate_line(day: date, name: str, amount: Decimal, currency: str) -> str:
+    """Render an ``allocate`` directive.
+
+    Args:
+        day: The directive date.
+        name: The envelope name.
+        amount: The amount to allocate.
+        currency: The operating currency.
+
+    Returns:
+        The directive as a line of Beancount.
+    """
+    return (
+        f'{day.isoformat()} custom "envelope" "allocate" '
+        f'"{name}" {amount:.2f} {currency}'
+    )
+
+
+def _maybe_row(rows: Sequence[MonthRow], month: date) -> MonthRow | None:
+    """Return a monthly row, or ``None`` when the month is out of range.
+
+    Args:
+        rows: The rows to search.
+        month: The month to find.
+
+    Returns:
+        The matching row, or ``None``.
+    """
+    return next((row for row in rows if row.month == month), None)
+
+
+def _carried(rows: Sequence[MonthRow], month: date) -> Decimal:
+    """Return the balance carried into or out of a month.
+
+    Args:
+        rows: The rows to search.
+        month: The month to evaluate.
+
+    Returns:
+        The closing balance for that month, zero before the range, or the final
+        closing balance after it.
+    """
+    if not rows:
+        return Decimal(0)
+    for row in rows:
+        if row.month == month:
+            return row.closing
+        if row.month > month:
+            return row.opening
+    return rows[-1].closing
+
+
+def _plan_fund(
+    result: BudgetResult,
+    entries: list[Directive],
+    mode: str,
+    requested: list[date],
+    pattern: re.Pattern[str] | None,
+    *,
+    force: bool,
+) -> list[str]:
+    """Build the ``allocate`` directives for a range.
+
+    Args:
+        result: The computed budget.
+        entries: The ledger entries, for detecting existing allocations.
+        mode: One of ``actuals``, ``overspend`` or ``copy``.
+        requested: The months to fund, ascending.
+        pattern: An optional envelope-name filter.
+        force: Whether to re-fund envelopes and months that already have an
+            allocation directive.
+
+    Returns:
+        The directive lines.
+    """
+    currency = result.operating_currency
+    existing = _existing_allocations(entries)
+    generated: dict[tuple[str, date], Decimal] = {}
+    cumulative: dict[str, Decimal] = {}
+    lines: list[str] = []
+    for month in requested:
+        for report in result.envelopes:
+            name = report.name
+            if pattern is not None and not pattern.search(name):
+                continue
+            key = (name, month)
+            if key in existing and not force:
+                generated[key] = existing[key]
+                continue
+            amount = _fund_amount(mode, report, month, existing, generated, cumulative)
+            if amount is None:
+                continue
+            generated[key] = amount
+            if amount != 0:
+                lines.append(
+                    _allocate_line(_last_day_of(month), name, amount, currency)
+                )
+    return lines
+
+
+def _fund_amount(
+    mode: str,
+    report: EnvelopeReport,
+    month: date,
+    existing: dict[tuple[str, date], Decimal],
+    generated: dict[tuple[str, date], Decimal],
+    cumulative: dict[str, Decimal],
+) -> Decimal | None:
+    """Compute a single month's allocation for one envelope.
+
+    Args:
+        mode: One of ``actuals``, ``overspend`` or ``copy``.
+        report: The envelope's report.
+        month: The month to fund.
+        existing: Existing allocations from the ledger.
+        generated: Allocations generated so far this run.
+        cumulative: Running generated totals per envelope.
+
+    Returns:
+        The allocation, or ``None`` when the month has no data.
+    """
+    if mode == "copy":
+        previous = generated.get((report.name, _shift_month(month, -1)))
+        if previous is None:
+            previous = existing.get((report.name, _shift_month(month, -1)))
+        return previous
+    row = _maybe_row(report.rows, month)
+    if row is None:
+        return None
+    if mode == "actuals":
+        return -row.activity
+    balance = row.opening + cumulative.get(report.name, Decimal(0))
+    allocation = max(Decimal(0), -(balance + row.activity))
+    cumulative[report.name] = cumulative.get(report.name, Decimal(0)) + allocation
+    return allocation
+
+
+def _resolve_monthly(
+    report: EnvelopeReport,
+    on: date,
+) -> Decimal | None:
+    """Resolve an envelope's planned monthly amount on a date.
+
+    Args:
+        report: The envelope's report.
+        on: The date to evaluate.
+
+    Returns:
+        The monthly amount, or ``None`` when the envelope has no plan.
+    """
+    monthly, _ahead, _priority = report.envelope.effective(on)
+    if isinstance(monthly, Decimal):
+        return monthly
+    if monthly == "avg3":
+        return _average_spend(report, on)
+    envelope = report.envelope
+    if envelope.target is not None and envelope.by is not None:
+        anchor = month_of(on)
+        balance = _carried(report.rows, anchor)
+        remaining = (envelope.by.year - anchor.year) * _MONTHS_PER_YEAR + (
+            envelope.by.month - anchor.month
+        )
+        return _monthly_need(envelope.target, balance, remaining)
+    return None
+
+
+def _average_spend(report: EnvelopeReport, on: date) -> Decimal | None:
+    """Average an envelope's spending over the last three completed months.
+
+    Args:
+        report: The envelope's report.
+        on: The date to evaluate.
+
+    Returns:
+        The average spending, or ``None`` when there is no history.
+    """
+    anchor = month_of(on)
+    total = Decimal(0)
+    count = 0
+    for offset in (1, 2, 3):
+        row = _maybe_row(report.rows, _shift_month(anchor, -offset))
+        if row is None:
+            continue
+        total += -row.activity
+        count += 1
+    return total / count if count else None
+
+
+def _plan_topup(
+    result: BudgetResult,
+    on: date,
+    reserve: Decimal,
+    pattern: re.Pattern[str] | None,
+) -> tuple[list[str], list[tuple[str, Decimal]]]:
+    """Plan a ``topup`` run.
+
+    Args:
+        result: The computed budget.
+        on: The run date.
+        reserve: Cash to keep unallocated in the pool.
+        pattern: An optional envelope-name filter.
+
+    Returns:
+        The directive lines and the sum of any unfunded shortfalls.
+    """
+    currency = result.operating_currency
+    remaining = _carried(result.pool, month_of(on)) - reserve
+    candidates: list[tuple[bool, Decimal, int, str, Decimal]] = []
+    for index, report in enumerate(result.envelopes):
+        envelope = report.envelope
+        if pattern is not None and not pattern.search(envelope.name):
+            continue
+        monthly = _resolve_monthly(report, on)
+        if monthly is None:
+            continue
+        _monthly, ahead, priority = envelope.effective(on)
+        level = monthly * (1 + ahead)
+        need = level - _carried(report.rows, month_of(on))
+        if need <= 0:
+            continue
+        rank = priority if priority is not None else Decimal(0)
+        candidates.append((priority is None, rank, index, envelope.name, need))
+    candidates.sort(key=lambda item: (item[0], item[1], item[2]))
+
+    lines: list[str] = []
+    unfunded: list[tuple[str, Decimal]] = []
+    for _unset, _rank, _index, name, need in candidates:
+        if remaining <= 0:
+            unfunded.append((name, need))
+            continue
+        amount = min(need, remaining)
+        remaining -= amount
+        lines.append(_allocate_line(on, name, amount, currency))
+        if amount < need:
+            unfunded.append((name, need - amount))
+    return lines, unfunded
+
+
+def _parse_decimal(value: str) -> Decimal:
+    """Parse a decimal argument.
+
+    Args:
+        value: The raw argument.
+
+    Returns:
+        The parsed decimal.
+
+    Raises:
+        argparse.ArgumentTypeError: If the value is not a number.
+    """
+    try:
+        return Decimal(value)
+    except ArithmeticError as error:
+        message = f"expected a number, got {value!r}"
+        raise argparse.ArgumentTypeError(message) from error
+
+
+def _parse_day(value: str) -> date:
+    """Parse a ``YYYY-MM-DD`` argument.
+
+    Args:
+        value: The raw argument.
+
+    Returns:
+        The parsed date.
+
+    Raises:
+        argparse.ArgumentTypeError: If the value is not a date.
+    """
+    try:
+        return date.fromisoformat(value)
+    except ValueError as error:
+        message = f"expected a date as YYYY-MM-DD, got {value!r}"
+        raise argparse.ArgumentTypeError(message) from error
+
+
+# --- Completion ----------------------------------------------------------------
+
+_INVALID_PATTERN = re.compile("(?!x)x")
+
+_NAME_CACHE: dict[tuple[str, float], list[str]] = {}
+
+
+def _ledger_envelope_names(path: Path) -> list[str]:
+    """Return a ledger's envelope names, cached on the file's mtime.
+
+    Args:
+        path: The ledger path.
+
+    Returns:
+        The envelope names, or an empty list when the ledger cannot be read.
+    """
+    try:
+        key = (str(path), path.stat().st_mtime)
+    except OSError:
+        return []
+    if key not in _NAME_CACHE:
+        try:
+            entries, _errors, options = loader.load_file(path)
+            _NAME_CACHE[key] = [r.name for r in compute(entries, options).envelopes]
+        except Exception:  # noqa: BLE001 - completion must never raise
+            _NAME_CACHE[key] = []
+    return _NAME_CACHE[key]
+
+
+def _complete_envelopes(prefix: str, **kwargs: object) -> list[str]:
+    """Complete envelope names from the ledger named on the command line.
+
+    Args:
+        prefix: The partial word being completed.
+        **kwargs: argcomplete context, including ``parsed_args``.
+
+    Returns:
+        The matching envelope names, or an empty list.
+    """
+    parsed = kwargs.get("parsed_args")
+    ledger = getattr(parsed, "ledger", None)
+    if ledger is None:
+        return []
+    return [
+        name
+        for name in _ledger_envelope_names(Path(str(ledger)))
+        if name.startswith(prefix)
+    ]
 
 
 # --- Report formatting ---------------------------------------------------------
@@ -603,6 +1108,67 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _ledger_argument(suggest)
     suggest.set_defaults(func=_cmd_suggest)
+
+    fund = subparsers.add_parser(
+        "fund",
+        help="print allocate directives to backfill or roll the budget",
+        description=(
+            "Print allocate directives, dated the last day of each month. The "
+            "actuals, overspend and copy modes take --from/--to and skip any "
+            "envelope-month that already has an allocation; topup takes --date."
+        ),
+    )
+    _ledger_argument(fund)
+    fund.add_argument(
+        "--from",
+        dest="from_month",
+        type=_parse_month,
+        metavar="YYYY-MM",
+        help="first month to fund (required unless --mode topup)",
+    )
+    fund.add_argument(
+        "--to",
+        dest="to_month",
+        type=_parse_month,
+        metavar="YYYY-MM",
+        help="last month to fund (required unless --mode topup)",
+    )
+    fund.add_argument(
+        "--mode",
+        choices=("actuals", "overspend", "copy", "topup"),
+        default="actuals",
+        help="the funding strategy: actuals, overspend, copy or topup",
+    )
+    envelopes_action = fund.add_argument(
+        "--envelopes",
+        metavar="REGEX",
+        help="only fund envelopes whose name matches this regular expression",
+    )
+    setattr(envelopes_action, "completer", _complete_envelopes)  # noqa: B010
+    fund.add_argument(
+        "--force",
+        action="store_true",
+        help="print allocations even for months that already have one",
+    )
+    fund.add_argument(
+        "--date",
+        type=_parse_day,
+        metavar="YYYY-MM-DD",
+        help="the run date for topup; defaults to today",
+    )
+    fund.add_argument(
+        "--reserve",
+        type=_parse_decimal,
+        default=Decimal(0),
+        metavar="AMOUNT",
+        help="cash to keep unallocated in the pool (topup)",
+    )
+    fund.add_argument(
+        "--strict",
+        action="store_true",
+        help="exit non-zero when topup leaves anything unfunded",
+    )
+    fund.set_defaults(func=_cmd_fund)
 
     completion = subparsers.add_parser(
         "completion",
