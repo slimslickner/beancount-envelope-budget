@@ -30,3 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matching postings as metadata (within a date range), skipping postings that
   already carry one; account-name completion for `--account` is included. The
   `--write` mode is deferred.
+- The Fava extension: a read-only **Envelopes** report over one to three months,
+  built from a shared `report.build_view` so it matches the CLI, with target and
+  activity hover text and a warnings panel. `report --months N` gives the CLI
+  the same slice.

@@ -24,10 +24,11 @@ from beancount.core.data import Custom, Directive, Open, Posting, Transaction
 from beancount_envelope_budget.schema import Severity, get_diagnostic, render_message
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
 __all__ = [
     "POOL",
+    "ActivityEvent",
     "BudgetResult",
     "CashRow",
     "Diagnostic",
@@ -40,6 +41,7 @@ __all__ = [
     "format_amount",
     "iter_months",
     "month_of",
+    "row_for",
 ]
 
 #: The reserved name of the unassigned pool.
@@ -89,6 +91,23 @@ class Diagnostic:
     message: str
     entry: Directive | None = None
     source: Source | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityEvent:
+    """The effect of one posting on an envelope or the pool.
+
+    Attributes:
+        destination: An envelope name or :data:`POOL`.
+        date: The transaction date.
+        amount: The signed effect on the destination.
+        label: A short description of the transaction.
+    """
+
+    destination: str
+    date: date
+    amount: Decimal
+    label: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -260,6 +279,7 @@ class BudgetResult:
     cash: tuple[CashRow, ...]
     diagnostics: tuple[Diagnostic, ...]
     resolved: tuple[tuple[int, str], ...] = ()
+    activity: tuple[ActivityEvent, ...] = ()
 
     def envelope(self, name: str) -> EnvelopeReport | None:
         """Return the report for an envelope by name.
@@ -492,6 +512,30 @@ def iter_months(start: date, end: date) -> list[date]:
             else date(cursor.year, cursor.month + 1, 1)
         )
     return months
+
+
+def row_for(rows: Sequence[MonthRow], month: date) -> MonthRow:
+    """Return a monthly row for any month, projecting outside the range.
+
+    Args:
+        rows: The computed rows, ascending by month.
+        month: The month to evaluate.
+
+    Returns:
+        The row for that month; before the range it is all zeros, and after the
+        range it carries the final closing balance forward with no activity.
+    """
+    target = month_of(month)
+    if not rows or target < rows[0].month:
+        return MonthRow(target, Decimal(0), Decimal(0), Decimal(0))
+    for index, row in enumerate(rows):
+        if row.month == target:
+            return row
+        if row.month > target:
+            previous = rows[index - 1]
+            return MonthRow(target, previous.closing, Decimal(0), Decimal(0))
+    last = rows[-1]
+    return MonthRow(target, last.closing, Decimal(0), Decimal(0))
 
 
 def format_amount(value: Decimal, currency: str = "") -> str:
@@ -1192,6 +1236,7 @@ class _Effects:
     activity: tuple[tuple[str, date, Decimal], ...]
     cash: tuple[tuple[date, Decimal], ...]
     resolved: tuple[tuple[int, str], ...] = ()
+    details: tuple[ActivityEvent, ...] = ()
 
 
 def _resolve_envelope(
@@ -1247,6 +1292,7 @@ def _process_transactions(
     diagnostics: list[Diagnostic],
     *,
     collect_resolved: bool = False,
+    collect_activity: bool = False,
 ) -> _Effects:
     """Gather envelope effects and cash changes from cash-moving transactions.
 
@@ -1258,6 +1304,7 @@ def _process_transactions(
         operating_currency: The single operating currency.
         diagnostics: The list to append diagnostics to.
         collect_resolved: Whether to record each posting's resolved envelope.
+        collect_activity: Whether to record per-posting activity detail.
 
     Returns:
         The gathered :class:`_Effects`.
@@ -1265,15 +1312,11 @@ def _process_transactions(
     activity: list[tuple[str, date, Decimal]] = []
     cash: list[tuple[date, Decimal]] = []
     resolved: list[tuple[int, str]] = []
+    details: list[ActivityEvent] = []
     for entry in entries:
         if not isinstance(entry, Transaction) or entry.date < start:
             continue
-        cash_postings: list[tuple[Posting, Decimal]] = []
-        for posting in entry.postings:
-            info = accounts.get(posting.account)
-            number = _amount_number(posting.units)
-            if info is not None and info.is_cash and number is not None:
-                cash_postings.append((posting, number))
+        cash_postings = _cash_postings(entry, accounts)
         if not cash_postings:
             continue
         if _has_foreign_currency(entry, operating_currency, diagnostics):
@@ -1292,12 +1335,54 @@ def _process_transactions(
             )
             if collect_resolved:
                 resolved.append((id(posting), dest))
-            activity.append((dest, entry.date, -number))
+            amount = -number
+            if collect_activity:
+                details.append(
+                    ActivityEvent(dest, entry.date, amount, _txn_label(entry))
+                )
+            activity.append((dest, entry.date, amount))
     return _Effects(
         activity=tuple(activity),
         cash=tuple(cash),
         resolved=tuple(resolved),
+        details=tuple(details),
     )
+
+
+def _txn_label(entry: Transaction) -> str:
+    """Return a short label for a transaction.
+
+    Args:
+        entry: The transaction.
+
+    Returns:
+        The payee and narration, joined where both are present.
+    """
+    payee = entry.payee or ""
+    narration = entry.narration or ""
+    return f"{payee} {narration}".strip() or "(no description)"
+
+
+def _cash_postings(
+    entry: Transaction,
+    accounts: dict[str, AccountInfo],
+) -> list[tuple[Posting, Decimal]]:
+    """Return a transaction's cash postings and their amounts.
+
+    Args:
+        entry: The transaction.
+        accounts: The account metadata.
+
+    Returns:
+        ``(posting, amount)`` pairs for postings to cash accounts.
+    """
+    found: list[tuple[Posting, Decimal]] = []
+    for posting in entry.postings:
+        info = accounts.get(posting.account)
+        number = _amount_number(posting.units)
+        if info is not None and info.is_cash and number is not None:
+            found.append((posting, number))
+    return found
 
 
 def _has_foreign_currency(
@@ -1426,10 +1511,11 @@ def _rows(
 
 
 def compute(
-    entries: list[Directive],
+    entries: Sequence[Directive],
     options: Mapping[str, object],
     *,
     collect_resolved: bool = False,
+    collect_activity: bool = False,
 ) -> BudgetResult:
     """Compute envelope balances, the pool and the cash balance.
 
@@ -1438,6 +1524,8 @@ def compute(
         options: The Beancount options map, used for ``operating_currency``.
         collect_resolved: Whether to record each non-cash posting's resolved
             envelope in :attr:`BudgetResult.resolved`.
+        collect_activity: Whether to record per-posting activity detail in
+            :attr:`BudgetResult.activity`.
 
     Returns:
         The :class:`BudgetResult`, including every diagnostic.
@@ -1472,15 +1560,14 @@ def compute(
         operating_currency,
         diagnostics,
         collect_resolved=collect_resolved,
+        collect_activity=collect_activity,
     )
     pre_start_cash = _pre_start_cash(entries, accounts, start, operating_currency)
     return _build_result(
         start=start,
         operating_currency=operating_currency,
         declarations=declarations,
-        activity=effects.activity,
-        cash=effects.cash,
-        resolved=effects.resolved,
+        effects=effects,
         pre_start_cash=pre_start_cash,
         diagnostics=diagnostics,
     )
@@ -1524,9 +1611,7 @@ def _build_result(
     start: date,
     operating_currency: str,
     declarations: _Declarations,
-    activity: tuple[tuple[str, date, Decimal], ...],
-    cash: tuple[tuple[date, Decimal], ...],
-    resolved: tuple[tuple[int, str], ...],
+    effects: _Effects,
     pre_start_cash: Decimal,
     diagnostics: list[Diagnostic],
 ) -> BudgetResult:
@@ -1536,15 +1621,15 @@ def _build_result(
         start: The start date.
         operating_currency: The single operating currency.
         declarations: The declared envelopes and allocation/move events.
-        activity: The validated activity events.
-        cash: The ``(date, amount)`` cash changes.
-        resolved: The ``(id(posting), envelope)`` resolutions.
+        effects: The activity, cash, resolution and detail events.
         pre_start_cash: The cash held before the start date.
         diagnostics: The list to append diagnostics to.
 
     Returns:
         The assembled :class:`BudgetResult`.
     """
+    activity = effects.activity
+    cash = effects.cash
     allocation_events: list[tuple[date, Decimal]] = [
         (when, amount) for when, _name, amount in declarations.allocate
     ]
@@ -1606,7 +1691,8 @@ def _build_result(
         pool=pool_rows,
         cash=cash_rows,
         diagnostics=tuple(_sorted(diagnostics)),
-        resolved=resolved,
+        resolved=effects.resolved,
+        activity=effects.details,
     )
 
 

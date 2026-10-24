@@ -34,7 +34,9 @@ from beancount_envelope_budget.core import (
     compute,
     iter_months,
     month_of,
+    row_for,
 )
+from beancount_envelope_budget.report import build_view
 from beancount_envelope_budget.schema import (
     Severity,
     dump_schema_json,
@@ -46,6 +48,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from beancount.core.data import Directive
+
+    from beancount_envelope_budget.report import BudgetView, Cell
 
 __all__ = ["build_parser", "cli_markdown", "main", "render_docs"]
 
@@ -267,8 +271,13 @@ def _cmd_report(args: argparse.Namespace) -> int:
     if result.start is None:
         print("there is no start directive; nothing to report", file=sys.stderr)
         return 0
-    month = _resolve_month(result, args.month)
-    print(_format_report(result, month))
+    if args.month is not None and args.month < result.months[0]:
+        print(
+            f"{args.month:%Y-%m} is before the first month; "
+            f"showing {result.months[0]:%Y-%m}",
+            file=sys.stderr,
+        )
+    print(_format_view(build_view(result, args.month, args.months)))
     return 0
 
 
@@ -510,27 +519,6 @@ def _maybe_row(rows: Sequence[MonthRow], month: date) -> MonthRow | None:
     return next((row for row in rows if row.month == month), None)
 
 
-def _carried(rows: Sequence[MonthRow], month: date) -> Decimal:
-    """Return the balance carried into or out of a month.
-
-    Args:
-        rows: The rows to search.
-        month: The month to evaluate.
-
-    Returns:
-        The closing balance for that month, zero before the range, or the final
-        closing balance after it.
-    """
-    if not rows:
-        return Decimal(0)
-    for row in rows:
-        if row.month == month:
-            return row.closing
-        if row.month > month:
-            return row.opening
-    return rows[-1].closing
-
-
 def _plan_fund(
     result: BudgetResult,
     entries: list[Directive],
@@ -637,7 +625,7 @@ def _resolve_monthly(
     envelope = report.envelope
     if envelope.target is not None and envelope.by is not None:
         anchor = month_of(on)
-        balance = _carried(report.rows, anchor)
+        balance = row_for(report.rows, anchor).closing
         remaining = (envelope.by.year - anchor.year) * _MONTHS_PER_YEAR + (
             envelope.by.month - anchor.month
         )
@@ -685,7 +673,7 @@ def _plan_topup(
         The directive lines and the sum of any unfunded shortfalls.
     """
     currency = result.operating_currency
-    remaining = _carried(result.pool, month_of(on)) - reserve
+    remaining = row_for(result.pool, month_of(on)).closing - reserve
     candidates: list[tuple[bool, Decimal, int, str, Decimal]] = []
     for index, report in enumerate(result.envelopes):
         envelope = report.envelope
@@ -696,7 +684,7 @@ def _plan_topup(
             continue
         _monthly, ahead, priority = envelope.effective(on)
         level = monthly * (1 + ahead)
-        need = level - _carried(report.rows, month_of(on))
+        need = level - row_for(report.rows, month_of(on)).closing
         if need <= 0:
             continue
         rank = priority if priority is not None else Decimal(0)
@@ -1037,45 +1025,6 @@ def _parse_month(value: str) -> date:
         raise argparse.ArgumentTypeError(message) from error
 
 
-def _resolve_month(result: BudgetResult, requested: date | None) -> date:
-    """Choose the month to report, clamped to the computed range.
-
-    Args:
-        result: The computed budget.
-        requested: The requested month, or ``None`` for the latest month.
-
-    Returns:
-        The month to report.
-    """
-    if requested is None or requested in result.months:
-        return requested if requested is not None else result.months[-1]
-    if requested < result.months[0]:
-        print(
-            f"{requested:%Y-%m} is before the first month; "
-            f"showing {result.months[0]:%Y-%m}",
-            file=sys.stderr,
-        )
-        return result.months[0]
-    print(
-        f"{requested:%Y-%m} is after the last month; showing {result.months[-1]:%Y-%m}",
-        file=sys.stderr,
-    )
-    return result.months[-1]
-
-
-def _row_for(rows: Sequence[MonthRow], month: date) -> MonthRow:
-    """Return the monthly row for a month.
-
-    Args:
-        rows: The rows to search.
-        month: The month to find.
-
-    Returns:
-        The matching row.
-    """
-    return next(row for row in rows if row.month == month)
-
-
 def _money(value: Decimal) -> str:
     """Format a money amount with two decimal places.
 
@@ -1088,63 +1037,55 @@ def _money(value: Decimal) -> str:
     return f"{value:.2f}"
 
 
-def _format_report(result: BudgetResult, month: date) -> str:
-    """Render the report table for one month.
+def _cell_values(cell: Cell) -> tuple[str, str, str, str]:
+    """Format a view cell's four amounts.
 
     Args:
-        result: The computed budget.
-        month: The month to report.
-
-    Returns:
-        The rendered table.
-    """
-    rows: list[tuple[str, ...]] = [
-        (report.name, *_money_cells(_row_for(report.rows, month)))
-        for report in result.envelopes
-    ]
-    pool = _row_for(result.pool, month)
-    rows.append(("Pool", *_money_cells(pool)))
-    cash = next(row for row in result.cash if row.month == month)
-    previous = _previous_cash(result, month)
-    rows.append(("Cash", _money(previous), "", "", _money(cash.balance)))
-
-    heading = f"Envelope report for {month:%Y-%m}"
-    currency = (
-        f"Amounts in {result.operating_currency}" if result.operating_currency else ""
-    )
-    table = _table(("Envelope", "Opening", "Allocated", "Activity", "Closing"), rows)
-    return f"{heading}\n{currency}\n\n{table}"
-
-
-def _money_cells(row: MonthRow) -> tuple[str, str, str, str]:
-    """Format a monthly row's four amounts.
-
-    Args:
-        row: The monthly row.
+        cell: The view cell.
 
     Returns:
         Opening, allocated, activity and closing, formatted.
     """
     return (
-        _money(row.opening),
-        _money(row.allocated),
-        _money(row.activity),
-        _money(row.closing),
+        _money(cell.opening),
+        _money(cell.allocated),
+        _money(cell.activity),
+        _money(cell.closing),
     )
 
 
-def _previous_cash(result: BudgetResult, month: date) -> Decimal:
-    """Return the cash balance at the end of the previous month.
+def _format_view(view: BudgetView) -> str:
+    """Render a budget view as one table per month.
 
     Args:
-        result: The computed budget.
-        month: The month being reported.
+        view: The view to render.
 
     Returns:
-        The previous month-end cash balance, or zero.
+        The rendered report.
     """
-    index = result.months.index(month)
-    return result.cash[index - 1].balance if index > 0 else Decimal(0)
+    heading = "Envelope report"
+    if view.currency:
+        heading += f"\nAmounts in {view.currency}"
+    blocks: list[str] = []
+    for index, month in enumerate(view.months):
+        title = f"{month:%Y-%m}" + (" (projected)" if view.projected[index] else "")
+        rows: list[tuple[str, ...]] = [
+            (envelope.name, *_cell_values(envelope.cells[index]))
+            for envelope in view.envelopes
+        ]
+        rows.append(("Pool", *_cell_values(view.pool[index])))
+        cash = view.cash[index]
+        rows.append(("Cash", _money(cash.opening), "", "", _money(cash.closing)))
+        table = _table(
+            ("Envelope", "Opening", "Allocated", "Activity", "Closing"), rows
+        )
+        blocks.append(f"{title}\n{table}")
+    rendered = f"{heading}\n\n" + "\n\n".join(blocks)
+    if view.warnings:
+        rendered += "\n\n" + "\n".join(
+            f"{warning.code}: {warning.message}" for warning in view.warnings
+        )
+    return rendered
 
 
 def _suggest_rows(result: BudgetResult) -> list[tuple[str, ...]]:
@@ -1304,7 +1245,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--month",
         type=_parse_month,
         metavar="YYYY-MM",
-        help="the month to report; defaults to the latest month in the ledger",
+        help="the first month to report; defaults to the latest month in the ledger",
+    )
+    report.add_argument(
+        "--months",
+        type=int,
+        choices=(1, 2, 3),
+        default=1,
+        metavar="N",
+        help="how many months to show, forward from --month (1, 2 or 3)",
     )
     report.set_defaults(func=_cmd_report)
 

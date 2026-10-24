@@ -39,6 +39,11 @@ Validation errors then appear as ordinary Beancount errors (on Fava's errors
 page). Add `"resolved"` after the plugin path to also write each posting's
 resolved envelope to `envelope-resolved` metadata for BQL.
 
+With Fava, the second line adds an **Envelopes** report: a read-only table of
+opening / allocated / activity / closing for one to three months, with the pool
+and cash rows, hover text for envelope targets and contributing transactions,
+and a warnings panel.
+
 ## Commands
 
 ```sh

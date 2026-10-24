@@ -81,12 +81,40 @@ def test_report_explicit_month(capsys: pytest.CaptureFixture[str]) -> None:
     assert "-30.00" in out
 
 
-def test_report_clamps_future_month(capsys: pytest.CaptureFixture[str]) -> None:
-    """A month after the last is clamped, with a note."""
+def test_report_projects_future_month(capsys: pytest.CaptureFixture[str]) -> None:
+    """A month after the last is projected, carrying balances forward."""
     assert cli.main(["report", _ledger("basic.bean"), "--month", "2030-01"]) == 0
+    out = capsys.readouterr().out
+    assert "2030-01" in out
+    assert "(projected)" in out
+    assert "3500.00" in out
+
+
+def test_report_clamps_before_start(capsys: pytest.CaptureFixture[str]) -> None:
+    """A month before the first is clamped up, with a note."""
+    assert cli.main(["report", _ledger("basic.bean"), "--month", "2019-01"]) == 0
     captured = capsys.readouterr()
-    assert "after the last month" in captured.err
+    assert "before the first month" in captured.err
     assert "2024-01" in captured.out
+
+
+def test_report_multiple_months(capsys: pytest.CaptureFixture[str]) -> None:
+    """--months shows a forward slice of up to three months."""
+    code = cli.main(
+        [
+            "report",
+            _ledger("fund_backfill.bean"),
+            "--month",
+            "2024-01",
+            "--months",
+            "3",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "2024-01" in out
+    assert "2024-02" in out
+    assert "2024-03" in out
 
 
 def test_report_rejects_bad_month(capsys: pytest.CaptureFixture[str]) -> None:
