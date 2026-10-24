@@ -1,0 +1,20 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Assets:401k USD
+  cash-account: FALSE
+2020-01-01 open Expenses:Groceries USD
+  envelope: "Groceries"
+2020-01-01 open Income:Salary USD
+  cash-account: TRUE
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Groceries"
+  monthly: "avg3"
+  ahead: 2
+  priority: 1
+2024-01-01 custom "envelope" "open" "Bad"
+  monthly: "weekly"
+  ahead: 2.5
+  priority: "high"

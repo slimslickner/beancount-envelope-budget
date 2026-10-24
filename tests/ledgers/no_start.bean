@@ -1,0 +1,9 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Income:Salary USD
+
+2024-01-01 * "A posting with no start configured"
+  Assets:Checking    10.00 USD
+  Income:Salary     -10.00 USD

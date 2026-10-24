@@ -1,0 +1,31 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD,EUR
+  cash-account: TRUE
+2020-01-01 open Expenses:Groceries USD,EUR
+2020-01-01 open Expenses:Fun USD
+  envelope: "Vacation"
+2020-01-01 open Equity:Opening-Balances USD
+
+2023-12-31 * "Opening balance"
+  Assets:Checking            10000.00 USD
+  Equity:Opening-Balances   -10000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Groceries"
+2024-01-01 custom "envelope" "open" "Temp"
+
+2024-01-10 * "Unenveloped expense"
+  Expenses:Groceries    10.00 USD
+  Assets:Checking      -10.00 USD
+
+2024-01-11 * "Undeclared envelope"
+  Expenses:Fun          20.00 USD
+  Assets:Checking      -20.00 USD
+
+2024-01-12 * "Foreign currency"
+  Expenses:Groceries     5.00 EUR
+  Assets:Checking       -5.00 EUR
+
+2024-01-20 custom "envelope" "allocate" "Temp" 50.00 USD
+2024-01-31 custom "envelope" "close" "Temp"

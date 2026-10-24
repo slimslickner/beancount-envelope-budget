@@ -1,0 +1,85 @@
+;; A complete example household ledger for beancount-envelope-budget.
+;;
+;; Load it with the plugin and the Fava report:
+;;
+;;   plugin "beancount_envelope_budget.plugin"
+;;   2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext"
+;;
+;; It covers cash accounts, per-posting and per-transaction-style overrides,
+;; a pool posting, a goal envelope and a move between envelopes.
+
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Assets:Savings USD
+  cash-account: TRUE
+2020-01-01 open Liabilities:CreditCard:Visa USD
+  cash-account: TRUE
+2020-01-01 open Assets:401k USD
+  envelope: "Retirement"
+2020-01-01 open Income:Salary USD
+2020-01-01 open Income:Bonus USD
+  envelope: "Bonus"
+2020-01-01 open Expenses:Groceries USD
+  envelope: "Groceries"
+2020-01-01 open Expenses:Restaurants USD
+  envelope: "Groceries"
+2020-01-01 open Expenses:Taxes:Federal USD
+  envelope: "pool"
+2020-01-01 open Equity:Opening-Balances USD
+
+2023-12-31 * "Opening balances"
+  Assets:Checking               4000.00 USD
+  Assets:Savings               10000.00 USD
+  Liabilities:CreditCard:Visa   -250.00 USD
+  Equity:Opening-Balances     -13750.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Groceries"
+2024-01-01 custom "envelope" "open" "Gifts"
+2024-01-01 custom "envelope" "open" "Retirement"
+2024-01-01 custom "envelope" "open" "Car"
+  target: 15000.00 USD
+  by: 2028-06-01
+  monthly: 500.00
+  priority: 1
+
+2024-01-01 custom "envelope" "allocate" "Groceries" 600.00 USD
+2024-01-01 custom "envelope" "allocate" "Gifts" 100.00 USD
+2024-01-01 custom "envelope" "allocate" "Car" 500.00 USD
+
+2024-01-05 * "Employer" "Payroll"
+  Assets:Checking             3500.00 USD
+  Assets:401k                  500.00 USD
+    envelope: "pool"
+  Expenses:Taxes:Federal      1000.00 USD
+  Income:Salary              -5000.00 USD
+
+2024-01-06 * "Supermarket"
+  Expenses:Groceries           120.00 USD
+  Liabilities:CreditCard:Visa -120.00 USD
+
+2024-01-10 * "Restaurant"
+  Expenses:Restaurants          60.00 USD
+  Liabilities:CreditCard:Visa  -60.00 USD
+
+2024-01-15 * "Costco" "Groceries and a birthday gift"
+  Liabilities:CreditCard:Visa -140.00 USD
+  Expenses:Groceries           100.00 USD
+  Expenses:Groceries            40.00 USD
+    envelope: "Gifts"
+
+2024-01-20 * "Pay the card"
+  Liabilities:CreditCard:Visa  320.00 USD
+  Assets:Checking             -320.00 USD
+
+2024-01-25 * "Transfer to savings"
+  Assets:Savings               500.00 USD
+  Assets:Checking             -500.00 USD
+
+2024-01-31 custom "envelope" "plan" "Car" 600.00 USD
+  ahead: 1
+  priority: 1
+
+2024-02-01 custom "envelope" "move" "Groceries" "Gifts" 50.00 USD
