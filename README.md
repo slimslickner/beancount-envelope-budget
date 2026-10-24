@@ -95,7 +95,7 @@ Add `include "envelope_backfill.bean"` to your ledger and re-run `check`.
 
 ```sh
 beancount-envelope-budget check  LEDGER
-beancount-envelope-budget report LEDGER [--month YYYY-MM] [--months N]
+beancount-envelope-budget report LEDGER [--month YYYY-MM] [--months N] [--json]
 beancount-envelope-budget suggest LEDGER
 beancount-envelope-budget fund LEDGER --from YYYY-MM --to YYYY-MM [--mode actuals|overspend|copy] [--envelopes REGEX] [--force]
 beancount-envelope-budget fund LEDGER --mode topup [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]

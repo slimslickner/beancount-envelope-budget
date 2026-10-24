@@ -33,6 +33,7 @@ __all__ = [
     "Cell",
     "EnvelopeView",
     "build_view",
+    "to_jsonable",
 ]
 
 #: The most activity detail lines shown for a single cell.
@@ -343,6 +344,102 @@ def _cash_balance(result: BudgetResult, month: date) -> Decimal:
         if row.month == target:
             return row.balance
     return result.cash[-1].balance
+
+
+def to_jsonable(view: BudgetView) -> dict[str, object]:
+    """Serialise a view to plain JSON-compatible data.
+
+    Money is emitted as fixed two-decimal strings and dates as ISO strings, so
+    the output is stable and free of floating-point surprises.
+
+    Args:
+        view: The view to serialise.
+
+    Returns:
+        A JSON-serialisable dictionary.
+
+    Examples:
+        >>> from beancount_envelope_budget.core import BudgetResult
+        >>> to_jsonable(build_view(BudgetResult(None, "USD", (), (), (), (), ())))["has_start"]
+        False
+    """
+    return {
+        "has_start": view.has_start,
+        "currency": view.currency,
+        "months": [month.isoformat() for month in view.months],
+        "projected": list(view.projected),
+        "envelopes": [
+            {
+                "name": envelope.name,
+                "target": _money_json(envelope.target),
+                "target_currency": envelope.target_currency,
+                "by": envelope.by.isoformat() if envelope.by is not None else None,
+                "cells": [_cell_json(cell) for cell in envelope.cells],
+            }
+            for envelope in view.envelopes
+        ],
+        "pool": [_cell_json(cell) for cell in view.pool],
+        "cash": [_cell_json(cell) for cell in view.cash],
+        "warnings": [_diagnostic_json(d) for d in view.warnings],
+        "errors": [_diagnostic_json(d) for d in view.errors],
+        "nav": dict(view.nav),
+    }
+
+
+def _money_json(value: Decimal | None) -> str | None:
+    """Format an optional amount for JSON.
+
+    Args:
+        value: The amount, or ``None``.
+
+    Returns:
+        A two-decimal string, or ``None``.
+    """
+    return None if value is None else f"{value:.2f}"
+
+
+def _cell_json(cell: Cell) -> dict[str, object]:
+    """Serialise a cell.
+
+    Args:
+        cell: The cell.
+
+    Returns:
+        A JSON-compatible dictionary.
+    """
+    return {
+        "month": cell.month.isoformat(),
+        "projected": cell.projected,
+        "opening": f"{cell.opening:.2f}",
+        "allocated": f"{cell.allocated:.2f}",
+        "activity": f"{cell.activity:.2f}",
+        "closing": f"{cell.closing:.2f}",
+        "detail": [
+            {
+                "date": line.date.isoformat(),
+                "label": line.label,
+                "amount": f"{line.amount:.2f}",
+            }
+            for line in cell.detail
+        ],
+        "detail_total": cell.detail_total,
+    }
+
+
+def _diagnostic_json(diagnostic: Diagnostic) -> dict[str, object]:
+    """Serialise a diagnostic.
+
+    Args:
+        diagnostic: The diagnostic.
+
+    Returns:
+        A JSON-compatible dictionary.
+    """
+    return {
+        "code": diagnostic.code,
+        "severity": diagnostic.severity.value,
+        "message": diagnostic.message,
+    }
 
 
 def _nav(start: date, count: int) -> dict[str, str]:

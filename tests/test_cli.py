@@ -117,6 +117,20 @@ def test_report_multiple_months(capsys: pytest.CaptureFixture[str]) -> None:
     assert "2024-03" in out
 
 
+def test_report_json(capsys: pytest.CaptureFixture[str]) -> None:
+    """--json prints the view as stable, parseable JSON."""
+    code = cli.main(
+        ["report", _ledger("fund_backfill.bean"), "--month", "2024-01", "--json"]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["currency"] == "USD"
+    assert payload["months"] == ["2024-01-01"]
+    groceries = next(e for e in payload["envelopes"] if e["name"] == "Groceries")
+    assert groceries["cells"][0]["activity"] == "-100.00"
+    assert groceries["cells"][0]["detail_total"] == 1
+
+
 def test_report_rejects_bad_month(capsys: pytest.CaptureFixture[str]) -> None:
     """A malformed month is a usage error."""
     with pytest.raises(SystemExit) as exit_info:

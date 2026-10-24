@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import json
 import re
 import sys
 from dataclasses import dataclass
@@ -36,7 +37,7 @@ from beancount_envelope_budget.core import (
     month_of,
     row_for,
 )
-from beancount_envelope_budget.report import build_view
+from beancount_envelope_budget.report import build_view, to_jsonable
 from beancount_envelope_budget.schema import (
     Severity,
     dump_schema_json,
@@ -122,7 +123,12 @@ def _read(path: Path) -> str | None:
 # --- Ledger loading ------------------------------------------------------------
 
 
-def _load(path: Path, *, collect_resolved: bool = False) -> _Loaded:
+def _load(
+    path: Path,
+    *,
+    collect_resolved: bool = False,
+    collect_activity: bool = False,
+) -> _Loaded:
     """Load a ledger and compute its budget.
 
     Beancount's own plugins run as usual; any diagnostics produced by our plugin
@@ -131,6 +137,7 @@ def _load(path: Path, *, collect_resolved: bool = False) -> _Loaded:
     Args:
         path: The ledger path.
         collect_resolved: Whether to record each posting's resolved envelope.
+        collect_activity: Whether to record per-posting activity detail.
 
     Returns:
         The loaded ledger and its budget.
@@ -139,7 +146,12 @@ def _load(path: Path, *, collect_resolved: bool = False) -> _Loaded:
     beancount_errors = tuple(
         error for error in errors if type(error).__name__ != "EnvelopeBudgetError"
     )
-    result = compute(entries, options, collect_resolved=collect_resolved)
+    result = compute(
+        entries,
+        options,
+        collect_resolved=collect_resolved,
+        collect_activity=collect_activity,
+    )
     return _Loaded(path, entries, result, beancount_errors)
 
 
@@ -266,7 +278,7 @@ def _cmd_report(args: argparse.Namespace) -> int:
     if not args.ledger.exists():
         print(f"no such ledger: {args.ledger}", file=sys.stderr)
         return 2
-    loaded = _load(args.ledger)
+    loaded = _load(args.ledger, collect_activity=True)
     result = loaded.result
     if result.start is None:
         print("there is no start directive; nothing to report", file=sys.stderr)
@@ -277,7 +289,11 @@ def _cmd_report(args: argparse.Namespace) -> int:
             f"showing {result.months[0]:%Y-%m}",
             file=sys.stderr,
         )
-    print(_format_view(build_view(result, args.month, args.months)))
+    view = build_view(result, args.month, args.months)
+    if args.json:
+        print(json.dumps(to_jsonable(view), indent=2))
+    else:
+        print(_format_view(view))
     return 0
 
 
@@ -1290,6 +1306,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=1,
         metavar="N",
         help="how many months to show, forward from --month (1, 2 or 3)",
+    )
+    report.add_argument(
+        "--json",
+        action="store_true",
+        help="print the report as JSON instead of a table",
     )
     report.set_defaults(func=_cmd_report)
 

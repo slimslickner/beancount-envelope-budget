@@ -40,3 +40,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hand-written documentation: `docs/concepts.md` and a README quickstart, plus
   an end-to-end acceptance test that backfills a two-year ledger, re-checks it
   and confirms the invariant holds every month.
+- An OpenCode skill (`.opencode/skills/beancount-envelope-budget`) outlining the
+  safe CLI workflow for setup, topup, backfill and pin, with `references/workflows.md`.
+- `report --json`, machine-readable output for the report.
