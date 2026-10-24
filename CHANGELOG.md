@@ -34,3 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   built from a shared `report.build_view` so it matches the CLI, with target and
   activity hover text and a warnings panel. `report --months N` gives the CLI
   the same slice.
+- `pin --write`, which applies the pinning insertions to the ledger files in
+  place using literal line edits (preserving comments and line endings across
+  multiple files) instead of printing a diff.
+- Hand-written documentation: `docs/concepts.md` and a README quickstart, plus
+  an end-to-end acceptance test that backfills a two-year ledger, re-checks it
+  and confirms the invariant holds every month.

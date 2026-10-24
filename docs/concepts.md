@@ -1,5 +1,248 @@
 # Concepts
 
-User-facing documentation for envelope budgeting with this plugin. The full
-write-up lands in a later milestone; the specification in the repository root
-remains the authoritative description until then.
+Envelope budgeting on top of an ordinary Beancount ledger. Every dollar in your
+cash accounts is either assigned to an **envelope** or sits in an unassigned
+**pool**. Balances — positive or negative — carry from month to month.
+
+The ledger is the only source of truth. There is no second database: allocations
+are dated `custom "envelope"` directives, and spending is derived from your
+existing postings.
+
+## The six terms
+
+| Term | Meaning |
+| --- | --- |
+| **Envelope** | A named bucket with a running balance, declared once with a directive. |
+| **Cash account** | An `Assets` or `Liabilities` account whose balance counts as spendable money — checking, savings, credit cards. Marked `cash-account: TRUE` on its `open`. |
+| **Pool** | Cash not assigned to any envelope ("to be budgeted"). |
+| **Allocation** | A dated amount moved from the pool into an envelope. |
+| **Activity** | The effect of postings on an envelope: spending lowers it, refunds and envelope-level income raise it. |
+| **Carryover** | An envelope's closing balance, positive or negative, becomes next month's opening balance. |
+
+Months are calendar months, and everything is attributed by its date.
+
+## Cash vs. pool
+
+`Cash` is what your accounts actually hold. `Pool` is the part of that cash you
+have not assigned to an envelope. They are always related by:
+
+```
+Cash = Pool + (the sum of all envelope balances)
+```
+
+Show both because the pool is the actionable number ("what is left to assign")
+and cash is the ground truth ("what you actually have"). Because the pool and
+envelopes are built from flows while cash is read straight from the ledger, the
+comparison is a real cross-check: if they disagree, a posting was missed.
+
+How each action moves the lines:
+
+| Action | Pool | Envelope | Cash |
+| --- | --- | --- | --- |
+| Income arrives | ↑ | – | ↑ |
+| Allocate money to an envelope | ↓ | ↑ | – |
+| Spend from an envelope (from checking) | – | ↓ | ↓ |
+| Spend on a credit card | – | ↓ | ↓ |
+| Pay the credit card from checking | – | – | – (cash-to-cash) |
+| Refund into an envelope | – | ↑ | ↑ |
+| Move money between envelopes | – | ± | – |
+
+Credit cards are cash accounts, so a card balance is negative and *lowers* cash
+and the pool. Cash is therefore net spendable money including card debt.
+
+## Ledger syntax
+
+### Account metadata
+
+Accounts opt in explicitly; nothing is inherited from parent accounts.
+
+```beancount
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Liabilities:CreditCard:Visa USD
+  cash-account: TRUE
+2020-01-01 open Expenses:Groceries USD
+  envelope: "Groceries"
+2020-01-01 open Assets:401k USD
+  envelope: "Retirement"
+2020-01-01 open Expenses:Taxes:Federal USD
+  envelope: "pool"
+2020-01-01 open Income:Salary USD
+```
+
+The reserved value `"pool"` sends an account's postings to the pool instead of
+an envelope. Use it for taxes and other deductions that never reach an envelope.
+Income and Equity accounts need no `envelope` — they flow to the pool by default.
+
+### Directives
+
+One directive name, `"envelope"`, with a verb as the first argument. See
+[`schema.md`](schema.md) for the full reference.
+
+```beancount
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Groceries"
+2024-01-01 custom "envelope" "open" "Car"
+  target: 15000.00 USD
+  by: 2028-06-01
+  monthly: 500.00
+  priority: 1
+2024-01-31 custom "envelope" "allocate" "Groceries" 600.00 USD
+2024-02-15 custom "envelope" "move" "Groceries" "Gifts" 50.00 USD
+2027-12-31 custom "envelope" "close" "Old"
+2028-01-01 custom "envelope" "plan" "Mortgage" 2600.00 USD
+```
+
+- `start` begins tracking. Earlier postings and allocations are ignored; the
+  pool starts at the cash balance just before this date.
+- `allocate` moves money from the pool into an envelope. A negative amount moves
+  money back to the pool.
+- `move` moves money between two envelopes, e.g. to cover an overspend.
+- `close` retires an envelope. Its balance must be zero.
+- `plan` sets the planned monthly amount from that date on.
+
+### Overrides
+
+The same `envelope` key works on a transaction or on a single posting:
+
+```beancount
+2027-03-02 * "Costco" "Groceries and a birthday gift"
+  Assets:Checking          -120.00 USD
+  Expenses:Groceries         80.00 USD
+  Expenses:Groceries         40.00 USD
+    envelope: "Gifts"
+```
+
+## Resolution rules
+
+Every transaction on or after the start date is processed in four steps:
+
+1. **Filter.** A transaction with no posting to a cash account is ignored, since
+   no cash moved.
+2. **Classify postings.** A posting is cash if its account has
+   `cash-account: TRUE`, otherwise non-cash.
+3. **Resolve the envelope** of each non-cash posting, first match wins:
+   1. `envelope` metadata on the posting.
+   2. `envelope` metadata on the transaction — but only for postings whose
+      account already has an envelope. It never redirects a posting that goes to
+      the pool.
+   3. `envelope` metadata on the account's `open`.
+   4. Income and Equity accounts with none of these resolve to the pool. Any
+      other account is a validation error.
+4. **Apply effects.** A non-cash posting with signed units `u` changes the
+   resolved envelope (or the pool) by `-u`.
+
+A purchase (`Expenses +50`) lowers its envelope by 50; a refund (`Expenses -20`)
+raises it by 20. Cash-to-cash transactions are neutral, which is why a credit
+card payment from checking changes nothing — spending hits its envelope when the
+purchase hits the card.
+
+Payroll deferrals need one override. If `Assets:401k` has
+`envelope: "Retirement"`, a payroll deduction would lower Retirement without
+ever passing through the pool. Put `envelope: "pool"` on the 401k posting to
+charge the pool instead:
+
+```beancount
+2024-01-31 * "Payroll"
+  Assets:Checking             3500.00 USD
+  Expenses:Taxes:Federal      1000.00 USD
+  Assets:401k                  500.00 USD
+    envelope: "pool"
+  Income:Salary              -5000.00 USD
+```
+
+## Computation
+
+For each envelope and month, the closing balance is the opening balance plus
+allocations plus activity:
+
+```
+closing(e, m) = closing(e, m-1) + allocated(e, m) + activity(e, m)
+```
+
+- **Opening.** The first month starts every envelope at 0. Later months start at
+  the previous closing.
+- **Allocated.** Allocations dated in the month, plus moves in, minus moves out.
+- **Activity.** The summed envelope effects, dated by transaction date.
+- **Pool.** Pool closing = pool opening + pool effects − allocations dated in the
+  month. Moves between envelopes do not touch it.
+
+Overspending needs no special rule: a negative balance simply carries forward
+until later allocations cover it. A pool that goes negative on any day means
+more was allocated than the cash available at that point, and is reported as a
+warning.
+
+## Validation
+
+The plugin runs these checks at load time and returns them as ordinary
+Beancount errors, so Fava lists them on its errors page. Errors never stop the
+ledger from loading. See [`errors.md`](errors.md) for the full list and the fix
+for each.
+
+The one to know best is the **invariant** (`E007`): at every month end, the pool
+plus all envelope balances must equal the ledger's cash balance. A mismatch means
+a posting was missed or unsupported.
+
+If there is no `start` directive, the plugin does nothing and warns (`W003`).
+
+## Command line
+
+```sh
+beancount-envelope-budget check  LEDGER
+beancount-envelope-budget report LEDGER [--month YYYY-MM] [--months N]
+beancount-envelope-budget suggest LEDGER
+beancount-envelope-budget fund LEDGER --from YYYY-MM --to YYYY-MM [--mode MODE]
+beancount-envelope-budget fund LEDGER --mode topup [--date DATE] [--reserve AMOUNT] [--strict]
+beancount-envelope-budget pin LEDGER --account REGEX [--through DATE] [--write]
+```
+
+See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget
+--help`.
+
+- `check` exits non-zero on any error.
+- `report` prints opening, allocated, activity and closing for one to three
+  months, plus the pool and cash rows.
+- `fund` prints `allocate` directives (redirect them into a file you include); it
+  never edits your ledger.
+- `pin` freezes an account's current envelope onto its existing postings so you
+  can change the account's metadata without reclassifying history.
+
+## Fava report
+
+Add the extension line and an **Envelopes** report appears in the sidebar:
+
+```beancount
+2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext"
+```
+
+It is read-only, shows one to three months, and offers hover text for envelope
+targets and the transactions behind each activity figure.
+
+## BQL recipes
+
+BQL can report what you spent per envelope, but it cannot see allocations,
+because those are `custom` directives. Balances, carryover and the pool come from
+the CLI or the Fava report.
+
+The effective envelope of a posting is its own metadata, falling back to the
+account's:
+
+```sql
+COALESCE(any_meta('envelope'), open_meta(account, 'envelope'))
+```
+
+Spending per envelope for a month:
+
+```sql
+SELECT COALESCE(any_meta('envelope'), open_meta(account, 'envelope')) AS env,
+       sum(position) AS amount
+WHERE account ~ '^Expenses' AND date >= 2027-03-01 AND date < 2027-04-01
+GROUP BY env
+```
+
+One known difference from the core: BQL applies a transaction-level override to
+every posting without its own, while the core applies it only to postings whose
+account already has an envelope. Treat the CLI report as authoritative. If the
+expression gets clumsy, run the plugin with the `"resolved"` config to write the
+resolved envelope to each posting as `envelope-resolved`, and query
+`meta('envelope-resolved')` instead.

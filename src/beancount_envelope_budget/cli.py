@@ -771,6 +771,12 @@ def _cmd_pin(args: argparse.Namespace) -> int:
     if not edits:
         print("nothing to pin", file=sys.stderr)
         return 0
+    if args.write:
+        written = sum(
+            _write_pin(filename, edits[filename]) for filename in sorted(edits)
+        )
+        print(f"pinned {written} posting(s) in {len(edits)} file(s)")
+        return 0
     for filename in sorted(edits):
         sys.stdout.write(_pin_diff(filename, edits[filename]))
     return 0
@@ -815,6 +821,36 @@ def _collect_pin_edits(
     return edits
 
 
+def _read_lines(path: Path) -> list[str]:
+    """Read a file's lines without translating line endings.
+
+    Args:
+        path: The file to read.
+
+    Returns:
+        The lines, each keeping its own line ending.
+    """
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        return handle.read().splitlines(keepends=True)
+
+
+def _write_pin(filename: str, edits: list[tuple[int, str]]) -> int:
+    """Apply the insertions to a file in place.
+
+    Args:
+        filename: The file to edit.
+        edits: The ``(lineno, envelope)`` insertions.
+
+    Returns:
+        The number of insertions applied.
+    """
+    path = Path(filename)
+    updated = _apply_insertions(_read_lines(path), edits)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        handle.write("".join(updated))
+    return len(edits)
+
+
 def _pin_diff(filename: str, edits: list[tuple[int, str]]) -> str:
     """Render the unified diff for one file.
 
@@ -826,7 +862,7 @@ def _pin_diff(filename: str, edits: list[tuple[int, str]]) -> str:
         The unified diff, or an empty string.
     """
     path = Path(filename)
-    original = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    original = _read_lines(path)
     updated = _apply_insertions(original, edits)
     return "".join(
         difflib.unified_diff(
@@ -1352,6 +1388,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=_parse_day,
         metavar="YYYY-MM-DD",
         help="only pin postings dated on or before this date",
+    )
+    pin.add_argument(
+        "--write",
+        action="store_true",
+        help="edit the ledger files in place instead of printing a diff",
     )
     pin.set_defaults(func=_cmd_pin)
 

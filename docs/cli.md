@@ -95,6 +95,7 @@ Print a diff that adds the resolved envelope to matching postings as posting met
 | `ledger` | path to the Beancount ledger (.bean or .beancount) |
 | `--account` | only pin postings whose account matches this regular expression |
 | `--through` | only pin postings dated on or before this date |
+| `--write` | edit the ledger files in place instead of printing a diff |
 
 ## `beancount-envelope-budget completion`
 

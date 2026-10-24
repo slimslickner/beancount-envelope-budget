@@ -3,13 +3,41 @@
 from __future__ import annotations
 
 import argparse
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from beancount import loader
 
 from beancount_envelope_budget import cli
+from beancount_envelope_budget.core import BudgetResult, compute
 
 _LEDGERS = Path(__file__).parent / "ledgers"
+
+
+def _result(path: str) -> BudgetResult:
+    """Compute the budget for a ledger on disk.
+
+    Args:
+        path: The ledger path.
+
+    Returns:
+        The computed result.
+    """
+    entries, _errors, options = loader.load_file(path)
+    return compute(entries, options)
+
+
+def _closings(result: BudgetResult) -> dict[str, Decimal]:
+    """Map envelope names to their closing balances.
+
+    Args:
+        result: The computed result.
+
+    Returns:
+        The closing balances.
+    """
+    return {envelope.name: envelope.closing for envelope in result.envelopes}
 
 
 def _ledger(name: str) -> str:
@@ -166,3 +194,119 @@ def test_complete_accounts_prefix() -> None:
     parsed = argparse.Namespace(ledger=_ledger("basic.bean"))
     assert cli._complete_accounts("Exp", parsed_args=parsed) == ["Expenses:Groceries"]
     assert cli._complete_accounts("Exp") == []
+
+
+def _pin_ledger() -> str:
+    """Return a small ledger with a comment and an enveloped account.
+
+    Returns:
+        The ledger source.
+    """
+    return (
+        'option "operating_currency" "USD"\n'
+        ";; keep this comment\n"
+        "2020-01-01 open Assets:Checking USD\n"
+        "  cash-account: TRUE\n"
+        "2020-01-01 open Expenses:Groceries USD\n"
+        '  envelope: "Groceries"\n'
+        "2020-01-01 open Equity:Opening-Balances USD\n"
+        "\n"
+        '2023-12-31 * "Opening"\n'
+        "  Assets:Checking            1000.00 USD\n"
+        "  Equity:Opening-Balances   -1000.00 USD\n"
+        "\n"
+        '2024-01-01 custom "envelope" "start"\n'
+        '2024-01-01 custom "envelope" "open" "Groceries"\n'
+        "\n"
+        '2024-01-05 * "Spend"\n'
+        "  Expenses:Groceries    10.00 USD\n"
+        "  Assets:Checking      -10.00 USD\n"
+    )
+
+
+def test_pin_write_edits_the_ledger(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--write applies the insertions without touching anything else."""
+    path = tmp_path / "main.bean"
+    path.write_text(_pin_ledger(), encoding="utf-8")
+    before = _result(str(path))
+    code = cli.main(["pin", str(path), "--account", "^Expenses:Groceries$", "--write"])
+    assert code == 0
+    assert "pinned 1 posting(s)" in capsys.readouterr().out
+    text = path.read_text(encoding="utf-8")
+    assert '    envelope: "Groceries"\n' in text
+    assert ";; keep this comment" in text
+    after = _result(str(path))
+    assert _closings(after) == _closings(before)
+
+
+def test_pin_write_is_idempotent(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A second --write finds nothing to do."""
+    path = tmp_path / "main.bean"
+    path.write_text(_pin_ledger(), encoding="utf-8")
+    args = ["pin", str(path), "--account", "^Expenses:Groceries$", "--write"]
+    assert cli.main(args) == 0
+    capsys.readouterr()
+    assert cli.main(args) == 0
+    captured = capsys.readouterr()
+    assert "nothing to pin" in captured.err
+    assert captured.out == ""
+
+
+def test_pin_write_across_multiple_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--write edits every file that holds a matching posting."""
+    (tmp_path / "main.bean").write_text(
+        'option "operating_currency" "USD"\n'
+        "2020-01-01 open Assets:Checking USD\n"
+        "  cash-account: TRUE\n"
+        "2020-01-01 open Expenses:Groceries USD\n"
+        '  envelope: "Groceries"\n'
+        "2020-01-01 open Equity:Opening-Balances USD\n"
+        '2023-12-31 * "Opening"\n'
+        "  Assets:Checking            1000.00 USD\n"
+        "  Equity:Opening-Balances   -1000.00 USD\n"
+        '2024-01-01 custom "envelope" "start"\n'
+        '2024-01-01 custom "envelope" "open" "Groceries"\n'
+        'include "a.bean"\n'
+        'include "b.bean"\n',
+        encoding="utf-8",
+    )
+    for name, amount in (("a.bean", "10.00"), ("b.bean", "20.00")):
+        (tmp_path / name).write_text(
+            f'2024-01-05 * "Spend {name}"\n'
+            f"  Expenses:Groceries    {amount} USD\n"
+            f"  Assets:Checking      -{amount} USD\n",
+            encoding="utf-8",
+        )
+    code = cli.main(
+        [
+            "pin",
+            str(tmp_path / "main.bean"),
+            "--account",
+            "^Expenses:Groceries$",
+            "--write",
+        ]
+    )
+    assert code == 0
+    assert "pinned 2 posting(s) in 2 file(s)" in capsys.readouterr().out
+    assert 'envelope: "Groceries"' in (tmp_path / "a.bean").read_text(encoding="utf-8")
+    assert 'envelope: "Groceries"' in (tmp_path / "b.bean").read_text(encoding="utf-8")
+
+
+def test_pin_write_preserves_crlf(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--write keeps the file's CRLF line endings."""
+    path = tmp_path / "main.bean"
+    path.write_bytes(_pin_ledger().replace("\n", "\r\n").encode("utf-8"))
+    assert (
+        cli.main(["pin", str(path), "--account", "^Expenses:Groceries$", "--write"])
+        == 0
+    )
+    capsys.readouterr()
+    assert b'    envelope: "Groceries"\r\n' in path.read_bytes()
