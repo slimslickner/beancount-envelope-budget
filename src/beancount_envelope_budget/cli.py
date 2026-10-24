@@ -11,6 +11,7 @@ documentation and its ``--check`` gate are in place; ``check``, ``report``,
 from __future__ import annotations
 
 import argparse
+import difflib
 import re
 import sys
 from dataclasses import dataclass
@@ -23,7 +24,7 @@ import argcomplete
 from argcomplete.completers import FilesCompleter
 from beancount import loader
 from beancount.core.amount import Amount
-from beancount.core.data import Custom
+from beancount.core.data import Custom, Open, Transaction
 
 from beancount_envelope_budget.core import (
     BudgetResult,
@@ -117,7 +118,7 @@ def _read(path: Path) -> str | None:
 # --- Ledger loading ------------------------------------------------------------
 
 
-def _load(path: Path) -> _Loaded:
+def _load(path: Path, *, collect_resolved: bool = False) -> _Loaded:
     """Load a ledger and compute its budget.
 
     Beancount's own plugins run as usual; any diagnostics produced by our plugin
@@ -125,6 +126,7 @@ def _load(path: Path) -> _Loaded:
 
     Args:
         path: The ledger path.
+        collect_resolved: Whether to record each posting's resolved envelope.
 
     Returns:
         The loaded ledger and its budget.
@@ -133,7 +135,8 @@ def _load(path: Path) -> _Loaded:
     beancount_errors = tuple(
         error for error in errors if type(error).__name__ != "EnvelopeBudgetError"
     )
-    return _Loaded(path, entries, compute(entries, options), beancount_errors)
+    result = compute(entries, options, collect_resolved=collect_resolved)
+    return _Loaded(path, entries, result, beancount_errors)
 
 
 def _error_location(error: object, diagnostic: Diagnostic) -> str:
@@ -323,7 +326,7 @@ def _cmd_fund(args: argparse.Namespace) -> int:
     if not args.ledger.exists():
         print(f"no such ledger: {args.ledger}", file=sys.stderr)
         return 2
-    pattern = _compile_pattern(args.envelopes)
+    pattern = _compile_pattern(args.envelopes, "--envelopes")
     if pattern is _INVALID_PATTERN:
         return 2
     loaded = _load(args.ledger)
@@ -401,11 +404,12 @@ def _fund_range(
     return 0
 
 
-def _compile_pattern(value: str | None) -> re.Pattern[str] | None:
-    """Compile the ``--envelopes`` filter.
+def _compile_pattern(value: str | None, option: str) -> re.Pattern[str] | None:
+    """Compile a regex filter from a command-line option.
 
     Args:
         value: The regular expression, or ``None``.
+        option: The option name, for the error message.
 
     Returns:
         The compiled pattern, ``None`` when unfiltered, or
@@ -416,7 +420,7 @@ def _compile_pattern(value: str | None) -> re.Pattern[str] | None:
     try:
         return re.compile(value)
     except re.error as error:
-        print(f"invalid --envelopes pattern: {error}", file=sys.stderr)
+        print(f"invalid {option} pattern: {error}", file=sys.stderr)
         return _INVALID_PATTERN
 
 
@@ -751,11 +755,188 @@ def _parse_day(value: str) -> date:
         raise argparse.ArgumentTypeError(message) from error
 
 
+# --- Pinning -------------------------------------------------------------------
+
+
+def _cmd_pin(args: argparse.Namespace) -> int:
+    """Print a diff that freezes resolved envelopes onto existing postings.
+
+    Args:
+        args: Parsed arguments.
+
+    Returns:
+        The process exit status.
+    """
+    if not args.ledger.exists():
+        print(f"no such ledger: {args.ledger}", file=sys.stderr)
+        return 2
+    pattern = _compile_pattern(args.account, "--account")
+    if pattern is None or pattern is _INVALID_PATTERN:
+        return 2
+    loaded = _load(args.ledger, collect_resolved=True)
+    if loaded.result.start is None:
+        print("there is no start directive; nothing to pin", file=sys.stderr)
+        return 0
+    edits = _collect_pin_edits(
+        loaded.entries, dict(loaded.result.resolved), pattern, args.through
+    )
+    if not edits:
+        print("nothing to pin", file=sys.stderr)
+        return 0
+    for filename in sorted(edits):
+        sys.stdout.write(_pin_diff(filename, edits[filename]))
+    return 0
+
+
+def _collect_pin_edits(
+    entries: list[Directive],
+    resolved: dict[int, str],
+    pattern: re.Pattern[str],
+    through: date | None,
+) -> dict[str, list[tuple[int, str]]]:
+    """Select postings to pin and the lines to insert.
+
+    Args:
+        entries: The ledger entries.
+        resolved: ``id(posting)`` to resolved envelope.
+        pattern: The account filter.
+        through: The latest date to pin, inclusive, or ``None``.
+
+    Returns:
+        A mapping from file name to ``(lineno, envelope)`` insertions.
+    """
+    edits: dict[str, list[tuple[int, str]]] = {}
+    for entry in entries:
+        if not isinstance(entry, Transaction):
+            continue
+        if through is not None and entry.date > through:
+            continue
+        for posting in entry.postings:
+            name = resolved.get(id(posting))
+            if name is None or not pattern.search(posting.account):
+                continue
+            meta = posting.meta or {}
+            if "envelope" in meta:
+                continue
+            filename = meta.get("filename")
+            if not isinstance(filename, str) or filename.startswith("<"):
+                continue
+            if not Path(filename).exists():
+                continue
+            edits.setdefault(filename, []).append((int(meta.get("lineno", 0)), name))
+    return edits
+
+
+def _pin_diff(filename: str, edits: list[tuple[int, str]]) -> str:
+    """Render the unified diff for one file.
+
+    Args:
+        filename: The file to edit.
+        edits: The ``(lineno, envelope)`` insertions.
+
+    Returns:
+        The unified diff, or an empty string.
+    """
+    path = Path(filename)
+    original = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    updated = _apply_insertions(original, edits)
+    return "".join(
+        difflib.unified_diff(
+            original, updated, fromfile=str(path), tofile=f"{path} (pinned)"
+        )
+    )
+
+
+def _apply_insertions(lines: list[str], edits: list[tuple[int, str]]) -> list[str]:
+    """Insert ``envelope`` metadata lines into a file's lines.
+
+    Args:
+        lines: The file's lines, with line endings.
+        edits: The ``(lineno, envelope)`` insertions.
+
+    Returns:
+        The new lines.
+    """
+    updated = list(lines)
+    for lineno, name in sorted(edits, key=lambda edit: edit[0], reverse=True):
+        posting_line = lines[lineno - 1] if 0 < lineno <= len(lines) else ""
+        indent = _metadata_indent(lines, lineno, posting_line)
+        updated.insert(
+            lineno, f'{indent}envelope: "{name}"{_line_ending(posting_line)}'
+        )
+    return updated
+
+
+def _metadata_indent(lines: list[str], lineno: int, posting_line: str) -> str:
+    """Choose the indentation for an inserted metadata line.
+
+    Args:
+        lines: The file's lines.
+        lineno: The posting's one-based line number.
+        posting_line: The posting's own line.
+
+    Returns:
+        The existing metadata indentation when present, else two spaces beyond
+        the posting's own indentation.
+    """
+    posting_indent = posting_line[: len(posting_line) - len(posting_line.lstrip())]
+    index = lineno
+    while index < len(lines):
+        line = lines[index]
+        if not line.strip():
+            index += 1
+            continue
+        indent = line[: len(line) - len(line.lstrip())]
+        if len(indent) > len(posting_indent):
+            return indent
+        break
+    return posting_indent + "  "
+
+
+def _line_ending(line: str) -> str:
+    r"""Return the line ending used by a line.
+
+    Args:
+        line: A line, possibly with a line ending.
+
+    Returns:
+        ``"\r\n"`` when the line uses CRLF, else ``"\n"``.
+    """
+    return "\r\n" if line.endswith("\r\n") else "\n"
+
+
 # --- Completion ----------------------------------------------------------------
 
 _INVALID_PATTERN = re.compile("(?!x)x")
 
-_NAME_CACHE: dict[tuple[str, float], list[str]] = {}
+_NAME_CACHE: dict[tuple[str, float, str], list[str]] = {}
+
+
+def _ledger_names(path: Path, kind: str) -> list[str]:
+    """Return a ledger's envelope or account names, cached on its mtime.
+
+    Args:
+        path: The ledger path.
+        kind: Either ``"envelope"`` or ``"account"``.
+
+    Returns:
+        The names, or an empty list when the ledger cannot be read.
+    """
+    try:
+        key = (str(path), path.stat().st_mtime, kind)
+    except OSError:
+        return []
+    if key not in _NAME_CACHE:
+        try:
+            entries, _errors, options = loader.load_file(path)
+            if kind == "account":
+                names = [entry.account for entry in entries if isinstance(entry, Open)]
+            else:
+                names = [r.name for r in compute(entries, options).envelopes]
+            _NAME_CACHE[key] = names
+        except Exception:  # noqa: BLE001 - completion must never raise
+            _NAME_CACHE[key] = []
+    return _NAME_CACHE[key]
 
 
 def _ledger_envelope_names(path: Path) -> list[str]:
@@ -767,17 +948,41 @@ def _ledger_envelope_names(path: Path) -> list[str]:
     Returns:
         The envelope names, or an empty list when the ledger cannot be read.
     """
-    try:
-        key = (str(path), path.stat().st_mtime)
-    except OSError:
+    return _ledger_names(path, "envelope")
+
+
+def _ledger_account_names(path: Path) -> list[str]:
+    """Return a ledger's account names, cached on the file's mtime.
+
+    Args:
+        path: The ledger path.
+
+    Returns:
+        The account names, or an empty list when the ledger cannot be read.
+    """
+    return _ledger_names(path, "account")
+
+
+def _complete_names(prefix: str, kind: str, kwargs: dict[str, object]) -> list[str]:
+    """Complete names of one kind from the ledger named on the command line.
+
+    Args:
+        prefix: The partial word being completed.
+        kind: Either ``"envelope"`` or ``"account"``.
+        kwargs: argcomplete context, including ``parsed_args``.
+
+    Returns:
+        The matching names, or an empty list.
+    """
+    parsed = kwargs.get("parsed_args")
+    ledger = getattr(parsed, "ledger", None)
+    if ledger is None:
         return []
-    if key not in _NAME_CACHE:
-        try:
-            entries, _errors, options = loader.load_file(path)
-            _NAME_CACHE[key] = [r.name for r in compute(entries, options).envelopes]
-        except Exception:  # noqa: BLE001 - completion must never raise
-            _NAME_CACHE[key] = []
-    return _NAME_CACHE[key]
+    return [
+        name
+        for name in _ledger_names(Path(str(ledger)), kind)
+        if name.startswith(prefix)
+    ]
 
 
 def _complete_envelopes(prefix: str, **kwargs: object) -> list[str]:
@@ -790,15 +995,20 @@ def _complete_envelopes(prefix: str, **kwargs: object) -> list[str]:
     Returns:
         The matching envelope names, or an empty list.
     """
-    parsed = kwargs.get("parsed_args")
-    ledger = getattr(parsed, "ledger", None)
-    if ledger is None:
-        return []
-    return [
-        name
-        for name in _ledger_envelope_names(Path(str(ledger)))
-        if name.startswith(prefix)
-    ]
+    return _complete_names(prefix, "envelope", kwargs)
+
+
+def _complete_accounts(prefix: str, **kwargs: object) -> list[str]:
+    """Complete account names from the ledger named on the command line.
+
+    Args:
+        prefix: The partial word being completed.
+        **kwargs: argcomplete context, including ``parsed_args``.
+
+    Returns:
+        The matching account names, or an empty list.
+    """
+    return _complete_names(prefix, "account", kwargs)
 
 
 # --- Report formatting ---------------------------------------------------------
@@ -1169,6 +1379,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="exit non-zero when topup leaves anything unfunded",
     )
     fund.set_defaults(func=_cmd_fund)
+
+    pin = subparsers.add_parser(
+        "pin",
+        help="freeze the resolved envelope onto existing postings",
+        description=(
+            "Print a diff that adds the resolved envelope to matching postings "
+            "as posting metadata, so you can then change the account's envelope "
+            "without altering history. Postings that already carry an envelope "
+            "are skipped, and plugin or importer entries cannot be pinned."
+        ),
+    )
+    _ledger_argument(pin)
+    account_action = pin.add_argument(
+        "--account",
+        required=True,
+        metavar="REGEX",
+        help="only pin postings whose account matches this regular expression",
+    )
+    setattr(account_action, "completer", _complete_accounts)  # noqa: B010
+    pin.add_argument(
+        "--through",
+        type=_parse_day,
+        metavar="YYYY-MM-DD",
+        help="only pin postings dated on or before this date",
+    )
+    pin.set_defaults(func=_cmd_pin)
 
     completion = subparsers.add_parser(
         "completion",

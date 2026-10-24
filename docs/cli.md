@@ -83,6 +83,18 @@ Print allocate directives, dated the last day of each month. The actuals, oversp
 | `--reserve` | cash to keep unallocated in the pool (topup) |
 | `--strict` | exit non-zero when topup leaves anything unfunded |
 
+## `beancount-envelope-budget pin`
+
+Print a diff that adds the resolved envelope to matching postings as posting metadata, so you can then change the account's envelope without altering history. Postings that already carry an envelope are skipped, and plugin or importer entries cannot be pinned.
+
+
+| Option | Help |
+| --- | --- |
+| `-h, --help` | show this help message and exit |
+| `ledger` | path to the Beancount ledger (.bean or .beancount) |
+| `--account` | only pin postings whose account matches this regular expression |
+| `--through` | only pin postings dated on or before this date |
+
 ## `beancount-envelope-budget completion`
 
 Print the snippet that enables tab completion.

@@ -26,3 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `fund`, with the `actuals`, `overspend` and `copy` backfill modes and the
   priority-ordered `topup` mode, plus ledger-derived `--envelopes` completion
   cached on the ledger's modification time.
+- `pin`, which prints a unified diff that freezes the resolved envelope onto
+  matching postings as metadata (within a date range), skipping postings that
+  already carry one; account-name completion for `--account` is included. The
+  `--write` mode is deferred.
