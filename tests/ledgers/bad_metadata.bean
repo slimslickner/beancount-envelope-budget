@@ -8,6 +8,8 @@ option "operating_currency" "USD"
   envelope: "Groceries"
 2020-01-01 open Income:Salary USD
   cash-account: TRUE
+2020-01-01 open Equity:Opening-Balances USD
+  cash-account: "yes"
 
 2024-01-01 custom "envelope" "start"
 2024-01-01 custom "envelope" "open" "Groceries"

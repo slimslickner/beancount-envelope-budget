@@ -639,11 +639,13 @@ def _scan_accounts(
         meta = _meta(entry)
         is_cash = False
         marker = meta.get("cash-account")
-        if marker is not None:
-            if marker is not True or _root(entry.account) not in _CASH_ROOTS:
-                diagnostics.append(_diag("E004", entry=entry, account=entry.account))
-            else:
+        if marker is True:
+            if _root(entry.account) in _CASH_ROOTS:
                 is_cash = True
+            else:
+                diagnostics.append(_diag("E004", entry=entry, account=entry.account))
+        elif marker is not None and marker is not False:
+            diagnostics.append(_diag("E004", entry=entry, account=entry.account))
         envelope = meta.get("envelope")
         if envelope is not None and not isinstance(envelope, str):
             diagnostics.append(

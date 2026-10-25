@@ -43,7 +43,7 @@ Declare each envelope exactly once, and do not use it after a `close`. Remove th
 
 **Error:** `cash-account` is set on {account}, which is not valid there.
 
-`cash-account` marks spendable cash and may only be boolean `TRUE` on an Assets or Liabilities account. Remove it elsewhere, or set it to `TRUE` on a valid account.
+`cash-account` marks spendable cash and may only be boolean `TRUE` on an Assets or Liabilities account. `FALSE` is accepted anywhere and means the same as omitting the key. Remove a non-boolean value, or set it to `TRUE` on a valid account.
 
 
 ## E005

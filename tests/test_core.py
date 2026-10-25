@@ -172,7 +172,13 @@ def test_no_start(load_budget) -> None:
 def test_bad_metadata(load_budget) -> None:
     """Invalid cash-account and tuning metadata are reported with their codes."""
     result = load_budget("bad_metadata.bean")
-    assert len([code for code in _codes(result) if code == "E004"]) == 2
+    cash_errors = [d for d in result.diagnostics if d.code == "E004"]
+    assert {d.entry.account for d in cash_errors if d.entry is not None} == {
+        "Income:Salary",
+        "Equity:Opening-Balances",
+    }
+    # cash-account: FALSE is the same as omitting the key, so Assets:401k is
+    # absent from the diagnostics above.
     assert len([code for code in _codes(result) if code == "E008"]) == 4
     groceries = _envelope(result, "Groceries")
     assert groceries.envelope.plan.monthly == "avg3"

@@ -308,7 +308,8 @@ METADATA_KEYS: tuple[MetadataKey, ...] = (
         applies_to=(AppliesTo.ACCOUNT_OPEN,),
         description=(
             "TRUE marks an Assets or Liabilities account as spendable cash "
-            "whose balance counts toward the pool."
+            "whose balance counts toward the pool. FALSE is the same as "
+            "leaving the key out."
         ),
     ),
     MetadataKey(
@@ -415,8 +416,9 @@ DIAGNOSTIC_CODES: tuple[DiagnosticCode, ...] = (
         summary="`cash-account` is set on {account}, which is not valid there.",
         explanation=(
             "`cash-account` marks spendable cash and may only be boolean `TRUE` "
-            "on an Assets or Liabilities account. Remove it elsewhere, or set it "
-            "to `TRUE` on a valid account."
+            "on an Assets or Liabilities account. `FALSE` is accepted anywhere "
+            "and means the same as omitting the key. Remove a non-boolean value, "
+            "or set it to `TRUE` on a valid account."
         ),
     ),
     DiagnosticCode(

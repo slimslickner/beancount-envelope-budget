@@ -20,7 +20,8 @@ existing postings.
 | **Carryover** | An envelope's closing balance, positive or negative, becomes next month's opening balance. |
 | **Plan** | An envelope's funding parameters — `monthly`, `ahead`, `priority`, `target`, `by` — set on `open`, changed from a date with `plan`, and cleared with `unplan`. |
 
-Months are calendar months, and everything is attributed by its date.
+Months are calendar months, and everything is attributed by its date. Setting
+`cash-account: FALSE` is the same as omitting the key entirely.
 
 ## Cash vs. pool
 
@@ -142,7 +143,8 @@ Every transaction on or after the start date is processed in four steps:
 1. **Filter.** A transaction with no posting to a cash account is ignored, since
    no cash moved.
 2. **Classify postings.** A posting is cash if its account has
-   `cash-account: TRUE`, otherwise non-cash.
+   `cash-account: TRUE`, otherwise non-cash. A `FALSE` value is the same as
+   leaving the key out.
 3. **Resolve the envelope** of each non-cash posting, first match wins:
    1. `envelope` metadata on the posting.
    2. `envelope` metadata on the transaction — but only for postings whose
