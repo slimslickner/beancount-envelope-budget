@@ -49,6 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   balance and stays in reports, but `topup` stops funding it.
 - `monthly: "avgN"`, generalising the average-of-completed-months notation from
   `"avg3"` to any window, e.g. `"avg6"`.
+- `docs/concepts.md` gains a "Transfers and clearing accounts" section: cash-to-
+  cash transfers are neutral, a `cash-account` clearing account keeps in-flight
+  transfers neutral, and off-budget transfers must avoid cash accounts so they
+  stay out of the budget.
 
 ### Changed
 

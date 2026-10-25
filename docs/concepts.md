@@ -52,6 +52,46 @@ How each action moves the lines:
 Credit cards are cash accounts, so a card balance is negative and *lowers* cash
 and the pool. Cash is therefore net spendable money including card debt.
 
+## Transfers and clearing accounts
+
+Moving money between two cash accounts is neutral: cash-to-cash transactions
+change neither the pool nor any envelope. When the two legs land on different
+days — a transfer in progress — route them through a **clearing account** and
+mark it `cash-account: TRUE`:
+
+```beancount
+2020-01-01 open Assets:Transfers:Clearing USD
+  cash-account: TRUE
+
+2026-01-30 * "Move to savings"        ; the checking side clears immediately
+  Assets:Checking                -500.00 USD
+  Assets:Transfers:Clearing       500.00 USD
+2026-02-01 * "Move to savings"        ; the savings side lands later
+  Assets:Savings                  500.00 USD
+  Assets:Transfers:Clearing      -500.00 USD
+```
+
+Both legs are cash, so the transfer stays neutral, and while it is in flight the
+money still counts as cash. The clearing account nets to zero once both legs
+post; a non-zero balance is a transfer that has not completed.
+
+The budget decides whether a transaction counts by one test: it touches a cash
+account (see [Resolution rules](#resolution-rules)). A clearing account therefore
+cannot serve both on-budget and off-budget transfers — marking it cash brings
+*every* transfer it carries into the budget. Keep off-budget transfers, such as
+an IRA-to-IRA rollover between two accounts that are not cash, on an **unmarked**
+clearing account (or post the two legs directly), so they touch no cash account
+and the budget ignores them:
+
+```beancount
+2026-03-01 * "IRA rollover out"
+  Assets:IRA:Old                -10000.00 USD
+  Equity:Rollover:Clearing       10000.00 USD
+2026-03-03 * "IRA rollover in"
+  Assets:IRA:New                 10000.00 USD
+  Equity:Rollover:Clearing      -10000.00 USD
+```
+
 ## Ledger syntax
 
 ### Account metadata
@@ -141,7 +181,8 @@ The same `envelope` key works on a transaction or on a single posting:
 Every transaction on or after the start date is processed in four steps:
 
 1. **Filter.** A transaction with no posting to a cash account is ignored, since
-   no cash moved.
+   no cash moved. Clearing and transfer accounts must therefore be classified
+   deliberately — see [Transfers and clearing accounts](#transfers-and-clearing-accounts).
 2. **Classify postings.** A posting is cash if its account has
    `cash-account: TRUE`, otherwise non-cash. A `FALSE` value is the same as
    leaving the key out.
