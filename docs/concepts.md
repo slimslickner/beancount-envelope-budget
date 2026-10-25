@@ -47,6 +47,8 @@ How each action moves the lines:
 | Spend on a credit card | – | ↓ | ↓ |
 | Pay the credit card from checking | – | – | – (cash-to-cash) |
 | Refund into an envelope | – | ↑ | ↑ |
+| Buy a security from cash | – | ↓ | ↓ |
+| Sell a security (cost refunded, gain to pool) | ↑ | ↑ | ↑ |
 | Move money between envelopes | – | ± | – |
 
 Credit cards are cash accounts, so a card balance is negative and *lowers* cash
@@ -91,6 +93,63 @@ and the budget ignores them:
   Assets:IRA:New                 10000.00 USD
   Equity:Rollover:Clearing      -10000.00 USD
 ```
+
+## Investments and securities
+
+The budget's ground truth is cash in the operating currency. Investments are
+**off-budget**: a share is not a budget dollar, and its price moves for reasons
+unrelated to your spending. This mirrors YNAB and Actual Budget, where
+investment accounts are "tracking" accounts whose value never enters the budget.
+
+A brokerage usually has two parts:
+
+- **Cash** (the sweep) may be on-budget with `cash-account: TRUE`; it is as
+  liquid as a savings account.
+- **Securities** are off-budget. Do not mark them `cash-account`; instead give
+  each one `envelope: "<name>"`, so buying spends from that envelope and selling
+  refunds it.
+
+```beancount
+2020-01-01 open Assets:Brokerage:Cash USD
+  cash-account: TRUE
+2020-01-01 open Assets:Brokerage:VTI VTI
+  envelope: "Taxable Investments"
+2024-01-01 custom "envelope" "open" "Taxable Investments"
+
+2026-01-05 * "Buy VTI"
+  Assets:Brokerage:VTI           5 VTI {200.00 USD}
+  Assets:Brokerage:Cash  -1000.00 USD
+```
+
+Naming an envelope in metadata only *refers* to it; the envelope still has to
+be declared once with `custom "envelope" "open" "<name>"` on or after `start`.
+A sale that Beancount books across several lots resolves each lot posting, so an
+undeclared name is reported for every lot (`E001`).
+
+The purchase is valued at its cost (`5 × 200.00 = 1000.00 USD`): the Taxable
+Investments envelope falls by 1000 and cash falls by 1000, so the invariant
+still holds. A sale with a capital gain refunds the cost basis to the envelope
+and sends the gain to the pool:
+
+```beancount
+2026-02-05 * "Sell VTI"
+  Assets:Brokerage:VTI          -5 VTI {200.00 USD}
+  Assets:Brokerage:Cash   1100.00 USD
+  Income:Brokerage:Gains  -100.00 USD
+```
+
+A posting already in the operating currency is unchanged. A currency with no
+cost or price in the operating currency is still a foreign currency (`E006`),
+and a security with no envelope is `E002` — the cash has to go somewhere.
+
+To keep the whole brokerage out of the budget instead, leave `cash-account` off
+the sweep too. Then none of its transactions move budget cash, so none are
+reported.
+
+Treating a *stable* cash equivalent — a money-market fund, or T-bills pegged
+near 1.00 — as budget cash is conceivable, but volatile securities are not. If
+that ever lands it should be a separate notion (a commodity account valued at
+cost or mark), not `cash-account: TRUE`.
 
 ## Ledger syntax
 

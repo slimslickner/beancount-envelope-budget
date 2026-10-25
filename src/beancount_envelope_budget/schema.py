@@ -384,8 +384,10 @@ DIAGNOSTIC_CODES: tuple[DiagnosticCode, ...] = (
         severity=Severity.ERROR,
         summary="Envelope {name} is used but was never declared.",
         explanation=(
-            'Declare it with `custom "envelope" "open" "<name>"`, or use the '
-            "reserved value `pool` to send the posting to the pool instead."
+            'Declare it with `custom "envelope" "open" "<name>"` on or after '
+            "`start`, or use the reserved value `pool` to send the posting to "
+            "the pool instead. Reported once for each posting that resolves to "
+            "the name, so a sale booked across several tax lots repeats it."
         ),
     ),
     DiagnosticCode(
@@ -438,8 +440,10 @@ DIAGNOSTIC_CODES: tuple[DiagnosticCode, ...] = (
             "{operating_currency}."
         ),
         explanation=(
-            "Only the operating currency is supported. Re-denominate the "
-            "posting, or set the correct `operating_currency` option."
+            "Only the operating currency is supported. A commodity posting with "
+            "a cost or price in the operating currency is accepted, so "
+            "securities bought with cash are fine. Re-denominate the posting, or "
+            "set the correct `operating_currency` option."
         ),
     ),
     DiagnosticCode(

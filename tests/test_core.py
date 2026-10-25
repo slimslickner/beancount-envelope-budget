@@ -95,6 +95,26 @@ def test_retirement_transfer(load_budget) -> None:
     assert result.cash[-1].balance == D("700")
 
 
+def test_brokerage(load_budget) -> None:
+    """A security is off-budget but enveloped, valued at its cost or price."""
+    result = load_budget("brokerage.bean")
+    assert result.diagnostics == ()
+    # The buys (at cost and at price) lower the goal; the sale refunds the cost.
+    assert _envelope(result, "Taxable Investments").closing == D("1580")
+    # The realized gain of 100 falls to the pool.
+    assert result.pool[-1].closing == D("3000")
+    # Opening cash is net of the pre-start purchase, valued at cost.
+    assert result.cash[-1].balance == D("4580")
+
+
+def test_brokerage_unenveloped(load_budget) -> None:
+    """An unenveloped security is E002, not a spurious currency error."""
+    result = load_budget("brokerage_unenveloped.bean")
+    assert _codes(result) == ["E002"]
+    assert result.pool[-1].closing == D("4000")
+    assert result.cash[-1].balance == D("4000")
+
+
 def test_envelope_income(load_budget) -> None:
     """Income with its own envelope raises that envelope, not the pool."""
     result = load_budget("envelope_income.bean")
@@ -151,7 +171,12 @@ def test_mid_month_dip(load_budget) -> None:
 
 def test_invariant_holds(load_budget) -> None:
     """Pool plus envelopes equals cash at every month end for clean ledgers."""
-    for name in ("basic.bean", "credit_card.bean", "overspend_carry.bean"):
+    for name in (
+        "basic.bean",
+        "credit_card.bean",
+        "overspend_carry.bean",
+        "brokerage.bean",
+    ):
         result = load_budget(name)
         for pool_row, cash_row in zip(result.pool, result.cash, strict=True):
             total = pool_row.closing + sum(

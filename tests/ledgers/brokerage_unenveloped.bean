@@ -1,0 +1,18 @@
+option "operating_currency" "USD"
+
+; The security has no envelope, so the purchase is an error (E002). The cash
+; leg is still counted, so the invariant holds and no E006 or E007 appears.
+2020-01-01 open Assets:Brokerage:Cash USD
+  cash-account: TRUE
+2020-01-01 open Assets:Brokerage:VTI VTI
+2020-01-01 open Equity:Opening-Balances USD
+
+2025-12-31 * "Opening balance"
+  Assets:Brokerage:Cash   5000.00 USD
+  Equity:Opening-Balances -5000.00 USD
+
+2026-01-01 custom "envelope" "start"
+
+2026-01-05 * "Buy an unenveloped security"
+  Assets:Brokerage:VTI           5 VTI {200.00 USD}
+  Assets:Brokerage:Cash  -1000.00 USD

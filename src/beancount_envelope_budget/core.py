@@ -19,6 +19,7 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from beancount.core import convert
 from beancount.core.amount import Amount
 from beancount.core.data import Custom, Directive, Open, Posting, Transaction
 
@@ -502,6 +503,36 @@ def _amount_number(units: Amount | None) -> Decimal | None:
     if units is None or units.number is None:
         return None
     return units.number
+
+
+def _operating_value(posting: Posting, operating_currency: str) -> Decimal | None:
+    """Return a posting's signed value in the operating currency.
+
+    A posting is valued at its Beancount weight, so a commodity posting is
+    converted through its cost or price: ``5 VTI {200.00 USD}`` counts as
+    ``1000.00 USD``, and ``2 VTI @ 210.00 USD`` as ``420.00 USD``. A posting
+    already in the operating currency is taken at face value. A posting with no
+    units, or whose weight is in a different currency, has no operating value.
+
+    Args:
+        posting: The posting.
+        operating_currency: The single operating currency, or ``""`` when none.
+
+    Returns:
+        The signed amount in the operating currency, or ``None`` when the
+        posting has no amount or cannot be converted.
+    """
+    units = posting.units
+    if units is None:
+        return None
+    if not operating_currency or units.currency == operating_currency:
+        return units.number if isinstance(units.number, Decimal) else None
+    weight = convert.get_weight(posting)
+    if not isinstance(weight.number, Decimal):
+        return None
+    if weight.currency != operating_currency:
+        return None
+    return weight.number
 
 
 # --- Small public helpers ------------------------------------------------------
@@ -1397,13 +1428,14 @@ def _process_transactions(
             continue
         if _has_foreign_currency(entry, operating_currency, diagnostics):
             continue
-        cash.append(
-            (entry.date, sum((number for _post, number in cash_postings), Decimal(0)))
-        )
-        cash_ids = {id(posting) for posting, _number in cash_postings}
+        cash_total = Decimal(0)
+        for posting in cash_postings:
+            cash_total += _operating_value(posting, operating_currency) or Decimal(0)
+        cash.append((entry.date, cash_total))
+        cash_ids = {id(posting) for posting in cash_postings}
         txn_meta = _meta(entry)
         for posting in entry.postings:
-            number = _amount_number(posting.units)
+            number = _operating_value(posting, operating_currency)
             if number is None or id(posting) in cash_ids:
                 continue
             dest = _resolve_destination(
@@ -1442,22 +1474,27 @@ def _txn_label(entry: Transaction) -> str:
 def _cash_postings(
     entry: Transaction,
     accounts: dict[str, AccountInfo],
-) -> list[tuple[Posting, Decimal]]:
-    """Return a transaction's cash postings and their amounts.
+) -> list[Posting]:
+    """Return a transaction's postings to cash accounts.
+
+    Detection is currency-agnostic: a cash posting in a foreign currency is
+    still returned so the transaction is checked and reported rather than
+    silently skipped.
 
     Args:
         entry: The transaction.
         accounts: The account metadata.
 
     Returns:
-        ``(posting, amount)`` pairs for postings to cash accounts.
+        The postings to cash accounts, in ledger order. Auto-balanced postings
+        with no amount are excluded.
     """
-    found: list[tuple[Posting, Decimal]] = []
+    found: list[Posting] = []
     for posting in entry.postings:
         info = accounts.get(posting.account)
         number = _amount_number(posting.units)
         if info is not None and info.is_cash and number is not None:
-            found.append((posting, number))
+            found.append(posting)
     return found
 
 
@@ -1466,7 +1503,12 @@ def _has_foreign_currency(
     operating_currency: str,
     diagnostics: list[Diagnostic],
 ) -> bool:
-    """Check a transaction for a currency other than the operating currency.
+    """Check a transaction for an unconvertible foreign currency.
+
+    A posting in a foreign currency is accepted when its cost or price converts
+    it to the operating currency — a security bought with USD is an
+    operating-currency posting at cost, not a foreign one. Only a posting whose
+    units and weight are both non-operating is reported.
 
     Args:
         entry: The transaction.
@@ -1474,22 +1516,26 @@ def _has_foreign_currency(
         diagnostics: The list to append diagnostics to.
 
     Returns:
-        ``True`` when the transaction uses a foreign currency.
+        ``True`` when the transaction uses an unconvertible foreign currency.
     """
     if not operating_currency:
         return False
     for posting in entry.postings:
-        if posting.units is not None and posting.units.currency != operating_currency:
-            diagnostics.append(
-                _diag(
-                    "E006",
-                    entry=entry,
-                    currency=posting.units.currency,
-                    date=entry.date.isoformat(),
-                    operating_currency=operating_currency,
-                )
+        units = posting.units
+        if units is None or units.currency == operating_currency:
+            continue
+        if _operating_value(posting, operating_currency) is not None:
+            continue
+        diagnostics.append(
+            _diag(
+                "E006",
+                entry=entry,
+                currency=units.currency,
+                date=entry.date.isoformat(),
+                operating_currency=operating_currency,
             )
-            return True
+        )
+        return True
     return False
 
 
@@ -1672,13 +1718,12 @@ def _pre_start_cash(
             continue
         for posting in entry.postings:
             info = accounts.get(posting.account)
-            units = posting.units
-            number = _amount_number(units)
-            if info is None or not info.is_cash or units is None or number is None:
+            if info is None or not info.is_cash:
                 continue
-            if operating_currency and units.currency != operating_currency:
+            value = _operating_value(posting, operating_currency)
+            if value is None:
                 continue
-            total += number
+            total += value
     return total
 
 

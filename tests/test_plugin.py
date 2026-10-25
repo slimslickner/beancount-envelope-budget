@@ -65,6 +65,32 @@ def test_plugin_clean_ledger() -> None:
     assert errors == []
 
 
+def test_plugin_accepts_security_at_cost() -> None:
+    """A security bought with operating-currency cash is not a currency error."""
+    ledger = f"""option "operating_currency" "USD"
+{_PLUGIN}
+
+2020-01-01 open Assets:Brokerage:Cash USD
+  cash-account: TRUE
+2020-01-01 open Assets:Brokerage:VTI VTI
+  envelope: "Taxable Investments"
+2020-01-01 open Equity:Opening-Balances USD
+
+2025-12-31 * "Opening"
+  Assets:Brokerage:Cash   5000.00 USD
+  Equity:Opening-Balances -5000.00 USD
+
+2026-01-01 custom "envelope" "start"
+2026-01-01 custom "envelope" "open" "Taxable Investments"
+
+2026-01-05 * "Buy"
+  Assets:Brokerage:VTI           5 VTI {{200.00 USD}}
+  Assets:Brokerage:Cash  -1000.00 USD
+"""
+    _entries, errors, _options = loader.load_string(ledger)
+    assert errors == []
+
+
 def test_plugin_direct_call_returns_entries_unchanged() -> None:
     """Calling the plugin without config leaves the entries untouched."""
     entries, _errors, options = loader.load_string(_ledger("", enveloped=True))

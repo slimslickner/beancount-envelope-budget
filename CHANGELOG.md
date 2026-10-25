@@ -66,3 +66,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The positional monthly amount on `plan` (`plan "<name>" <amount>`), replaced by
   `monthly:` metadata. `monthly` also moves onto `plan`'s allowed metadata, and
   `target`/`by` now apply to `plan` as well as `open`.
+
+### Fixed
+
+- A security bought with cash no longer raises a spurious `E006` and disappears
+  from the budget. Postings are valued in the operating currency through their
+  cost or price, so a commodity posting whose cost or price is in the operating
+  currency is not treated as foreign and counts at that value. Buys and sells
+  flow through the pool and envelopes, and the invariant holds. Genuinely
+  foreign currencies still raise `E006`. See
+  [`docs/concepts.md`](docs/concepts.md#investments-and-securities).

@@ -22,7 +22,7 @@
 
 **Error:** Envelope {name} is used but was never declared.
 
-Declare it with `custom "envelope" "open" "<name>"`, or use the reserved value `pool` to send the posting to the pool instead.
+Declare it with `custom "envelope" "open" "<name>"` on or after `start`, or use the reserved value `pool` to send the posting to the pool instead. Reported once for each posting that resolves to the name, so a sale booked across several tax lots repeats it.
 
 
 ## E002
@@ -57,7 +57,7 @@ Move the remaining balance to another envelope with `move`, or allocate the diff
 
 **Error:** Currency {currency} on {date} is not the operating currency {operating_currency}.
 
-Only the operating currency is supported. Re-denominate the posting, or set the correct `operating_currency` option.
+Only the operating currency is supported. A commodity posting with a cost or price in the operating currency is accepted, so securities bought with cash are fine. Re-denominate the posting, or set the correct `operating_currency` option.
 
 
 ## E007
