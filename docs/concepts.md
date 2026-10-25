@@ -265,6 +265,16 @@ raises it by 20. Cash-to-cash transactions are neutral, which is why a credit
 card payment from checking changes nothing — spending hits its envelope when the
 purchase hits the card.
 
+**Only income that moves cash is counted.** The filter in step 1 is
+transaction-wide: a transaction is processed only if it contains a posting to a
+cash account. Income counts only when it rides along in such a transaction —
+a paycheque (`Income:Salary` alongside `Assets:Checking`), say. Income that
+never touches a cash account is invisible to the budget: accrued interest,
+reinvested dividends, or an employer 401k match credited straight to a
+brokerage account produce no cash posting, so the whole transaction is skipped.
+The model is deliberately cash-centric — every dollar in a cash account is
+either assigned to an envelope or sits in the pool.
+
 Payroll deferrals need one override. If `Assets:401k` has
 `envelope: "Retirement"`, a payroll deduction would lower Retirement without
 ever passing through the pool. Put `envelope: "pool"` on the 401k posting to
