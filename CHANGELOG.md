@@ -7,27 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- A transaction-level `envelope` override no longer redirects a posting whose
-  account is set to the reserved value `pool`; such an account stays in the pool,
-  as the resolution rules specify.
-- The `report` and Fava report now show the cash held before the start date as
-  the first month's opening balance, instead of zero, so `Cash = Pool +
-  sum(envelopes)` holds on the opening row as well as at month end.
-- A closed envelope now disappears from the report for the months after its
-  close date, as the schema documented rather than always being listed.
-
-### Changed
-
-- An envelope now appears in the report only for the months between its `open`
-  and `close`; the months before it opens are hidden too, matching the close
-  behaviour.
-- A posting dated before its envelope's `open` is now reported as `E003` and
-  redirected to the pool, instead of being silently counted in an envelope that
-  did not exist yet. `E003`'s wording now covers use outside an envelope's
-  open-to-close window.
-
 ## [0.1.0] - 2026-10-24
 
 ### Added
