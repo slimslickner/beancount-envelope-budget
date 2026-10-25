@@ -183,6 +183,7 @@ class Envelope:
         closed: The date the envelope was retired, if any.
         plan: The base plan, from the ``open`` metadata.
         plans: Dated overrides, sorted by date.
+        parent: A grouping label set on ``open``, or ``None``.
     """
 
     name: str
@@ -190,6 +191,7 @@ class Envelope:
     closed: date | None
     plan: Plan
     plans: tuple[PlanChange, ...]
+    parent: str | None = None
 
     def effective(self, on: date) -> Plan:
         """Return the plan in force on a date.
@@ -389,6 +391,7 @@ class _Draft:
     plan: Plan = field(default_factory=Plan)
     plans: list[PlanChange] = field(default_factory=list)
     closed: date | None = None
+    parent: str | None = None
 
     def freeze(self) -> Envelope:
         """Return the immutable envelope.
@@ -402,6 +405,7 @@ class _Draft:
             closed=self.closed,
             plan=self.plan,
             plans=tuple(sorted(self.plans, key=lambda change: change.date)),
+            parent=self.parent,
         )
 
 
@@ -1001,6 +1005,16 @@ def _handle_open(
         return
     ahead = _parse_ahead(raw.meta.get("ahead"), name, raw.entry, diagnostics)
     target = _parse_target(raw.meta.get("target"), name, raw.entry, diagnostics)
+    parent = raw.meta.get("parent")
+    if parent is not None and not isinstance(parent, str):
+        diagnostics.append(
+            _diag(
+                "E008",
+                entry=raw.entry,
+                detail=f"parent for {name} must be a string",
+            )
+        )
+        parent = None
     drafts[name] = _Draft(
         name=name,
         opened=raw.date,
@@ -1016,6 +1030,7 @@ def _handle_open(
             target_currency=target[1] if target is not None else None,
             by=_parse_by(raw.meta.get("by"), name, raw.entry, diagnostics),
         ),
+        parent=parent,
     )
     order.append(name)
 

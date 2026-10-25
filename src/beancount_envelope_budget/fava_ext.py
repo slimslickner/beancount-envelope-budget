@@ -4,6 +4,13 @@ Load with::
 
     2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext"
 
+Set the default number of months shown (1 to
+:data:`~beancount_envelope_budget.report.MAX_MONTHS`) with an optional config::
+
+    2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext" "{'months': 2}"
+
+The ``months`` query parameter overrides it.
+
 The extension recomputes the budget in :meth:`Envelopes.after_load_file` and
 renders a Jinja template. It is the only module that imports Fava. The view it
 renders is built by :func:`beancount_envelope_budget.report.build_view`, the
@@ -16,10 +23,16 @@ import re
 from datetime import date
 from typing import TYPE_CHECKING, cast
 
-from fava.ext import FavaExtensionBase
+from fava.ext import ExtensionConfigError, FavaExtensionBase
 
 from beancount_envelope_budget.core import BudgetResult, compute
-from beancount_envelope_budget.report import BudgetView, Cell, EnvelopeView, build_view
+from beancount_envelope_budget.report import (
+    MAX_MONTHS,
+    BudgetView,
+    Cell,
+    EnvelopeView,
+    build_view,
+)
 
 if TYPE_CHECKING:
     from decimal import Decimal
@@ -43,10 +56,20 @@ class Envelopes(FavaExtensionBase):
 
         Args:
             ledger: The Fava ledger.
-            config: The optional extension config string (unused).
+            config: The optional extension config. A mapping with a ``months``
+                key, or a whole number, sets the default number of months shown
+                (1 to :data:`~beancount_envelope_budget.report.MAX_MONTHS`); the
+                ``months`` query parameter overrides it.
+
+        Raises:
+            ExtensionConfigError: If the config is not a valid month count.
         """
         super().__init__(ledger, config)
         self.result: BudgetResult | None = None
+        try:
+            self.default_months = _default_months(self.config)
+        except (TypeError, ValueError) as error:
+            raise ExtensionConfigError(SyntaxError(str(error)), config or "") from error
 
     def after_load_file(self) -> None:
         """Recompute the budget once the ledger has been loaded."""
@@ -87,7 +110,9 @@ class Envelopes(FavaExtensionBase):
                 collect_activity=True,
             )
             self.result = result
-        return build_view(result, _parse_month(month), _parse_count(months))
+        return build_view(
+            result, _parse_month(month), _parse_count(months, self.default_months)
+        )
 
     def money(self, value: Decimal) -> str:
         """Format a money amount for display.
@@ -164,19 +189,47 @@ def _parse_month(value: object) -> date | None:
         return None
 
 
-def _parse_count(value: object) -> int:
+def _default_months(config: object) -> int:
+    """Resolve the default month count from an extension config.
+
+    Args:
+        config: The parsed extension config: a mapping with a ``months`` key, a
+            whole number, or ``None`` for the built-in default.
+
+    Returns:
+        The default number of months to show, between 1 and ``MAX_MONTHS``.
+
+    Raises:
+        ValueError: If the config is not a valid month count.
+    """
+    if config is None:
+        return _DEFAULT_MONTHS
+    value = (
+        config.get("months", _DEFAULT_MONTHS) if isinstance(config, dict) else config
+    )
+    if isinstance(value, bool) or not isinstance(value, int):
+        message = "months must be a whole number"
+        raise TypeError(message)
+    if not 1 <= value <= MAX_MONTHS:
+        message = f"months must be between 1 and {MAX_MONTHS}"
+        raise ValueError(message)
+    return value
+
+
+def _parse_count(value: object, default: int = _DEFAULT_MONTHS) -> int:
     """Parse a month-count query parameter.
 
     Args:
         value: The raw parameter.
+        default: The count to use when the parameter is absent or malformed.
 
     Returns:
-        A count between 1 and 3, defaulting to :data:`_DEFAULT_MONTHS`.
+        A count between 1 and ``MAX_MONTHS``.
     """
-    count = _DEFAULT_MONTHS
+    count = default
     if isinstance(value, str):
         try:
             count = int(value)
         except ValueError:
-            count = _DEFAULT_MONTHS
-    return max(1, min(count, 3))
+            count = default
+    return max(1, min(count, MAX_MONTHS))

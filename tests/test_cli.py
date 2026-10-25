@@ -117,6 +117,25 @@ def test_report_multiple_months(capsys: pytest.CaptureFixture[str]) -> None:
     assert "2024-03" in out
 
 
+def test_report_groups_by_parent(capsys: pytest.CaptureFixture[str]) -> None:
+    """The report totals each parent category on its heading row."""
+    assert (
+        cli.main(["report", _ledger("parent_groups.bean"), "--month", "2024-01"]) == 0
+    )
+    out = capsys.readouterr().out
+    assert "[Living]" in out
+    assert "[Transport]" in out
+    assert "subtotal" not in out
+    living = next(line for line in out.splitlines() if line.startswith("[Living]"))
+    assert living.split() == ["[Living]", "0.00", "1300.00", "-920.00", "380.00"]
+
+
+def test_report_without_parents_is_flat(capsys: pytest.CaptureFixture[str]) -> None:
+    """With no parent labels the report is unchanged and has no brackets."""
+    assert cli.main(["report", _ledger("basic.bean"), "--month", "2024-01"]) == 0
+    assert "[" not in capsys.readouterr().out
+
+
 def test_report_json(capsys: pytest.CaptureFixture[str]) -> None:
     """--json prints the view as stable, parseable JSON."""
     code = cli.main(

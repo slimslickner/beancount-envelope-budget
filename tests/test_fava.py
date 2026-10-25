@@ -9,8 +9,9 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import jinja2
+import pytest
 from beancount import loader
-from fava.ext import find_extensions
+from fava.ext import ExtensionConfigError, find_extensions
 
 from beancount_envelope_budget import fava_ext
 from beancount_envelope_budget.fava_ext import Envelopes
@@ -26,19 +27,25 @@ _LEDGERS = Path(__file__).parent / "ledgers"
 _TEMPLATES = Path(fava_ext.__file__).parent / "templates"
 
 
-def _extension(name: str, *, load: bool = True) -> Envelopes:
+def _extension(
+    name: str,
+    *,
+    load: bool = True,
+    config: str | None = None,
+) -> Envelopes:
     """Build an extension over a fixture ledger.
 
     Args:
         name: The fixture file name.
         load: Whether to run ``after_load_file``.
+        config: An optional extension config string.
 
     Returns:
         The extension.
     """
     entries, _errors, options = loader.load_file(_LEDGERS / name)
     ledger = cast("FavaLedger", SimpleNamespace(all_entries=entries, options=options))
-    extension = Envelopes(ledger)
+    extension = Envelopes(ledger, config)
     if load:
         extension.after_load_file()
     return extension
@@ -83,6 +90,26 @@ def test_report_defaults_to_three_months() -> None:
     assert view.has_start is True
     assert view.months == (date(2024, 1, 1), date(2024, 2, 1), date(2024, 3, 1))
     assert view.projected == (False, True, True)
+
+
+def test_config_sets_default_months() -> None:
+    """An extension config sets the default number of months shown."""
+    assert len(_extension("basic.bean", config="{'months': 2}").report().months) == 2
+    assert len(_extension("basic.bean", config="1").report().months) == 1
+
+
+def test_config_is_overridden_by_query() -> None:
+    """The months query parameter wins over the configured default."""
+    extension = _extension("basic.bean", config="{'months': 1}")
+    assert len(extension.report(None, "3").months) == 3
+
+
+def test_config_rejects_bad_months() -> None:
+    """A config that is not a valid month count is an extension error."""
+    with pytest.raises(ExtensionConfigError):
+        _extension("basic.bean", config="{'months': 0}")
+    with pytest.raises(ExtensionConfigError):
+        _extension("basic.bean", config="{'months': 'lots'}")
 
 
 def test_report_values() -> None:
@@ -134,6 +161,30 @@ def test_report_without_start() -> None:
     view = _extension("no_start.bean").report()
     assert view.has_start is False
     assert view.months == ()
+
+
+def test_report_groups_by_parent() -> None:
+    """Envelopes group by parent, with a per-month subtotal."""
+    view = _extension("parent_groups.bean").report("2024-01", "1")
+    assert [group.parent for group in view.groups] == ["Living", "Transport", None]
+    living = view.groups[0]
+    assert [envelope.name for envelope in living.envelopes] == ["Groceries", "Rent"]
+    assert living.subtotal[0].closing == D("380")
+    assert view.groups[1].subtotal[0].closing == D("250")
+    assert [envelope.name for envelope in view.groups[2].envelopes] == ["Misc"]
+
+
+def test_template_renders_groups() -> None:
+    """The template brackets each parent category and totals on its heading."""
+    html = _render(
+        _extension("parent_groups.bean"), {"month": "2024-01", "months": "2"}
+    )
+    assert "envelope-months" in html
+    assert "envelope-group" in html
+    assert "Living" in html
+    assert "Transport" in html
+    assert "envelope-subtotal" not in html
+    assert "380.00" in html
 
 
 def test_template_renders() -> None:

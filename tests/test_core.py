@@ -311,6 +311,21 @@ def test_unplan_clears_from_its_date(load_budget) -> None:
     assert _envelope(result, "Groceries").closing == D("-220")
 
 
+def test_parent_groups(load_budget) -> None:
+    """A parent label is parsed, and grouping does not touch the numbers."""
+    result = load_budget("parent_groups.bean")
+    parents = {report.name: report.envelope.parent for report in result.envelopes}
+    assert parents == {
+        "Groceries": "Living",
+        "Rent": "Living",
+        "Car": "Transport",
+        "Misc": None,
+    }
+    assert _envelope(result, "Groceries").closing == D("380")
+    assert result.pool[-1].closing == D("2300")
+    assert "E007" not in _codes(result)
+
+
 def test_fixtures_are_valid_beancount() -> None:
     """Every fixture ledger parses cleanly under Beancount itself."""
     for path in sorted((Path(__file__).parent / "ledgers").glob("*.bean")):

@@ -202,6 +202,10 @@ One directive name, `"envelope"`, with a verb as the first argument. See
   `priority`, `target` and `by` — describe its **plan**: the funding parameters
   that `fund --mode topup` and `suggest` read. With no metadata, the envelope
   exists but is never auto-funded.
+- `open` also accepts `parent`, a free-form grouping label. Envelopes sharing a
+  parent are shown together under a heading in the report, with a subtotal of
+  their balances. It does not need to name another envelope, and it does not
+  affect funding, balances or the invariant.
 - `allocate` moves money from the pool into an envelope. A negative amount moves
   money back to the pool.
 - `move` moves money between two envelopes, e.g. to cover an overspend.
@@ -349,7 +353,17 @@ Add the extension line and an **Envelopes** report appears in the sidebar:
 ```
 
 It is read-only, shows one to three months, and offers hover text for envelope
-targets and the transactions behind each activity figure.
+targets and the transactions behind each activity figure. The months sit side by
+side when the window is wide enough and stack when it is narrow, and envelopes
+are grouped by their `parent` label with a subtotal per group.
+
+Set the default number of months (1 to 3) with an optional config, a
+stringified Python mapping on the extension line; the `months` URL parameter
+still overrides it:
+
+```beancount
+2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext" "{'months': 2}"
+```
 
 ## BQL recipes
 

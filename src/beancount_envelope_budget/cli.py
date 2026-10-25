@@ -1122,6 +1122,34 @@ def _cell_values(cell: Cell) -> tuple[str, str, str, str]:
     )
 
 
+def _envelope_rows(view: BudgetView, index: int) -> list[tuple[str, ...]]:
+    """Build the envelope rows for one month, grouped by parent.
+
+    Args:
+        view: The view to render.
+        index: The month's index within the view.
+
+    Returns:
+        The rows: a bracketed heading row carrying each named group's subtotal,
+        followed by its members indented. With no parents the rows are the
+        envelopes in declaration order, unchanged.
+    """
+    rows: list[tuple[str, ...]] = []
+    for group in view.groups:
+        if group.parent is None:
+            rows.extend(
+                (envelope.name, *_cell_values(envelope.cells[index]))
+                for envelope in group.envelopes
+            )
+            continue
+        rows.append((f"[{group.parent}]", *_cell_values(group.subtotal[index])))
+        rows.extend(
+            (f"  {envelope.name}", *_cell_values(envelope.cells[index]))
+            for envelope in group.envelopes
+        )
+    return rows
+
+
 def _format_view(view: BudgetView) -> str:
     """Render a budget view as one table per month.
 
@@ -1137,10 +1165,7 @@ def _format_view(view: BudgetView) -> str:
     blocks: list[str] = []
     for index, month in enumerate(view.months):
         title = f"{month:%Y-%m}" + (" (projected)" if view.projected[index] else "")
-        rows: list[tuple[str, ...]] = [
-            (envelope.name, *_cell_values(envelope.cells[index]))
-            for envelope in view.envelopes
-        ]
+        rows = _envelope_rows(view, index)
         rows.append(("Pool", *_cell_values(view.pool[index])))
         cash = view.cash[index]
         rows.append(("Cash", _money(cash.opening), "", "", _money(cash.closing)))
@@ -1240,7 +1265,7 @@ def _table(headers: tuple[str, ...], rows: list[tuple[str, ...]]) -> str:
             cell.ljust(widths[index]) if index == 0 else cell.rjust(widths[index])
             for index, cell in enumerate(cells)
         ]
-        return "  ".join(parts)
+        return "  ".join(parts).rstrip()
 
     lines = [render(headers), "  ".join("-" * width for width in widths)]
     lines.extend(render(row) for row in rows)

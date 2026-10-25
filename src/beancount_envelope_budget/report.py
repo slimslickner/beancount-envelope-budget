@@ -32,6 +32,7 @@ __all__ = [
     "ActivityLine",
     "BudgetView",
     "Cell",
+    "EnvelopeGroup",
     "EnvelopeView",
     "build_view",
     "to_jsonable",
@@ -92,11 +93,29 @@ class EnvelopeView:
         name: The envelope's name.
         plan: The envelope's effective plan as of the view's first month.
         cells: One :class:`Cell` per month, aligned with the view's months.
+        parent: The envelope's grouping label, or ``None``.
     """
 
     name: str
     plan: Plan
     cells: tuple[Cell, ...]
+    parent: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class EnvelopeGroup:
+    """Envelopes sharing a parent category, with their combined subtotal.
+
+    Attributes:
+        parent: The grouping label, or ``None`` for envelopes with no parent.
+        envelopes: The member envelopes, in declaration order.
+        subtotal: One summed :class:`Cell` per month, aligned with the view's
+            months. Its detail is always empty.
+    """
+
+    parent: str | None
+    envelopes: tuple[EnvelopeView, ...]
+    subtotal: tuple[Cell, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +128,8 @@ class BudgetView:
         months: The months shown, ascending.
         projected: Whether each month is beyond the computed range.
         envelopes: The envelopes, in declaration order.
+        groups: The envelopes grouped by parent category, in first-appearance
+            order. Envelopes with no parent form a headingless group.
         pool: The pool's cells.
         cash: The cash balance cells.
         warnings: The warnings from the computation.
@@ -121,6 +142,7 @@ class BudgetView:
     months: tuple[date, ...]
     projected: tuple[bool, ...]
     envelopes: tuple[EnvelopeView, ...]
+    groups: tuple[EnvelopeGroup, ...]
     pool: tuple[Cell, ...]
     cash: tuple[Cell, ...]
     warnings: tuple[Diagnostic, ...]
@@ -173,6 +195,7 @@ def build_view(
             months=(),
             projected=(),
             envelopes=(),
+            groups=(),
             pool=(),
             cash=(),
             warnings=(),
@@ -207,6 +230,7 @@ def build_view(
         months=months,
         projected=projected,
         envelopes=envelopes,
+        groups=_group(envelopes),
         pool=pool,
         cash=cash,
         warnings=tuple(d for d in result.diagnostics if d.severity is Severity.WARNING),
@@ -293,7 +317,62 @@ def _envelope_view(
         name=report.name,
         plan=envelope.effective(months[0]),
         cells=cells,
+        parent=envelope.parent,
     )
+
+
+def _group(envelopes: tuple[EnvelopeView, ...]) -> tuple[EnvelopeGroup, ...]:
+    """Group envelopes by parent category.
+
+    Args:
+        envelopes: The envelopes, in declaration order.
+
+    Returns:
+        One :class:`EnvelopeGroup` per distinct parent, in first-appearance
+        order; envelopes with no parent form a headingless group placed where
+        their first member appears.
+    """
+    buckets: dict[str | None, list[EnvelopeView]] = {}
+    for envelope in envelopes:
+        buckets.setdefault(envelope.parent, []).append(envelope)
+    return tuple(
+        EnvelopeGroup(
+            parent=parent,
+            envelopes=tuple(members),
+            subtotal=_subtotal(members),
+        )
+        for parent, members in buckets.items()
+    )
+
+
+def _subtotal(envelopes: list[EnvelopeView]) -> tuple[Cell, ...]:
+    """Sum a group's member cells, month by month.
+
+    Args:
+        envelopes: The group's member envelopes.
+
+    Returns:
+        One summed :class:`Cell` per month, with no detail.
+    """
+    if not envelopes:
+        return ()
+    cells: list[Cell] = []
+    for index in range(len(envelopes[0].cells)):
+        members = [envelope.cells[index] for envelope in envelopes]
+        first = members[0]
+        cells.append(
+            Cell(
+                month=first.month,
+                projected=first.projected,
+                opening=sum((cell.opening for cell in members), Decimal(0)),
+                allocated=sum((cell.allocated for cell in members), Decimal(0)),
+                activity=sum((cell.activity for cell in members), Decimal(0)),
+                closing=sum((cell.closing for cell in members), Decimal(0)),
+                detail=(),
+                detail_total=0,
+            )
+        )
+    return tuple(cells)
 
 
 def _cash_cell(result: BudgetResult, month: date, available: set[date]) -> Cell:
@@ -366,10 +445,19 @@ def to_jsonable(view: BudgetView) -> dict[str, object]:
         "envelopes": [
             {
                 "name": envelope.name,
+                "parent": envelope.parent,
                 "plan": _plan_json(envelope.plan),
                 "cells": [_cell_json(cell) for cell in envelope.cells],
             }
             for envelope in view.envelopes
+        ],
+        "groups": [
+            {
+                "parent": group.parent,
+                "envelopes": [envelope.name for envelope in group.envelopes],
+                "subtotal": [_cell_json(cell) for cell in group.subtotal],
+            }
+            for group in view.groups
         ],
         "pool": [_cell_json(cell) for cell in view.pool],
         "cash": [_cell_json(cell) for cell in view.cash],

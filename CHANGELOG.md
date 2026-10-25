@@ -60,6 +60,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   residual beyond the tolerance is still reported, by Beancount itself and by
   `E007`. This stops imported trades rounded by a fraction of a cent from raising
   spurious invariant failures.
+- `parent`, an `open` metadata key that groups envelopes under a category. The
+  CLI report, `report --json` and the Fava report bracket each parent's envelopes
+  and show a per-month subtotal on the group heading row; it does not affect
+  funding, balances or the invariant.
+- The Fava **Envelopes** report lays the months out side by side when the window
+  is wide enough and stacks them when it is narrow, instead of always stacking.
+- The Fava extension accepts a config to set its default number of months, e.g.
+  `custom "fava-extension" "beancount_envelope_budget.fava_ext" "{'months': 2}"`;
+  the `months` URL parameter still overrides it.
 
 ### Changed
 

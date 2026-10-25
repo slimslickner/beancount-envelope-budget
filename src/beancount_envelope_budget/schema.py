@@ -180,7 +180,7 @@ DIRECTIVE_VERBS: tuple[DirectiveVerb, ...] = (
                 description="The name of the envelope to declare.",
             ),
         ),
-        metadata=("monthly", "ahead", "priority", "target", "by"),
+        metadata=("monthly", "ahead", "priority", "target", "by", "parent"),
         description="Declares an envelope.",
     ),
     DirectiveVerb(
@@ -363,6 +363,17 @@ METADATA_KEYS: tuple[MetadataKey, ...] = (
             "The date by which the target should be reached, e.g. 2028-06-01."
         ),
     ),
+    MetadataKey(
+        key="parent",
+        kind=ValueKind.STRING,
+        required=False,
+        default=None,
+        applies_to=(AppliesTo.ENVELOPE_OPEN,),
+        description=(
+            "A grouping label. Envelopes with the same parent are shown together "
+            "under a heading, with a subtotal of their balances."
+        ),
+    ),
 )
 
 RESERVED_VALUES: tuple[ReservedValue, ...] = (
@@ -465,8 +476,8 @@ DIAGNOSTIC_CODES: tuple[DiagnosticCode, ...] = (
         summary="Invalid envelope metadata: {detail}.",
         explanation=(
             'Check the types: `monthly` must be a number or "avgN", `ahead` a '
-            "whole number, `priority` a number, `target` an amount and `by` a "
-            "date."
+            "whole number, `priority` a number, `target` an amount, `by` a date "
+            "and `parent` a string."
         ),
     ),
     DiagnosticCode(
