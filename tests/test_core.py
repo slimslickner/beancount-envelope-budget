@@ -84,6 +84,68 @@ def test_transaction_override(load_budget) -> None:
     assert _envelope(result, "Groceries").closing == D("0")
 
 
+def test_transaction_override_does_not_redirect_pool() -> None:
+    """A transaction-level override leaves an explicitly pool account in the pool."""
+    ledger = """
+option "operating_currency" "USD"
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Expenses:Taxes USD
+  envelope: "pool"
+2020-01-01 open Equity:Opening-Balances USD
+2023-12-31 * "Opening"
+  Assets:Checking            1000.00 USD
+  Equity:Opening-Balances   -1000.00 USD
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Groceries"
+2024-01-05 * "taxes plus groceries"
+  envelope: "Groceries"
+  Assets:Checking  -100.00 USD
+  Expenses:Taxes    100.00 USD
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    result = compute(entries, options)
+    assert result.diagnostics == ()
+    assert _envelope(result, "Groceries").closing == D("0")
+    assert result.pool[-1].closing == D("900")
+
+
+def test_posting_before_open_is_reported() -> None:
+    """A posting dated before its envelope's open is E003 and lands in the pool."""
+    ledger = """
+option "operating_currency" "USD"
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Expenses:Late USD
+  envelope: "Late"
+2020-01-01 open Equity:Opening-Balances USD
+2023-12-31 * "Opening"
+  Assets:Checking            1000.00 USD
+  Equity:Opening-Balances   -1000.00 USD
+2024-01-01 custom "envelope" "start"
+2024-03-15 * "spend before the envelope is declared"
+  Expenses:Late   20.00 USD
+  Assets:Checking -20.00 USD
+2024-07-01 custom "envelope" "open" "Late"
+2024-07-15 * "spend after"
+  Expenses:Late   30.00 USD
+  Assets:Checking -30.00 USD
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    result = compute(entries, options)
+    assert _codes(result) == ["E003"]
+    assert _envelope(result, "Late").closing == D("-30")
+    # The pre-open money is redirected to the pool, not dropped or backdated.
+    assert result.pool[-1].closing == D("980")
+
+
+def test_open_mid_budget_is_clean(load_budget) -> None:
+    """An envelope opened and first used mid-budget produces no diagnostics."""
+    result = load_budget("open_late.bean")
+    assert result.diagnostics == ()
+    assert _envelope(result, "Late").closing == D("150")
+
+
 def test_payroll(load_budget) -> None:
     """A payroll deduction with a pool override charges the pool."""
     result = load_budget("payroll.bean")

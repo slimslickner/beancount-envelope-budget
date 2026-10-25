@@ -121,6 +121,40 @@ def test_report_values() -> None:
     assert view.cash[0].closing == D("3880")
 
 
+def test_report_cash_opening_is_pre_start_cash() -> None:
+    """The first month's cash opening is the cash held before the start date."""
+    view = _extension("basic.bean").report("2024-01", "2")
+    assert view.cash[0].opening == D("1000")
+    assert view.cash[0].closing == D("3880")
+    # Later months carry the previous month's closing in.
+    assert view.cash[1].opening == view.cash[0].closing
+
+
+def test_report_hides_closed_envelope_after_close() -> None:
+    """A closed envelope stays in its close month and drops out afterwards."""
+    view = _extension("closed_envelope.bean").report("2024-01", "3")
+    old = next(e for e in view.envelopes if e.name == "Old")
+    assert [cell.visible for cell in old.cells] == [True, True, False]
+    groceries = next(e for e in view.envelopes if e.name == "Groceries")
+    assert all(cell.visible for cell in groceries.cells)
+
+
+def test_report_hides_envelope_before_open() -> None:
+    """An envelope opened mid-budget is hidden until the month it opens."""
+    view = _extension("open_late.bean").report("2024-06", "2")
+    late = next(e for e in view.envelopes if e.name == "Late")
+    assert [cell.visible for cell in late.cells] == [False, True]
+
+
+def test_template_hides_envelope_before_open() -> None:
+    """The template omits a not-yet-open envelope and shows it from open on."""
+    before = _render(_extension("open_late.bean"), {"month": "2024-01", "months": "1"})
+    assert "Groceries" in before
+    assert "Late" not in before
+    after = _render(_extension("open_late.bean"), {"month": "2024-07", "months": "1"})
+    assert "Late" in after
+
+
 def test_report_clamps_and_parses() -> None:
     """Malformed parameters fall back and an early month is clamped up."""
     extension = _extension("basic.bean")
@@ -174,6 +208,36 @@ def test_report_groups_by_parent() -> None:
     assert [envelope.name for envelope in view.groups[2].envelopes] == ["Misc"]
 
 
+def test_report_group_subtotal_excludes_closed_members() -> None:
+    """A group subtotal sums only the members still open in the month."""
+    view = _extension("parent_close.bean").report("2024-04", "1")
+    living = next(group for group in view.groups if group.parent == "Living")
+    assert living.subtotal[0].visible
+    assert living.subtotal[0].closing == D("200")
+
+
+def test_report_hides_group_when_all_members_closed() -> None:
+    """A named group with no open members left is hidden for later months."""
+    view = _extension("parent_close.bean").report("2024-04", "1")
+    gone = next(group for group in view.groups if group.parent == "Gone")
+    assert gone.subtotal[0].visible is False
+
+
+def test_report_shows_group_in_close_month() -> None:
+    """A group is still shown in the month its members close."""
+    view = _extension("parent_close.bean").report("2024-02", "1")
+    gone = next(group for group in view.groups if group.parent == "Gone")
+    assert gone.subtotal[0].visible is True
+
+
+def test_template_hides_fully_closed_group() -> None:
+    """The template omits a named group once all its members have closed."""
+    html = _render(_extension("parent_close.bean"), {"month": "2024-04", "months": "1"})
+    assert "Living" in html
+    assert "Gone" not in html
+    assert "Fun" not in html
+
+
 def test_template_renders_groups() -> None:
     """The template brackets each parent category and totals on its heading."""
     html = _render(
@@ -213,6 +277,23 @@ def test_template_renders_warning_panel() -> None:
     assert "W001" in html
     assert "Warnings" in html
     assert "../../errors/" in html
+
+
+def test_template_hides_closed_envelope_after_close() -> None:
+    """The template drops a closed envelope from months after its close."""
+    html = _render(
+        _extension("closed_envelope.bean"), {"month": "2024-03", "months": "1"}
+    )
+    assert "Groceries" in html
+    assert "Old" not in html
+
+
+def test_template_shows_closed_envelope_in_close_month() -> None:
+    """The template still shows a closed envelope in the month it was closed."""
+    html = _render(
+        _extension("closed_envelope.bean"), {"month": "2024-02", "months": "1"}
+    )
+    assert "Old" in html
 
 
 def test_template_without_start() -> None:

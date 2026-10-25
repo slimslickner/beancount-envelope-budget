@@ -318,6 +318,10 @@ class BudgetResult:
         diagnostics: Every error and warning, sorted deterministically.
         resolved: ``(id(posting), envelope)`` pairs for non-cash postings,
             when requested by ``collect_resolved``.
+        activity: Per-posting activity detail, when requested by
+            ``collect_activity``.
+        pre_start_cash: The cash held on the day before the start date; the
+            pool's opening balance and the cash carried into the first month.
     """
 
     start: date | None
@@ -329,6 +333,7 @@ class BudgetResult:
     diagnostics: tuple[Diagnostic, ...]
     resolved: tuple[tuple[int, str], ...] = ()
     activity: tuple[ActivityEvent, ...] = ()
+    pre_start_cash: Decimal = Decimal(0)
 
     def envelope(self, name: str) -> EnvelopeReport | None:
         """Return the report for an envelope by name.
@@ -1373,6 +1378,11 @@ def _resolve_envelope(
 ) -> str:
     """Resolve a non-cash posting's destination envelope or the pool.
 
+    A transaction-level override applies only to postings whose account names a
+    real envelope; an account set to the reserved value ``pool`` stays in the
+    pool regardless, so an override never redirects a posting that goes to the
+    pool.
+
     Args:
         posting_meta: The posting's metadata.
         transaction_meta: The transaction's metadata.
@@ -1396,11 +1406,34 @@ def _resolve_envelope(
             )
         )
         return POOL
+    if info is None or info.envelope is None:
+        return _default_destination(account, entry, diagnostics)
+    if info.envelope == POOL:
+        return POOL
     transaction_env = transaction_meta.get("envelope")
-    if info is not None and info.envelope is not None:
-        if isinstance(transaction_env, str):
-            return transaction_env
-        return info.envelope
+    if isinstance(transaction_env, str):
+        return transaction_env
+    return info.envelope
+
+
+def _default_destination(
+    account: str,
+    entry: Directive,
+    diagnostics: list[Diagnostic],
+) -> str:
+    """Return the pool for an account with no envelope of its own.
+
+    Income and Equity accounts resolve to the pool; any other account is an
+    error (``E002``) and also resolves to the pool.
+
+    Args:
+        account: The posting's account.
+        entry: The source transaction.
+        diagnostics: The list to append diagnostics to.
+
+    Returns:
+        The pool.
+    """
     if _root(account) in _INCOME_OR_EQUITY:
         return POOL
     diagnostics.append(_diag("E002", entry=entry, account=account))
@@ -1655,8 +1688,8 @@ def _resolve_destination(
 ) -> str:
     """Resolve a posting to a live envelope name or the pool.
 
-    Effects that name an unknown or closed envelope are redirected to the pool
-    and reported.
+    Effects that name an unknown envelope, or one used before it was opened or
+    after it was closed, are redirected to the pool and reported.
 
     Args:
         posting: The posting.
@@ -1679,6 +1712,9 @@ def _resolve_destination(
     envelope = live.get(name)
     if envelope is None:
         diagnostics.append(_diag("E001", entry=entry, name=name))
+        return POOL
+    if entry.date < envelope.opened:
+        diagnostics.append(_diag("E003", entry=entry, name=name))
         return POOL
     if envelope.closed is not None and entry.date > envelope.closed:
         diagnostics.append(_diag("E003", entry=entry, name=name))
@@ -1920,6 +1956,7 @@ def _build_result(
         diagnostics=tuple(_sorted(diagnostics)),
         resolved=effects.resolved,
         activity=effects.details,
+        pre_start_cash=pre_start_cash,
     )
 
 

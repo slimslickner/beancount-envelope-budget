@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `E001` | error | Envelope {name} is used but was never declared. |
 | `E002` | error | Account {account} has no envelope metadata and posts in a cash-moving transaction. |
-| `E003` | error | Envelope {name} is declared twice, or used after it was closed. |
+| `E003` | error | Envelope {name} is declared twice, or used outside its open-to-close dates. |
 | `E004` | error | `cash-account` is set on {account}, which is not valid there. |
 | `E005` | error | Envelope {name} is closed with a non-zero balance of {balance}. |
 | `E006` | error | Currency {currency} on {date} is not the operating currency {operating_currency}. |
@@ -34,9 +34,9 @@ Add `envelope: "<name>"` (or `envelope: "pool"`) to the account's `open`, to the
 
 ## E003
 
-**Error:** Envelope {name} is declared twice, or used after it was closed.
+**Error:** Envelope {name} is declared twice, or used outside its open-to-close dates.
 
-Declare each envelope exactly once, and do not use it after a `close`. Remove the duplicate `open`, or move the postings and allocations to before the close date.
+Declare each envelope exactly once, and only use it between its `open` and its `close`. Remove the duplicate `open`, move the postings and allocations inside that window, or declare the envelope on or before the date you first use it.
 
 
 ## E004

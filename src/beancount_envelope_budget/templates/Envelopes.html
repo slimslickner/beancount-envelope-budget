@@ -79,8 +79,8 @@
             </thead>
             <tbody>
               {% for group in view.groups %}
-                {% if group.parent is not none %}
-                  {% set subtotal = group.subtotal[index] %}
+                {% set subtotal = group.subtotal[index] %}
+                {% if group.parent is not none and subtotal.visible %}
                   <tr class="envelope-group">
                     <th>{{ group.parent }}</th>
                     <td class="num">{{ extension.money(subtotal.opening) }}</td>
@@ -91,6 +91,7 @@
                 {% endif %}
                 {% for envelope in group.envelopes %}
                   {% set cell = envelope.cells[index] %}
+                  {% if cell.visible %}
                   <tr{% if group.parent is not none %} class="envelope-child"{% endif %}>
                     <td title="{{ extension.envelope_title(envelope) }}">{{ envelope.name }}</td>
                     <td class="num">{{ extension.money(cell.opening) }}</td>
@@ -98,6 +99,7 @@
                     <td class="num" title="{{ extension.activity_title(cell) }}">{{ extension.money(cell.activity) }}</td>
                     <td class="num">{{ extension.money(cell.closing) }}</td>
                   </tr>
+                  {% endif %}
                 {% endfor %}
               {% endfor %}
               {% set pool = view.pool[index] %}

@@ -138,10 +138,103 @@ def test_report_groups_by_parent(capsys: pytest.CaptureFixture[str]) -> None:
     assert living.split() == ["[Living]", "0.00", "1300.00", "-920.00", "380.00"]
 
 
+def test_report_hides_fully_closed_group(capsys: pytest.CaptureFixture[str]) -> None:
+    """A named group with no open members left is omitted from the report."""
+    code = cli.main(["report", _ledger("parent_close.bean"), "--month", "2024-04"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "[Living]" in out
+    assert "[Gone]" not in out
+
+
+def test_report_group_subtotal_excludes_closed_members(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The group heading totals only the members still open in the month."""
+    code = cli.main(["report", _ledger("parent_close.bean"), "--month", "2024-04"])
+    assert code == 0
+    living = next(
+        line
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("[Living]")
+    )
+    assert living.split() == ["[Living]", "200.00", "0.00", "0.00", "200.00"]
+
+
+def test_report_shows_group_in_close_month(capsys: pytest.CaptureFixture[str]) -> None:
+    """A named group is still shown in the month its members close."""
+    code = cli.main(["report", _ledger("parent_close.bean"), "--month", "2024-02"])
+    assert code == 0
+    assert "[Gone]" in capsys.readouterr().out
+
+
 def test_report_without_parents_is_flat(capsys: pytest.CaptureFixture[str]) -> None:
     """With no parent labels the report is unchanged and has no brackets."""
     assert cli.main(["report", _ledger("basic.bean"), "--month", "2024-01"]) == 0
     assert "[" not in capsys.readouterr().out
+
+
+def test_report_cash_opening_is_pre_start_cash(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The first month's cash opening is the cash held before the start date."""
+    code = cli.main(
+        [
+            "report",
+            _ledger("basic.bean"),
+            "--month",
+            "2024-01",
+            "--months",
+            "2",
+            "--json",
+        ]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["cash"][0]["opening"] == "1000.00"
+    assert payload["cash"][0]["activity"] == "2880.00"
+    assert payload["cash"][0]["closing"] == "3880.00"
+    assert payload["cash"][1]["opening"] == payload["cash"][0]["closing"]
+
+
+def test_report_hides_closed_envelope_after_close(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A closed envelope is absent from a month after its close date."""
+    code = cli.main(["report", _ledger("closed_envelope.bean"), "--month", "2024-03"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "Groceries" in out
+    assert "Old" not in out
+
+
+def test_report_shows_closed_envelope_in_close_month(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A closed envelope is still shown in the month it was closed."""
+    code = cli.main(["report", _ledger("closed_envelope.bean"), "--month", "2024-02"])
+    assert code == 0
+    assert "Old" in capsys.readouterr().out
+
+
+def test_report_hides_envelope_before_open(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An envelope opened mid-budget is absent from months before it opens."""
+    code = cli.main(["report", _ledger("open_late.bean"), "--month", "2024-01"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "Groceries" in out
+    assert "Late" not in out
+
+
+def test_report_shows_envelope_from_open_month(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An envelope appears from its open month onward."""
+    code = cli.main(["report", _ledger("open_late.bean"), "--month", "2024-07"])
+    assert code == 0
+    assert "Late" in capsys.readouterr().out
 
 
 def test_report_json(capsys: pytest.CaptureFixture[str]) -> None:

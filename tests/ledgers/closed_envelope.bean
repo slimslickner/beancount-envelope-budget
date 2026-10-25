@@ -1,0 +1,33 @@
+option "operating_currency" "USD"
+
+; "Old" is declared and closed at a zero balance, so it should stay in the
+; report through its close month and disappear from the months after it.
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Expenses:Groceries USD
+  envelope: "Groceries"
+2020-01-01 open Income:Salary USD
+2020-01-01 open Equity:Opening-Balances USD
+
+2023-12-31 * "Opening balance"
+  Assets:Checking            1000.00 USD
+  Equity:Opening-Balances   -1000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Groceries"
+2024-01-01 custom "envelope" "open" "Old"
+2024-01-01 custom "envelope" "allocate" "Groceries" 500.00 USD
+
+2024-01-05 * "Groceries"
+  Expenses:Groceries          120.00 USD
+  Assets:Checking            -120.00 USD
+
+2024-01-10 * "Salary"
+  Assets:Checking            2000.00 USD
+  Income:Salary             -2000.00 USD
+
+2024-02-07 custom "envelope" "close" "Old"
+
+2024-02-10 * "More groceries"
+  Expenses:Groceries           80.00 USD
+  Assets:Checking             -80.00 USD

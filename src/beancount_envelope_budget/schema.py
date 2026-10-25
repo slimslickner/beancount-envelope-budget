@@ -416,11 +416,15 @@ DIAGNOSTIC_CODES: tuple[DiagnosticCode, ...] = (
     DiagnosticCode(
         code="E003",
         severity=Severity.ERROR,
-        summary=("Envelope {name} is declared twice, or used after it was closed."),
+        summary=(
+            "Envelope {name} is declared twice, or used outside its "
+            "open-to-close dates."
+        ),
         explanation=(
-            "Declare each envelope exactly once, and do not use it after a "
-            "`close`. Remove the duplicate `open`, or move the postings and "
-            "allocations to before the close date."
+            "Declare each envelope exactly once, and only use it between its "
+            "`open` and its `close`. Remove the duplicate `open`, move the "
+            "postings and allocations inside that window, or declare the "
+            "envelope on or before the date you first use it."
         ),
     ),
     DiagnosticCode(

@@ -73,6 +73,9 @@ class Cell:
         closing: The balance carried out.
         detail: The contributing postings, capped at :data:`MAX_DETAIL`.
         detail_total: The full number of contributing postings.
+        visible: Whether the row should be shown this month. It is ``False``
+            outside the envelope's life — before it opens or after it closes —
+            so only the months between ``open`` and ``close`` are shown.
     """
 
     month: date
@@ -83,6 +86,7 @@ class Cell:
     closing: Decimal
     detail: tuple[ActivityLine, ...]
     detail_total: int
+    visible: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,6 +268,7 @@ def _cell(
     detail: list[ActivityLine],
     *,
     projected: bool,
+    visible: bool = True,
 ) -> Cell:
     """Build a cell from a monthly row and its detail.
 
@@ -271,6 +276,7 @@ def _cell(
         row: The monthly row.
         detail: The contributing postings.
         projected: Whether the month is beyond the computed range.
+        visible: Whether the row should be shown for the month.
 
     Returns:
         The :class:`Cell`.
@@ -284,6 +290,7 @@ def _cell(
         closing=row.closing,
         detail=tuple(detail[:MAX_DETAIL]),
         detail_total=len(detail),
+        visible=visible,
     )
 
 
@@ -305,11 +312,15 @@ def _envelope_view(
         The :class:`EnvelopeView`.
     """
     envelope = report.envelope
+    opened_month = month_of(envelope.opened)
+    closed_month = month_of(envelope.closed) if envelope.closed is not None else None
     cells = tuple(
         _cell(
             row_for(report.rows, month),
             details.get((report.name, month), []),
             projected=month not in available,
+            visible=month >= opened_month
+            and (closed_month is None or month <= closed_month),
         )
         for month in months
     )
@@ -358,18 +369,23 @@ def _subtotal(envelopes: list[EnvelopeView]) -> tuple[Cell, ...]:
         return ()
     cells: list[Cell] = []
     for index in range(len(envelopes[0].cells)):
-        members = [envelope.cells[index] for envelope in envelopes]
-        first = members[0]
+        reference = envelopes[0].cells[index]
+        members = [
+            envelope.cells[index]
+            for envelope in envelopes
+            if envelope.cells[index].visible
+        ]
         cells.append(
             Cell(
-                month=first.month,
-                projected=first.projected,
+                month=reference.month,
+                projected=reference.projected,
                 opening=sum((cell.opening for cell in members), Decimal(0)),
                 allocated=sum((cell.allocated for cell in members), Decimal(0)),
                 activity=sum((cell.activity for cell in members), Decimal(0)),
                 closing=sum((cell.closing for cell in members), Decimal(0)),
                 detail=(),
                 detail_total=0,
+                visible=bool(members),
             )
         )
     return tuple(cells)
@@ -408,12 +424,12 @@ def _cash_balance(result: BudgetResult, month: date) -> Decimal:
         month: The month to evaluate.
 
     Returns:
-        The balance for that month, zero before the range, or the final balance
-        after it.
+        The balance for that month, the pre-start cash before the range, or the
+        final balance after it.
     """
     target = month_of(month)
     if not result.cash or target < result.months[0]:
-        return Decimal(0)
+        return result.pre_start_cash
     for row in result.cash:
         if row.month == target:
             return row.balance
@@ -515,6 +531,7 @@ def _cell_json(cell: Cell) -> dict[str, object]:
     return {
         "month": cell.month.isoformat(),
         "projected": cell.projected,
+        "visible": cell.visible,
         "opening": f"{cell.opening:.2f}",
         "allocated": f"{cell.allocated:.2f}",
         "activity": f"{cell.activity:.2f}",
