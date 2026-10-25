@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "beancount-envelope-budget"
-version = "0.0.1"
+version = "0.1.0"
 description = "Ledger-driven envelope budgeting for Beancount, with a Fava report."
 readme = "README.md"
 requires-python = ">=3.13"
