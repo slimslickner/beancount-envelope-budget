@@ -55,6 +55,20 @@ Append the output to a file you `include`, then re-check. Rerunning after anothe
 paycheck prints only what is still missing; once nothing is missing it prints
 nothing. With `--strict` it exits non-zero when anything is unfunded.
 
+`topup` sizes each envelope from its plan (`monthly`, or a `target` + `by`), so
+with no plan directives it prints nothing — there is no level to fund to. If you
+would rather not write any plans, top spent envelopes back to zero instead by
+running `overspend` over a single month:
+
+```sh
+# bring every negative envelope back to zero for the current month
+beancount-envelope-budget fund main.bean --from 2027-03 --to 2027-03 --mode overspend
+```
+
+`overspend` only covers what is already negative; it never pre-funds the next
+month. Use `--envelopes REGEX` to restrict it, and `actuals` over a range if you
+want each month to close flat.
+
 ## Backfill history
 
 If you already have transactions, generate allocations that match what you
@@ -92,6 +106,22 @@ beancount-envelope-budget suggest main.bean
 
 The report's `Pool` row is unassigned money and `Cash` is what the accounts
 actually hold; they satisfy `Cash = Pool + sum(envelopes)`.
+
+An envelope's plan can change over time without touching history:
+
+```beancount
+2024-01-01 custom "envelope" "open" "Mortgage"
+  monthly: 2500.00
+  priority: 1
+2028-01-01 custom "envelope" "plan" "Mortgage"
+  monthly: 2600.00
+2029-01-01 custom "envelope" "unplan" "Mortgage"
+```
+
+`plan` takes the same metadata as `open` and changes only the fields it names;
+`unplan` clears the plan from its date while the envelope keeps its balance and
+stays in reports. Use `monthly: "avg3"` (or `"avg6"`, and so on) to plan from
+the average of the last N completed months of spending.
 
 ## Remap an account
 

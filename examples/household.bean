@@ -78,7 +78,8 @@ option "operating_currency" "USD"
   Assets:Savings               500.00 USD
   Assets:Checking             -500.00 USD
 
-2024-01-31 custom "envelope" "plan" "Car" 600.00 USD
+2024-01-31 custom "envelope" "plan" "Car"
+  monthly: 600.00
   ahead: 1
   priority: 1
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from beancount import loader
 
-from beancount_envelope_budget.core import BudgetResult, EnvelopeReport
+from beancount_envelope_budget.core import BudgetResult, EnvelopeReport, Plan
 
 D = Decimal
 
@@ -104,11 +104,13 @@ def test_envelope_income(load_budget) -> None:
 
 
 def test_savings_goal(load_budget) -> None:
-    """A goal envelope accumulates and keeps its target metadata."""
+    """A goal envelope's target and deadline may come from a plan."""
     car = _envelope(load_budget("savings_goal.bean"), "Car")
     assert car.closing == D("1000")
-    assert car.envelope.target == D("15000")
-    assert car.envelope.by == date(2028, 6, 1)
+    plan = car.envelope.effective(date(2024, 2, 1))
+    assert plan.target == D("15000")
+    assert plan.target_currency == "USD"
+    assert plan.by == date(2028, 6, 1)
 
 
 def test_cash_only_move(load_budget) -> None:
@@ -171,11 +173,11 @@ def test_bad_metadata(load_budget) -> None:
     """Invalid cash-account and tuning metadata are reported with their codes."""
     result = load_budget("bad_metadata.bean")
     assert len([code for code in _codes(result) if code == "E004"]) == 2
-    assert len([code for code in _codes(result) if code == "E008"]) == 3
+    assert len([code for code in _codes(result) if code == "E008"]) == 4
     groceries = _envelope(result, "Groceries")
-    assert groceries.envelope.monthly == "avg3"
-    assert groceries.envelope.ahead == 2
-    assert groceries.envelope.priority == D("1")
+    assert groceries.envelope.plan.monthly == "avg3"
+    assert groceries.envelope.plan.ahead == 2
+    assert groceries.envelope.plan.priority == D("1")
 
 
 def test_envelope_lifecycle(load_budget) -> None:
@@ -190,10 +192,44 @@ def test_envelope_lifecycle(load_budget) -> None:
 
 
 def test_plan_changes_effective_parameters(load_budget) -> None:
-    """A plan directive overrides the base funding parameters from its date."""
+    """A plan directive overrides the base plan from its date."""
     envelope = _envelope(load_budget("envelope_lifecycle.bean"), "A").envelope
-    assert envelope.effective(date(2024, 1, 1)) == (None, 0, None)
-    assert envelope.effective(date(2024, 2, 1)) == (D("200"), 3, D("2"))
+    assert envelope.effective(date(2024, 1, 1)) == Plan()
+    assert envelope.effective(date(2024, 2, 1)) == Plan(
+        monthly=D("200"), ahead=3, priority=D("2")
+    )
+
+
+def test_plan_merges_only_named_fields(load_budget) -> None:
+    """A plan changes only the fields it names, keeping the rest."""
+    envelope = _envelope(load_budget("plan_merge.bean"), "Car").envelope
+    before = envelope.effective(date(2024, 1, 1))
+    assert before == Plan(
+        monthly=D("500"),
+        ahead=1,
+        priority=D("2"),
+        target=D("15000"),
+        target_currency="USD",
+        by=date(2028, 6, 1),
+    )
+    after = envelope.effective(date(2024, 6, 1))
+    assert after == Plan(
+        monthly=D("500"),
+        ahead=1,
+        priority=D("1"),
+        target=D("15000"),
+        target_currency="USD",
+        by=date(2028, 6, 1),
+    )
+
+
+def test_unplan_clears_from_its_date(load_budget) -> None:
+    """unplan stops funding without removing the envelope or its balance."""
+    result = load_budget("unplan.bean")
+    envelope = _envelope(result, "Groceries").envelope
+    assert envelope.effective(date(2024, 1, 15)).monthly == D("500")
+    assert envelope.effective(date(2024, 2, 1)).monthly is None
+    assert _envelope(result, "Groceries").closing == D("-220")
 
 
 def test_fixtures_are_valid_beancount() -> None:

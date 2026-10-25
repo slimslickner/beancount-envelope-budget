@@ -91,6 +91,30 @@ uv run beancount-envelope-budget fund main.bean --from 2024-01 --to 2025-12 > en
 
 Add `include "envelope_backfill.bean"` to your ledger and re-run `check`.
 
+### Planning envelopes
+
+An envelope's **plan** is its `monthly`, `ahead`, `priority`, `target` and `by`
+metadata. Set it on `open`, change it from a date with `plan`, or clear it with
+`unplan`:
+
+```beancount
+2024-01-01 custom "envelope" "open" "Mortgage"
+  monthly: 2500.00
+  priority: 1
+
+2028-01-01 custom "envelope" "plan" "Mortgage"
+  monthly: 2600.00                              ;; only monthly changes
+
+2029-01-01 custom "envelope" "unplan" "Mortgage"  ;; stop funding, keep balance
+```
+
+`plan` takes the same metadata as `open` and changes only the fields it names, so
+`open` and `plan` resolve to the same plan. `monthly` may be a number or
+`"avgN"` — the average of the last N completed months of spending — so `"avg3"`
+tracks spending without a fixed figure. `unplan` stops `fund --mode topup`
+funding the envelope while it keeps its balance. `fund --mode topup` uses the
+plan to decide how much each envelope needs.
+
 ## Commands
 
 ```sh

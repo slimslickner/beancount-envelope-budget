@@ -633,28 +633,44 @@ def _resolve_monthly(
     Returns:
         The monthly amount, or ``None`` when the envelope has no plan.
     """
-    monthly, _ahead, _priority = report.envelope.effective(on)
-    if isinstance(monthly, Decimal):
-        return monthly
-    if monthly == "avg3":
-        return _average_spend(report, on)
-    envelope = report.envelope
-    if envelope.target is not None and envelope.by is not None:
+    plan = report.envelope.effective(on)
+    if isinstance(plan.monthly, Decimal):
+        return plan.monthly
+    if isinstance(plan.monthly, str):
+        return _average_spend(report, on, _avg_window(plan.monthly))
+    if plan.target is not None and plan.by is not None:
         anchor = month_of(on)
         balance = row_for(report.rows, anchor).closing
-        remaining = (envelope.by.year - anchor.year) * _MONTHS_PER_YEAR + (
-            envelope.by.month - anchor.month
+        remaining = (plan.by.year - anchor.year) * _MONTHS_PER_YEAR + (
+            plan.by.month - anchor.month
         )
-        return _monthly_need(envelope.target, balance, remaining)
+        return _monthly_need(plan.target, balance, remaining)
     return None
 
 
-def _average_spend(report: EnvelopeReport, on: date) -> Decimal | None:
-    """Average an envelope's spending over the last three completed months.
+def _avg_window(monthly: str) -> int:
+    """Return the window size of an ``avgN`` monthly amount.
+
+    Args:
+        monthly: An ``avgN`` string, already validated by the core.
+
+    Returns:
+        The window size, ``N``.
+
+    Examples:
+        >>> _avg_window("avg6")
+        6
+    """
+    return int(monthly[3:])
+
+
+def _average_spend(report: EnvelopeReport, on: date, window: int) -> Decimal | None:
+    """Average an envelope's spending over the last ``window`` completed months.
 
     Args:
         report: The envelope's report.
         on: The date to evaluate.
+        window: How many completed months to average.
 
     Returns:
         The average spending, or ``None`` when there is no history.
@@ -662,7 +678,7 @@ def _average_spend(report: EnvelopeReport, on: date) -> Decimal | None:
     anchor = month_of(on)
     total = Decimal(0)
     count = 0
-    for offset in (1, 2, 3):
+    for offset in range(1, window + 1):
         row = _maybe_row(report.rows, _shift_month(anchor, -offset))
         if row is None:
             continue
@@ -698,13 +714,13 @@ def _plan_topup(
         monthly = _resolve_monthly(report, on)
         if monthly is None:
             continue
-        _monthly, ahead, priority = envelope.effective(on)
-        level = monthly * (1 + ahead)
+        plan = envelope.effective(on)
+        level = monthly * (1 + plan.ahead)
         need = level - row_for(report.rows, month_of(on)).closing
         if need <= 0:
             continue
-        rank = priority if priority is not None else Decimal(0)
-        candidates.append((priority is None, rank, index, envelope.name, need))
+        rank = plan.priority if plan.priority is not None else Decimal(0)
+        candidates.append((plan.priority is None, rank, index, envelope.name, need))
     candidates.sort(key=lambda item: (item[0], item[1], item[2]))
 
     lines: list[str] = []
@@ -1153,17 +1169,18 @@ def _suggest_rows(result: BudgetResult) -> list[tuple[str, ...]]:
     rows: list[tuple[str, ...]] = []
     for report in result.envelopes:
         envelope = report.envelope
-        if envelope.target is None or envelope.by is None:
+        plan = envelope.effective(anchor)
+        if plan.target is None or plan.by is None:
             continue
         balance = report.closing_at(anchor)
-        remaining = _months_remaining(anchor, envelope.by)
-        need = _monthly_need(envelope.target, balance, remaining)
+        remaining = _months_remaining(anchor, plan.by)
+        need = _monthly_need(plan.target, balance, remaining)
         rows.append(
             (
                 envelope.name,
                 _money(balance),
-                _money(envelope.target),
-                envelope.by.isoformat(),
+                _money(plan.target),
+                plan.by.isoformat(),
                 str(remaining),
                 _money(need),
             )

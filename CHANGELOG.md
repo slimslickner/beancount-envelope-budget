@@ -45,3 +45,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `report --json`, machine-readable output for the report.
 - `AGENTS.md` (with a `CLAUDE.md` pointer) and `docs/style-guide.md`; the
   original design spec moved to `docs/original_design.md`.
+- `unplan`, which clears an envelope's plan from its date; the envelope keeps its
+  balance and stays in reports, but `topup` stops funding it.
+- `monthly: "avgN"`, generalising the average-of-completed-months notation from
+  `"avg3"` to any window, e.g. `"avg6"`.
+
+### Changed
+
+- `open` and `plan` now resolve to the same plan record: `plan` takes the same
+  `monthly`, `ahead`, `priority`, `target` and `by` metadata as `open` and
+  changes only the fields it names, so anything settable on `open` is settable
+  on `plan`, dated. `report --json` carries each envelope's effective `plan`.
+
+### Removed
+
+- The positional monthly amount on `plan` (`plan "<name>" <amount>`), replaced by
+  `monthly:` metadata. `monthly` also moves onto `plan`'s allowed metadata, and
+  `target`/`by` now apply to `plan` as well as `open`.

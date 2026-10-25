@@ -109,14 +109,13 @@ class Envelopes(FavaExtensionBase):
         Returns:
             The target and deadline, or the envelope name.
         """
+        plan = envelope.plan
         parts: list[str] = []
-        if envelope.target is not None:
-            currency = (
-                f" {envelope.target_currency}" if envelope.target_currency else ""
-            )
-            parts.append(f"target {envelope.target:.2f}{currency}")
-        if envelope.by is not None:
-            parts.append(f"by {envelope.by.isoformat()}")
+        if plan.target is not None:
+            currency = f" {plan.target_currency}" if plan.target_currency else ""
+            parts.append(f"target {plan.target:.2f}{currency}")
+        if plan.by is not None:
+            parts.append(f"by {plan.by.isoformat()}")
         return " · ".join(parts)
 
     def activity_title(self, cell: Cell) -> str:

@@ -1,0 +1,40 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Expenses:Groceries USD
+  envelope: "Groceries"
+2020-01-01 open Equity:Opening-Balances USD
+
+2023-12-31 * "Opening balance"
+  Assets:Checking           10000.00 USD
+  Equity:Opening-Balances  -10000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Groceries"
+  monthly: "avg6"
+  priority: 1
+
+2024-01-15 * "January groceries"
+  Expenses:Groceries         100.00 USD
+  Assets:Checking           -100.00 USD
+
+2024-02-15 * "February groceries"
+  Expenses:Groceries         100.00 USD
+  Assets:Checking           -100.00 USD
+
+2024-03-15 * "March groceries"
+  Expenses:Groceries         100.00 USD
+  Assets:Checking           -100.00 USD
+
+2024-04-15 * "April groceries"
+  Expenses:Groceries         100.00 USD
+  Assets:Checking           -100.00 USD
+
+2024-05-15 * "May groceries"
+  Expenses:Groceries         100.00 USD
+  Assets:Checking           -100.00 USD
+
+2024-06-15 * "June groceries"
+  Expenses:Groceries         400.00 USD
+  Assets:Checking           -400.00 USD

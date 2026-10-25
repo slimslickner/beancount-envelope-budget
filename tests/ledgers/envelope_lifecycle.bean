@@ -22,6 +22,7 @@ option "operating_currency" "USD"
 2024-01-20 custom "envelope" "close" "B"
 2024-01-21 custom "envelope" "allocate" "B" 5.00 USD
 
-2024-02-01 custom "envelope" "plan" "A" 200.00 USD
+2024-02-01 custom "envelope" "plan" "A"
+  monthly: 200.00
   ahead: 3
   priority: 2

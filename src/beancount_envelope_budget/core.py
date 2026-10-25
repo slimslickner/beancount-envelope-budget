@@ -12,8 +12,9 @@ everything below them works on plain records.
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -35,6 +36,7 @@ __all__ = [
     "Envelope",
     "EnvelopeReport",
     "MonthRow",
+    "Plan",
     "PlanChange",
     "Source",
     "compute",
@@ -47,7 +49,7 @@ __all__ = [
 #: The reserved name of the unassigned pool.
 POOL = "pool"
 
-#: A planned monthly amount: a number, or the literal ``"avg3"``.
+#: A planned monthly amount: a number, or the literal ``"avgN"``.
 Monthly = Decimal | str
 
 _ROOT_INCOME = "Income"
@@ -56,6 +58,9 @@ _INCOME_OR_EQUITY = frozenset({_ROOT_INCOME, _ROOT_EQUITY})
 _CASH_ROOTS = frozenset({"Assets", "Liabilities"})
 _MONTHS_PER_YEAR = 12
 _MOVE_ARGS = 3
+
+#: The shape of an average-of-N-months monthly amount, e.g. ``"avg3"``.
+_AVG_PATTERN = re.compile(r"^avg(\d+)$")
 
 
 # --- Records -------------------------------------------------------------------
@@ -111,20 +116,60 @@ class ActivityEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class Plan:
+    """An envelope's funding parameters at one point in time.
+
+    The same record is used for an envelope's base parameters, for the result of
+    :meth:`Envelope.effective`, and as the fields an override may change.
+
+    Attributes:
+        monthly: The planned monthly amount, a number or ``"avgN"``, or ``None``.
+        ahead: Whole months held in reserve beyond the current one.
+        priority: The funding priority, lower first, or ``None``.
+        target: A goal balance, if any.
+        target_currency: The currency of the target, if any.
+        by: The date the target should be reached by, if any.
+
+    Examples:
+        >>> Plan()
+        Plan(monthly=None, ahead=0, priority=None, target=None, target_currency=None, by=None)
+    """
+
+    monthly: Monthly | None = None
+    ahead: int = 0
+    priority: Decimal | None = None
+    target: Decimal | None = None
+    target_currency: str | None = None
+    by: date | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class PlanChange:
-    """A dated change to an envelope's funding parameters.
+    """A dated change to an envelope's plan.
+
+    Every field is ``None`` when the change does not name it, so applying a
+    change touches only the fields it sets. A clearing change (from ``unplan``)
+    resets the accumulated plan to defaults.
 
     Attributes:
         date: The date the change takes effect.
         monthly: The new monthly amount, or ``None`` when unchanged.
         ahead: The new ``ahead`` value, or ``None`` when unchanged.
         priority: The new priority, or ``None`` when unchanged.
+        target: The new goal balance, or ``None`` when unchanged.
+        target_currency: The currency of the new target, or ``None``.
+        by: The new deadline, or ``None`` when unchanged.
+        clears: Whether applying the change resets the plan to defaults.
     """
 
     date: date
-    monthly: Monthly | None
-    ahead: int | None
-    priority: Decimal | None
+    monthly: Monthly | None = None
+    ahead: int | None = None
+    priority: Decimal | None = None
+    target: Decimal | None = None
+    target_currency: str | None = None
+    by: date | None = None
+    clears: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,50 +180,51 @@ class Envelope:
         name: The envelope's name.
         opened: The date the envelope was declared.
         closed: The date the envelope was retired, if any.
-        target: A goal balance, if any.
-        target_currency: The currency of the target, if any.
-        by: The date the target should be reached by, if any.
-        monthly: The base monthly amount, or ``None``.
-        ahead: Whole months held in reserve beyond the current one.
-        priority: The funding priority, lower first, or ``None``.
+        plan: The base plan, from the ``open`` metadata.
         plans: Dated overrides, sorted by date.
     """
 
     name: str
     opened: date
     closed: date | None
-    target: Decimal | None
-    target_currency: str | None
-    by: date | None
-    monthly: Monthly | None
-    ahead: int
-    priority: Decimal | None
+    plan: Plan
     plans: tuple[PlanChange, ...]
 
-    def effective(
-        self,
-        on: date,
-    ) -> tuple[Monthly | None, int, Decimal | None]:
-        """Return the funding parameters in force on a date.
+    def effective(self, on: date) -> Plan:
+        """Return the plan in force on a date.
 
         Args:
             on: The date to evaluate.
 
         Returns:
-            A ``(monthly, ahead, priority)`` triple, applying every plan dated
-            on or before ``on``.
+            The base plan with every override dated on or before ``on`` applied
+            in order; a clearing override resets it to a default :class:`Plan`.
         """
-        monthly, ahead, priority = self.monthly, self.ahead, self.priority
-        for plan in self.plans:
-            if plan.date > on:
+        plan = self.plan
+        for change in self.plans:
+            if change.date > on:
                 break
-            if plan.monthly is not None:
-                monthly = plan.monthly
-            if plan.ahead is not None:
-                ahead = plan.ahead
-            if plan.priority is not None:
-                priority = plan.priority
-        return monthly, ahead, priority
+            if change.clears:
+                plan = Plan()
+                continue
+            plan = replace(
+                plan,
+                monthly=(
+                    change.monthly if change.monthly is not None else plan.monthly
+                ),
+                ahead=change.ahead if change.ahead is not None else plan.ahead,
+                priority=(
+                    change.priority if change.priority is not None else plan.priority
+                ),
+                target=change.target if change.target is not None else plan.target,
+                target_currency=(
+                    change.target_currency
+                    if change.target_currency is not None
+                    else plan.target_currency
+                ),
+                by=change.by if change.by is not None else plan.by,
+            )
+        return plan
 
 
 @dataclass(frozen=True, slots=True)
@@ -339,12 +385,7 @@ class _Draft:
 
     name: str
     opened: date
-    monthly: Monthly | None = None
-    ahead: int = 0
-    priority: Decimal | None = None
-    target: Decimal | None = None
-    target_currency: str | None = None
-    by: date | None = None
+    plan: Plan = field(default_factory=Plan)
     plans: list[PlanChange] = field(default_factory=list)
     closed: date | None = None
 
@@ -358,13 +399,8 @@ class _Draft:
             name=self.name,
             opened=self.opened,
             closed=self.closed,
-            target=self.target,
-            target_currency=self.target_currency,
-            by=self.by,
-            monthly=self.monthly,
-            ahead=self.ahead,
-            priority=self.priority,
-            plans=tuple(sorted(self.plans, key=lambda plan: plan.date)),
+            plan=self.plan,
+            plans=tuple(sorted(self.plans, key=lambda change: change.date)),
         )
 
 
@@ -739,15 +775,25 @@ def _parse_monthly(
     """
     if value is None:
         return None
-    if value == "avg3":
-        return "avg3"
+    if isinstance(value, str):
+        match = _AVG_PATTERN.match(value)
+        if match is not None and int(match.group(1)) >= 1:
+            return value
+        diagnostics.append(
+            _diag(
+                "E008",
+                entry=entry,
+                detail=f'monthly for {name} must be a number or "avgN"',
+            )
+        )
+        return None
     number = _as_decimal(value)
     if number is None:
         diagnostics.append(
             _diag(
                 "E008",
                 entry=entry,
-                detail=f'monthly for {name} must be a number or "avg3"',
+                detail=f'monthly for {name} must be a number or "avgN"',
             )
         )
     return number
@@ -918,20 +964,24 @@ def _handle_open(
     if name in drafts:
         diagnostics.append(_diag("E003", entry=raw.entry, name=name))
         return
-    draft = _Draft(name=name, opened=raw.date)
-    draft.monthly = _parse_monthly(
-        raw.meta.get("monthly"), name, raw.entry, diagnostics
-    )
     ahead = _parse_ahead(raw.meta.get("ahead"), name, raw.entry, diagnostics)
-    draft.ahead = 0 if ahead is None else ahead
-    draft.priority = _parse_priority(
-        raw.meta.get("priority"), name, raw.entry, diagnostics
-    )
     target = _parse_target(raw.meta.get("target"), name, raw.entry, diagnostics)
-    if target is not None:
-        draft.target, draft.target_currency = target
-    draft.by = _parse_by(raw.meta.get("by"), name, raw.entry, diagnostics)
-    drafts[name] = draft
+    drafts[name] = _Draft(
+        name=name,
+        opened=raw.date,
+        plan=Plan(
+            monthly=_parse_monthly(
+                raw.meta.get("monthly"), name, raw.entry, diagnostics
+            ),
+            ahead=0 if ahead is None else ahead,
+            priority=_parse_priority(
+                raw.meta.get("priority"), name, raw.entry, diagnostics
+            ),
+            target=target[0] if target is not None else None,
+            target_currency=target[1] if target is not None else None,
+            by=_parse_by(raw.meta.get("by"), name, raw.entry, diagnostics),
+        ),
+    )
     order.append(name)
 
 
@@ -948,25 +998,47 @@ def _handle_plan(
         diagnostics: The list to append diagnostics to.
     """
     name = raw.args[0] if raw.args else None
-    amount = raw.args[1] if len(raw.args) > 1 else None
     if not isinstance(name, str) or name not in drafts:
         diagnostics.append(_diag("E001", entry=raw.entry, name=name))
         return
-    if not isinstance(amount, Amount):
-        diagnostics.append(
-            _diag("E008", entry=raw.entry, detail="plan amount must be an amount")
-        )
-        return
+    target = _parse_target(raw.meta.get("target"), name, raw.entry, diagnostics)
     drafts[name].plans.append(
         PlanChange(
             date=raw.date,
-            monthly=amount.number,
+            monthly=_parse_monthly(
+                raw.meta.get("monthly"), name, raw.entry, diagnostics
+            ),
             ahead=_parse_ahead(raw.meta.get("ahead"), name, raw.entry, diagnostics),
             priority=_parse_priority(
                 raw.meta.get("priority"), name, raw.entry, diagnostics
             ),
+            target=target[0] if target is not None else None,
+            target_currency=target[1] if target is not None else None,
+            by=_parse_by(raw.meta.get("by"), name, raw.entry, diagnostics),
         )
     )
+
+
+def _handle_unplan(
+    raw: _RawDirective,
+    drafts: dict[str, _Draft],
+    diagnostics: list[Diagnostic],
+) -> None:
+    """Handle an ``unplan`` directive.
+
+    Clears the envelope's plan from the directive's date on, without touching
+    its balance or removing it from reports.
+
+    Args:
+        raw: The parsed directive.
+        drafts: The in-progress envelopes, keyed by name.
+        diagnostics: The list to append diagnostics to.
+    """
+    name = raw.args[0] if raw.args else None
+    if not isinstance(name, str) or name not in drafts:
+        diagnostics.append(_diag("E001", entry=raw.entry, name=name))
+        return
+    drafts[name].plans.append(PlanChange(date=raw.date, clears=True))
 
 
 def _parse_amount(
@@ -1059,6 +1131,8 @@ def _process_declarations(
             _handle_open(raw, drafts, order, diagnostics)
         elif raw.verb == "plan":
             _handle_plan(raw, drafts, diagnostics)
+        elif raw.verb == "unplan":
+            _handle_unplan(raw, drafts, diagnostics)
         elif raw.verb == "allocate":
             _handle_allocate(raw, drafts, allocate, diagnostics)
         elif raw.verb == "move":

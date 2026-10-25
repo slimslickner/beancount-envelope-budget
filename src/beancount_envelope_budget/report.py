@@ -19,6 +19,7 @@ from beancount_envelope_budget.core import (
     Diagnostic,
     EnvelopeReport,
     MonthRow,
+    Plan,
     month_of,
     row_for,
 )
@@ -89,16 +90,12 @@ class EnvelopeView:
 
     Attributes:
         name: The envelope's name.
-        target: A goal balance, if any.
-        target_currency: The currency of the target, if any.
-        by: The date the target should be reached by, if any.
+        plan: The envelope's effective plan as of the view's first month.
         cells: One :class:`Cell` per month, aligned with the view's months.
     """
 
     name: str
-    target: Decimal | None
-    target_currency: str | None
-    by: date | None
+    plan: Plan
     cells: tuple[Cell, ...]
 
 
@@ -294,9 +291,7 @@ def _envelope_view(
     )
     return EnvelopeView(
         name=report.name,
-        target=envelope.target,
-        target_currency=envelope.target_currency,
-        by=envelope.by,
+        plan=envelope.effective(months[0]),
         cells=cells,
     )
 
@@ -371,9 +366,7 @@ def to_jsonable(view: BudgetView) -> dict[str, object]:
         "envelopes": [
             {
                 "name": envelope.name,
-                "target": _money_json(envelope.target),
-                "target_currency": envelope.target_currency,
-                "by": envelope.by.isoformat() if envelope.by is not None else None,
+                "plan": _plan_json(envelope.plan),
                 "cells": [_cell_json(cell) for cell in envelope.cells],
             }
             for envelope in view.envelopes
@@ -396,6 +389,30 @@ def _money_json(value: Decimal | None) -> str | None:
         A two-decimal string, or ``None``.
     """
     return None if value is None else f"{value:.2f}"
+
+
+def _plan_json(plan: Plan) -> dict[str, object]:
+    """Serialise an envelope's effective plan.
+
+    Args:
+        plan: The plan.
+
+    Returns:
+        A JSON-compatible dictionary.
+    """
+    monthly: str | None = None
+    if isinstance(plan.monthly, Decimal):
+        monthly = f"{plan.monthly:.2f}"
+    elif isinstance(plan.monthly, str):
+        monthly = plan.monthly
+    return {
+        "monthly": monthly,
+        "ahead": plan.ahead,
+        "priority": _money_json(plan.priority),
+        "target": _money_json(plan.target),
+        "target_currency": plan.target_currency,
+        "by": plan.by.isoformat() if plan.by is not None else None,
+    }
 
 
 def _cell_json(cell: Cell) -> dict[str, object]:

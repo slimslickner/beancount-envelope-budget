@@ -53,6 +53,19 @@ The three range modes skip any envelope-month that already has an allocation;
 `--force` overrides. `topup` never skips, because it measures from current
 balances — rerun it after each paycheck and append the new output.
 
+An envelope's plan is its `monthly`, `ahead`, `priority`, `target` and `by`
+metadata, set on `open` or changed from a date with `plan`
+(`custom "envelope" "plan" "<name>"` plus the same metadata), and cleared with
+`unplan`. `monthly` may be a number or `"avgN"`, the average of the last N
+completed months of spending.
+
+**`topup` needs a plan.** With no `monthly` (and no `target` + `by`) it has no
+level to fund to and prints nothing. To top spent envelopes back up without any
+plan directives, use `overspend` over a range instead — e.g. the current month:
+`fund LEDGER --from YYYY-MM --to YYYY-MM --mode overspend` brings negative
+envelopes back to zero. `actuals` funds each month's net spending, so months
+close flat.
+
 ## Which workflow?
 
 - **New ledger** → set up accounts and directives, then `check`. See

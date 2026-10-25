@@ -71,7 +71,7 @@ At each month end the pool plus all envelope balances must equal the ledger's ca
 
 **Error:** Invalid envelope metadata: {detail}.
 
-Check the types: `monthly` must be a number or "avg3", `ahead` a whole number, and `priority` a number.
+Check the types: `monthly` must be a number or "avgN", `ahead` a whole number, `priority` a number, `target` an amount and `by` a date.
 
 
 ## E009

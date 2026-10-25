@@ -8,7 +8,7 @@ The ledger is the only source of truth. There is no second database: allocations
 are dated `custom "envelope"` directives, and spending is derived from your
 existing postings.
 
-## The six terms
+## The seven terms
 
 | Term | Meaning |
 | --- | --- |
@@ -18,6 +18,7 @@ existing postings.
 | **Allocation** | A dated amount moved from the pool into an envelope. |
 | **Activity** | The effect of postings on an envelope: spending lowers it, refunds and envelope-level income raise it. |
 | **Carryover** | An envelope's closing balance, positive or negative, becomes next month's opening balance. |
+| **Plan** | An envelope's funding parameters — `monthly`, `ahead`, `priority`, `target`, `by` — set on `open`, changed from a date with `plan`, and cleared with `unplan`. |
 
 Months are calendar months, and everything is attributed by its date.
 
@@ -90,16 +91,37 @@ One directive name, `"envelope"`, with a verb as the first argument. See
 2024-01-31 custom "envelope" "allocate" "Groceries" 600.00 USD
 2024-02-15 custom "envelope" "move" "Groceries" "Gifts" 50.00 USD
 2027-12-31 custom "envelope" "close" "Old"
-2028-01-01 custom "envelope" "plan" "Mortgage" 2600.00 USD
+2028-01-01 custom "envelope" "plan" "Mortgage"
+  monthly: 2600.00
+2029-01-01 custom "envelope" "unplan" "Mortgage"
 ```
 
 - `start` begins tracking. Earlier postings and allocations are ignored; the
   pool starts at the cash balance just before this date.
+- `open` declares an envelope. Its five metadata keys — `monthly`, `ahead`,
+  `priority`, `target` and `by` — describe its **plan**: the funding parameters
+  that `fund --mode topup` and `suggest` read. With no metadata, the envelope
+  exists but is never auto-funded.
 - `allocate` moves money from the pool into an envelope. A negative amount moves
   money back to the pool.
 - `move` moves money between two envelopes, e.g. to cover an overspend.
 - `close` retires an envelope. Its balance must be zero.
-- `plan` sets the planned monthly amount from that date on.
+- `plan` changes an envelope's plan from its date. It takes the **same** metadata
+  as `open` and changes only the fields it names, so `monthly: 2600.00` alone
+  leaves `ahead`, `priority`, `target` and `by` as they were. `open` and `plan`
+  therefore resolve to the same object.
+- `unplan` clears an envelope's plan from its date. The envelope keeps its
+  balance and stays in reports, but nothing is planned for it and `topup` stops
+  funding it.
+
+`monthly` is a number, or `"avgN"` for the average of the last `N` completed
+months of spending — `"avg3"`, `"avg6"`, and so on.
+
+Directives are processed in date order, and a `plan` or `unplan` must name an
+envelope that has already been declared. So it must be dated on or after its
+`open`, and that `open` must itself be on or after `start` (an `open` before
+`start` is ignored, `W002`). A `plan`/`unplan` that names an envelope not yet
+declared is reported as `E001`.
 
 ### Overrides
 

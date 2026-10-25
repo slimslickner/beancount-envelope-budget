@@ -274,6 +274,24 @@ def test_topup_avg3() -> None:
     assert cli._resolve_monthly(report, date(2024, 4, 15)) == D("520")
 
 
+def test_topup_avg6() -> None:
+    """avgN resolves to the average of the last N completed months."""
+    entries, _errors, options = loader.load_file(_LEDGERS / "topup_avg6.bean")
+    result = compute(entries, options)
+    report = result.envelope("Groceries")
+    assert report is not None
+    assert cli._resolve_monthly(report, date(2024, 7, 15)) == D("150")
+
+
+def test_topup_skips_unplanned_envelope(capsys: pytest.CaptureFixture[str]) -> None:
+    """After unplan, topup no longer funds the envelope."""
+    code = cli.main(
+        ["fund", _ledger("unplan.bean"), "--mode", "topup", "--date", "2024-02-15"]
+    )
+    assert code == 0
+    assert _lines(capsys) == []
+
+
 def test_topup_rerun(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Rerunning topup after including its output funds only the remainder."""
     ledger = tmp_path / "main.bean"

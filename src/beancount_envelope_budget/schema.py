@@ -52,7 +52,7 @@ class ValueKind(StrEnum):
     DATE = "date"
     BOOLEAN = "boolean"
     WHOLE_NUMBER = "whole number"
-    NUMBER_OR_AVG3 = 'number or "avg3"'
+    NUMBER_OR_AVG = 'number or "avgN"'
     AMOUNT = "amount (number and currency)"
 
 
@@ -258,17 +258,28 @@ DIRECTIVE_VERBS: tuple[DirectiveVerb, ...] = (
                 required=True,
                 description="The envelope the plan applies to.",
             ),
+        ),
+        metadata=("monthly", "ahead", "priority", "target", "by"),
+        description=(
+            "Changes an envelope's plan from that date. It takes the same "
+            "metadata as `open` and changes only the fields it names; the "
+            "latest plan on or before the run date wins."
+        ),
+    ),
+    DirectiveVerb(
+        verb="unplan",
+        positionals=(
             PositionalArg(
-                name="amount",
-                kind=ValueKind.AMOUNT,
+                name="envelope",
+                kind=ValueKind.STRING,
                 required=True,
-                description="The planned monthly amount from this date on.",
+                description="The envelope to clear the plan from.",
             ),
         ),
-        metadata=("ahead", "priority"),
+        metadata=(),
         description=(
-            "Sets the planned monthly amount from that date. The latest plan on "
-            "or before the run date wins."
+            "Clears an envelope's plan from that date, so no funding is planned "
+            "for it. Its balance and its presence in reports are unaffected."
         ),
     ),
 )
@@ -302,13 +313,13 @@ METADATA_KEYS: tuple[MetadataKey, ...] = (
     ),
     MetadataKey(
         key="monthly",
-        kind=ValueKind.NUMBER_OR_AVG3,
+        kind=ValueKind.NUMBER_OR_AVG,
         required=False,
         default=None,
         applies_to=(AppliesTo.ENVELOPE_OPEN, AppliesTo.ENVELOPE_PLAN),
         description=(
-            'The planned monthly funding amount, or "avg3" for the average of '
-            "the last three completed months of spending."
+            'The planned monthly funding amount, or "avgN" for the average of '
+            "the last N completed months of spending."
         ),
     ),
     MetadataKey(
@@ -338,7 +349,7 @@ METADATA_KEYS: tuple[MetadataKey, ...] = (
         kind=ValueKind.AMOUNT,
         required=False,
         default=None,
-        applies_to=(AppliesTo.ENVELOPE_OPEN,),
+        applies_to=(AppliesTo.ENVELOPE_OPEN, AppliesTo.ENVELOPE_PLAN),
         description="A goal balance for the envelope, e.g. 15000.00 USD.",
     ),
     MetadataKey(
@@ -346,7 +357,7 @@ METADATA_KEYS: tuple[MetadataKey, ...] = (
         kind=ValueKind.DATE,
         required=False,
         default=None,
-        applies_to=(AppliesTo.ENVELOPE_OPEN,),
+        applies_to=(AppliesTo.ENVELOPE_OPEN, AppliesTo.ENVELOPE_PLAN),
         description=(
             "The date by which the target should be reached, e.g. 2028-06-01."
         ),
@@ -447,8 +458,9 @@ DIAGNOSTIC_CODES: tuple[DiagnosticCode, ...] = (
         severity=Severity.ERROR,
         summary="Invalid envelope metadata: {detail}.",
         explanation=(
-            'Check the types: `monthly` must be a number or "avg3", `ahead` a '
-            "whole number, and `priority` a number."
+            'Check the types: `monthly` must be a number or "avgN", `ahead` a '
+            "whole number, `priority` a number, `target` an amount and `by` a "
+            "date."
         ),
     ),
     DiagnosticCode(

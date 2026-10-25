@@ -13,4 +13,5 @@ option "operating_currency" "USD"
   monthly: 2500.00
   priority: 1
 
-2028-01-01 custom "envelope" "plan" "Mortgage" 2600.00 USD
+2028-01-01 custom "envelope" "plan" "Mortgage"
+  monthly: 2600.00

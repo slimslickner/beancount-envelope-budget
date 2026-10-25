@@ -18,3 +18,5 @@ option "operating_currency" "USD"
   monthly: "weekly"
   ahead: 2.5
   priority: "high"
+2024-01-01 custom "envelope" "open" "BadAvg"
+  monthly: "avg0"

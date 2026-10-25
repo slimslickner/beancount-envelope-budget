@@ -16,7 +16,7 @@ in [`docs/original_design.md`](docs/original_design.md).
 
 | Path | Role |
 | --- | --- |
-| `src/beancount_envelope_budget/core.py` | Pure engine: resolution rules, monthly carryover, pool and cash, the invariant. |
+| `src/beancount_envelope_budget/core.py` | Pure engine: envelope plans (base plus dated overrides), resolution rules, monthly carryover, pool and cash, the invariant. |
 | `src/beancount_envelope_budget/report.py` | Pure view model (`build_view`, `to_jsonable`) shared by the CLI and Fava. |
 | `src/beancount_envelope_budget/schema.py` | The registries: directive verbs, metadata keys, reserved values, error codes. |
 | `src/beancount_envelope_budget/plugin.py` | Beancount plugin: runs the core, returns entries plus diagnostics. |
@@ -46,7 +46,8 @@ uv run ruff format --check && uv run ruff check && uv run ty check && uv run pyt
 See [`docs/style-guide.md`](docs/style-guide.md) for the full guide. The short
 version: money is `Decimal`; records are frozen slotted dataclasses; every public
 symbol has a Google-style docstring with doctests where useful; `core.py` imports
-only `beancount`, and only `fava_ext.py` imports Fava; only `pin --write` edits a
+only `beancount` (plus our `schema` and the standard library), and only
+`fava_ext.py` imports Fava; only `pin --write` edits a
 ledger file; the registries in `schema.py` are the source of truth for schema and
 errors; update `CHANGELOG.md` for every user-visible change.
 

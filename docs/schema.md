@@ -66,16 +66,27 @@ Metadata: none.
 
 ### `plan`
 
-Sets the planned monthly amount from that date. The latest plan on or before the run date wins.
+Changes an envelope's plan from that date. It takes the same metadata as `open` and changes only the fields it names; the latest plan on or before the run date wins.
 
 
 | Argument | Kind | Required | Description |
 | --- | --- | --- | --- |
 | `envelope` | string | yes | The envelope the plan applies to. |
-| `amount` | amount (number and currency) | yes | The planned monthly amount from this date on. |
 
 
-Metadata: `ahead`, `priority`.
+Metadata: `monthly`, `ahead`, `priority`, `target`, `by`.
+
+### `unplan`
+
+Clears an envelope's plan from that date, so no funding is planned for it. Its balance and its presence in reports are unaffected.
+
+
+| Argument | Kind | Required | Description |
+| --- | --- | --- | --- |
+| `envelope` | string | yes | The envelope to clear the plan from. |
+
+
+Metadata: none.
 
 ## Metadata keys
 
@@ -83,11 +94,11 @@ Metadata: `ahead`, `priority`.
 | --- | --- | --- | --- | --- | --- |
 | `envelope` | string | no | — | account open, transaction, posting | The envelope an account's or posting's effects belong to. The reserved value pool sends them to the pool instead. |
 | `cash-account` | boolean | no | — | account open | TRUE marks an Assets or Liabilities account as spendable cash whose balance counts toward the pool. |
-| `monthly` | number or "avg3" | no | — | envelope open, envelope plan | The planned monthly funding amount, or "avg3" for the average of the last three completed months of spending. |
+| `monthly` | number or "avgN" | no | — | envelope open, envelope plan | The planned monthly funding amount, or "avgN" for the average of the last N completed months of spending. |
 | `ahead` | whole number | no | `0` | envelope open, envelope plan | Whole months to hold in reserve beyond the current one when auto-funding with topup. |
 | `priority` | decimal | no | — | envelope open, envelope plan | Lower numbers fund first during topup. Ties fund in declaration order; envelopes without a priority fund last. |
-| `target` | amount (number and currency) | no | — | envelope open | A goal balance for the envelope, e.g. 15000.00 USD. |
-| `by` | date | no | — | envelope open | The date by which the target should be reached, e.g. 2028-06-01. |
+| `target` | amount (number and currency) | no | — | envelope open, envelope plan | A goal balance for the envelope, e.g. 15000.00 USD. |
+| `by` | date | no | — | envelope open, envelope plan | The date by which the target should be reached, e.g. 2028-06-01. |
 
 
 ## Reserved values
