@@ -1,0 +1,127 @@
+{% set view = extension.report(request.args.get('month'), request.args.get('months')) %}
+{% if not view.has_start %}
+  <p>There is no <code>custom "envelope" "start"</code> directive, so there is nothing to show.</p>
+{% else %}
+  <div class="envelope-report">
+    <style>
+      .envelope-months {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 32rem), 1fr));
+        gap: 1.5rem;
+        align-items: start;
+      }
+      .envelope-month {
+        min-width: 0;
+        overflow-x: auto;
+      }
+      .envelope-table {
+        width: 100%;
+      }
+      .envelope-month h3 {
+        margin-top: 0;
+      }
+      .envelope-table td:first-child,
+      .envelope-table th:first-child {
+        white-space: nowrap;
+      }
+      .envelope-group {
+        border-top: 1px solid rgba(128, 128, 128, 0.35);
+      }
+      .envelope-group th {
+        font-weight: 600;
+        text-align: left;
+      }
+      .envelope-group td {
+        font-weight: 600;
+      }
+      .envelope-child td:first-child {
+        padding-left: 1.5rem;
+      }
+    </style>
+
+    <h2>Envelope report <small>in {{ view.currency }}</small></h2>
+
+    <p class="envelope-nav">
+      <a href="?{{ view.nav.previous }}">&laquo; previous month</a> &middot;
+      <a href="?{{ view.nav.last3 }}">last 3 months</a> &middot;
+      <a href="?{{ view.nav.forward3 }}">next 3 months</a> &middot;
+      <a href="?{{ view.nav.next }}">next month &raquo;</a>
+    </p>
+
+    {% if view.warnings %}
+      <div class="envelope-warnings">
+        <strong>Warnings</strong>
+        <ul>
+          {% for warning in view.warnings %}
+            <li><code>{{ warning.code }}</code> {{ warning.message }}</li>
+          {% endfor %}
+        </ul>
+        <p><a href="{{ extension.errors_url() }}">See all errors and warnings</a></p>
+      </div>
+    {% endif %}
+
+    <div class="envelope-months">
+      {% for index in range(view.months|length) %}
+        <div class="envelope-month">
+          <h3>
+            {{ view.months[index].strftime('%Y-%m') }}
+            {% if view.projected[index] %}<small>(projected)</small>{% endif %}
+          </h3>
+          <table class="table envelope-table">
+            <thead>
+              <tr>
+                <th>Envelope</th>
+                <th>Opening</th>
+                <th>Allocated</th>
+                <th>Activity</th>
+                <th>Closing</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for group in view.groups %}
+                {% set subtotal = group.subtotal[index] %}
+                {% if group.parent is not none and subtotal.visible %}
+                  <tr class="envelope-group">
+                    <th>{{ group.parent }}</th>
+                    <td class="num">{{ extension.money(subtotal.opening) }}</td>
+                    <td class="num">{{ extension.money(subtotal.allocated) }}</td>
+                    <td class="num">{{ extension.money(subtotal.activity) }}</td>
+                    <td class="num">{{ extension.money(subtotal.closing) }}</td>
+                  </tr>
+                {% endif %}
+                {% for envelope in group.envelopes %}
+                  {% set cell = envelope.cells[index] %}
+                  {% if cell.visible %}
+                  <tr{% if group.parent is not none %} class="envelope-child"{% endif %}>
+                    <td title="{{ extension.envelope_title(envelope) }}">{{ envelope.name }}</td>
+                    <td class="num">{{ extension.money(cell.opening) }}</td>
+                    <td class="num">{{ extension.money(cell.allocated) }}</td>
+                    <td class="num" title="{{ extension.activity_title(cell) }}">{{ extension.money(cell.activity) }}</td>
+                    <td class="num">{{ extension.money(cell.closing) }}</td>
+                  </tr>
+                  {% endif %}
+                {% endfor %}
+              {% endfor %}
+              {% set pool = view.pool[index] %}
+              <tr>
+                <td>Pool</td>
+                <td class="num">{{ extension.money(pool.opening) }}</td>
+                <td class="num">{{ extension.money(pool.allocated) }}</td>
+                <td class="num" title="{{ extension.activity_title(pool) }}">{{ extension.money(pool.activity) }}</td>
+                <td class="num">{{ extension.money(pool.closing) }}</td>
+              </tr>
+              {% set cash = view.cash[index] %}
+              <tr>
+                <td>Cash</td>
+                <td class="num">{{ extension.money(cash.opening) }}</td>
+                <td></td>
+                <td></td>
+                <td class="num">{{ extension.money(cash.closing) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}

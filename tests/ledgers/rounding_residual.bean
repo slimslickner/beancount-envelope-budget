@@ -1,0 +1,26 @@
+option "operating_currency" "USD"
+option "inferred_tolerance_default" "USD:0.02"
+
+; A stock sale whose import rounded the gain, leaving a cent unbooked. Beancount
+; accepts the transaction within its tolerance (USD:0.02 here), and the budget
+; folds the sub-tolerance residual into the pool, so the invariant still holds
+; and no error is reported.
+2020-01-01 open Assets:Brokerage:VTI VTI
+  envelope: "Taxable Investments"
+2020-01-01 open Assets:Brokerage:Cash USD
+  cash-account: TRUE
+2020-01-01 open Income:Gains USD
+2020-01-01 open Equity:Opening-Balances USD
+
+2025-12-31 * "Opening balance"
+  Assets:Brokerage:Cash       5000.00 USD
+  Equity:Opening-Balances    -5000.00 USD
+
+2026-01-01 custom "envelope" "start"
+2026-01-01 custom "envelope" "open" "Taxable Investments"
+2026-01-01 custom "envelope" "allocate" "Taxable Investments" 5000.00 USD
+
+2026-01-05 * "Sell VTI (imported)"
+  Assets:Brokerage:VTI          -3 VTI {200.00 USD}
+  Assets:Brokerage:Cash        632.11 USD
+  Income:Gains                 -32.10 USD

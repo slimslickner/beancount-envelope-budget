@@ -1,0 +1,129 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "beancount-envelope-budget"
+version = "0.1.0"
+description = "Ledger-driven envelope budgeting for Beancount, with a Fava report."
+readme = "README.md"
+requires-python = ">=3.13"
+license = "Apache-2.0"
+authors = [{ name = "Tim Tickner" }]
+keywords = ["beancount", "budget", "envelope", "fava", "accounting"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Financial and Insurance Industry",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Office/Business :: Financial :: Accounting",
+]
+dependencies = [
+  "argcomplete>=3.7",
+  "beancount>=3.2,<4",
+]
+
+[project.optional-dependencies]
+fava = ["fava>=1.30,<2"]
+
+[dependency-groups]
+dev = [
+  "fava>=1.30,<2",
+  "pre-commit",
+  "pytest",
+  "pytest-cov",
+  "ruff",
+  "ty",
+]
+
+[project.scripts]
+beancount-envelope-budget = "beancount_envelope_budget.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/slimslickner/beancount-envelope-budget"
+Repository = "https://github.com/slimslickner/beancount-envelope-budget"
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/beancount_envelope_budget"]
+
+# --- Ruff: one tool for linting and formatting ---------------------------------
+
+[tool.ruff]
+line-length = 88
+src = ["src", "tests"]
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["ALL"]
+# A short ignore list, each entry with its reason. Turns that merely conflict
+# with the formatter or with the `google` docstring convention are handled by
+# those settings below and are not repeated here.
+ignore = [
+  "COM812", # trailing comma: conflicts with the formatter
+  "COM819", # prohibited trailing comma: conflicts with the formatter
+  "CPY001", # copyright: the Apache licence lives in the top-level LICENSE file
+  "ISC001", # single-line implicit string concat: conflicts with the formatter
+  "ISC002", # multi-line implicit string concat: conflicts with the formatter
+  "D206",   # docstring indentation: the formatter decides
+  "D300",   # docstring quote style: the formatter decides
+  "E111",   # indentation: conflicts with the formatter
+  "E114",   # indentation: conflicts with the formatter
+  "E117",   # over-indentation: conflicts with the formatter
+  "E501",   # line length: the formatter wraps code; long strings/URLs remain
+  "FA100",  # `from __future__ import annotations` is unnecessary on 3.13
+  "FA102",  # PEP 604 unions are usable without the future import on 3.13
+  "Q000",   # inline quotes: the formatter decides
+  "Q001",   # multiline quotes: the formatter decides
+  "Q002",   # docstring quotes: the formatter decides
+  "Q003",   # avoidable escaped quote: the formatter decides
+  "W191",   # tab indentation: the formatter decides
+]
+
+[tool.ruff.lint.pylint]
+max-args = 8
+max-positional-args = 8
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Tests favour brevity: no docstrings, plain asserts, magic numbers, fixtures.
+"tests/**" = [
+  "ANN",    # tests need not be annotated
+  "D",      # tests need not be documented
+  "FBT",    # boolean positional args are fine in tests
+  "INP001", # tests are not a package
+  "PLR2004",# magic values are expected in assertions
+  "S101",   # plain `assert` is the pytest idiom
+  "SLF001", # tests may poke private helpers
+  "TC",     # test helpers need not defer type-only imports
+]
+# The CLI prints to stdout by design.
+"src/beancount_envelope_budget/cli.py" = ["T201"]
+
+# --- ty: type checking ----------------------------------------------------------
+
+[tool.ty.environment]
+python-version = "3.13"
+
+# --- pytest ---------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+addopts = [
+  "--doctest-modules",
+  "--cov=beancount_envelope_budget.core",
+  "--cov-report=term-missing",
+  "--cov-fail-under=85",
+]
+testpaths = ["src", "tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["beancount_envelope_budget"]
+
+[tool.coverage.report]
+show_missing = true

@@ -1,0 +1,45 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Expenses:Groceries USD
+  envelope: "Groceries"
+2020-01-01 open Expenses:Rent USD
+  envelope: "Rent"
+2020-01-01 open Expenses:Car USD
+  envelope: "Car"
+2020-01-01 open Expenses:Misc USD
+  envelope: "Misc"
+2020-01-01 open Income:Salary USD
+2020-01-01 open Equity:Opening-Balances USD
+
+2023-12-31 * "Opening balance"
+  Assets:Checking            1000.00 USD
+  Equity:Opening-Balances   -1000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Groceries"
+  parent: "Living"
+2024-01-01 custom "envelope" "open" "Rent"
+  parent: "Living"
+2024-01-01 custom "envelope" "open" "Car"
+  parent: "Transport"
+2024-01-01 custom "envelope" "open" "Misc"
+2024-01-01 custom "envelope" "allocate" "Groceries" 500.00 USD
+2024-01-01 custom "envelope" "allocate" "Rent" 800.00 USD
+2024-01-01 custom "envelope" "allocate" "Car" 300.00 USD
+2024-01-01 custom "envelope" "allocate" "Misc" 100.00 USD
+
+2024-01-01 * "Salary"
+  Assets:Checking   3000.00 USD
+  Income:Salary    -3000.00 USD
+
+2024-01-05 * "Groceries"
+  Expenses:Groceries   120.00 USD
+  Assets:Checking     -120.00 USD
+2024-01-06 * "Rent"
+  Expenses:Rent        800.00 USD
+  Assets:Checking     -800.00 USD
+2024-01-07 * "Fuel"
+  Expenses:Car          50.00 USD
+  Assets:Checking      -50.00 USD

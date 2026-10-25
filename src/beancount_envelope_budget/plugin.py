@@ -1,0 +1,166 @@
+"""The Beancount plugin entry point.
+
+Load with::
+
+    plugin "beancount_envelope_budget.plugin"
+
+The plugin calls :func:`beancount_envelope_budget.core.compute`, returns the
+entries unchanged and appends the validation diagnostics as ordinary Beancount
+errors, so Fava lists them on its errors page. Errors never stop the ledger
+from loading.
+
+Pass the config string ``"resolved"`` to also write each non-cash posting's
+resolved envelope into posting metadata under ``envelope-resolved``, which BQL
+can then read with ``meta('envelope-resolved')``::
+
+    plugin "beancount_envelope_budget.plugin" "resolved"
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, NamedTuple
+
+from beancount.core import data
+
+from beancount_envelope_budget.core import Diagnostic, compute
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from beancount.core.data import Directive, Transaction
+
+__all__ = ["__plugins__", "plugin"]
+
+#: The plugin functions for Beancount to run, discovered via ``__plugins__``.
+__plugins__ = ["plugin"]
+
+#: The config value that switches on ``envelope-resolved`` annotations.
+_CONFIG_RESOLVED = "resolved"
+
+#: The metadata key written when ``envelope-resolved`` is enabled.
+RESOLVED_KEY = "envelope-resolved"
+
+
+class EnvelopeBudgetError(NamedTuple):
+    """A Beancount-compatible error.
+
+    Attributes:
+        source: The ledger location, a ``filename``/``lineno`` mapping.
+        message: The rendered message.
+        entry: The directive the error refers to, if any.
+    """
+
+    source: Mapping[str, object]
+    message: str
+    entry: Directive | None
+
+
+def plugin(
+    entries: list[Directive],
+    options_map: Mapping[str, object],
+    config: str | None = None,
+) -> tuple[list[Directive], list[EnvelopeBudgetError]]:
+    """Validate the ledger and return its entries plus any diagnostics.
+
+    Args:
+        entries: The ledger entries.
+        options_map: The Beancount options map.
+        config: The plugin config string. ``"resolved"`` enables the
+            ``envelope-resolved`` posting metadata.
+
+    Returns:
+        The entries, unchanged unless ``envelope-resolved`` is enabled, and the
+        list of errors and warnings.
+    """
+    annotate = _resolved_requested(config)
+    result = compute(entries, options_map, collect_resolved=annotate)
+    errors = [_to_error(diagnostic, options_map) for diagnostic in result.diagnostics]
+    if annotate:
+        entries = _annotate(entries, dict(result.resolved))
+    return entries, errors
+
+
+def _resolved_requested(config: str | None) -> bool:
+    """Report whether the config asks for ``envelope-resolved`` annotations.
+
+    Args:
+        config: The plugin config string, if any.
+
+    Returns:
+        ``True`` when the config equals ``"resolved"``, ignoring case and
+        surrounding whitespace.
+    """
+    return isinstance(config, str) and config.strip().lower() == _CONFIG_RESOLVED
+
+
+def _to_error(
+    diagnostic: Diagnostic,
+    options_map: Mapping[str, object],
+) -> EnvelopeBudgetError:
+    """Convert a core diagnostic into a Beancount error.
+
+    Args:
+        diagnostic: The core diagnostic.
+        options_map: The Beancount options map, for a fallback file name.
+
+    Returns:
+        The Beancount-compatible error.
+    """
+    if diagnostic.entry is not None:
+        return EnvelopeBudgetError(
+            diagnostic.entry.meta, diagnostic.message, diagnostic.entry
+        )
+    filename = str(options_map.get("filename", "<unknown>"))
+    lineno = diagnostic.source.lineno if diagnostic.source is not None else 0
+    return EnvelopeBudgetError(
+        data.new_metadata(filename, lineno), diagnostic.message, None
+    )
+
+
+def _annotate(
+    entries: list[Directive],
+    resolved: dict[int, str],
+) -> list[Directive]:
+    """Return entries with ``envelope-resolved`` added to non-cash postings.
+
+    Args:
+        entries: The ledger entries.
+        resolved: ``id(posting)`` to resolved envelope.
+
+    Returns:
+        A new entry list; transactions without a resolution are reused as-is.
+    """
+    annotated: list[Directive] = []
+    for entry in entries:
+        if not isinstance(entry, data.Transaction):
+            annotated.append(entry)
+            continue
+        postings, changed = _annotate_postings(entry, resolved)
+        annotated.append(entry._replace(postings=postings) if changed else entry)
+    return annotated
+
+
+def _annotate_postings(
+    entry: Transaction,
+    resolved: dict[int, str],
+) -> tuple[list[data.Posting], bool]:
+    """Add ``envelope-resolved`` to a transaction's postings.
+
+    Args:
+        entry: The transaction.
+        resolved: ``id(posting)`` to resolved envelope.
+
+    Returns:
+        The new posting list and whether anything changed.
+    """
+    postings: list[data.Posting] = []
+    changed = False
+    for posting in entry.postings:
+        meta = posting.meta or {}
+        name = resolved.get(id(posting))
+        if name is None or RESOLVED_KEY in meta:
+            postings.append(posting)
+            continue
+        postings.append(posting._replace(meta={**meta, RESOLVED_KEY: name}))
+        changed = True
+    return postings, changed

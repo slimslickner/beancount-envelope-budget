@@ -1,0 +1,17 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Equity:Opening-Balances USD
+
+2023-12-31 * "Opening balance"
+  Assets:Checking           100000.00 USD
+  Equity:Opening-Balances  -100000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Mortgage"
+  monthly: 2500.00
+  priority: 1
+
+2028-01-01 custom "envelope" "plan" "Mortgage"
+  monthly: 2600.00

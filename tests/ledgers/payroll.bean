@@ -1,0 +1,19 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Assets:401k USD
+  envelope: "Retirement"
+2020-01-01 open Expenses:Taxes:Federal USD
+  envelope: "pool"
+2020-01-01 open Income:Salary USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Retirement"
+
+2024-01-31 * "Payroll"
+  Assets:Checking             3500.00 USD
+  Expenses:Taxes:Federal      1000.00 USD
+  Assets:401k                  500.00 USD
+    envelope: "pool"
+  Income:Salary              -5000.00 USD

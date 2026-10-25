@@ -1,0 +1,15 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Expenses:Groceries USD
+  envelope: "Groceries"
+2020-01-01 open Income:Salary USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Groceries"
+2024-01-01 custom "envelope" "allocate" "Groceries" 500.00 USD
+
+2024-01-15 * "Salary"
+  Assets:Checking   3000.00 USD
+  Income:Salary    -3000.00 USD
