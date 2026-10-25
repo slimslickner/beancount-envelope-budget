@@ -8,7 +8,12 @@ from pathlib import Path
 
 from beancount import loader
 
-from beancount_envelope_budget.core import BudgetResult, EnvelopeReport, Plan
+from beancount_envelope_budget.core import (
+    BudgetResult,
+    EnvelopeReport,
+    Plan,
+    compute,
+)
 
 D = Decimal
 
@@ -184,6 +189,49 @@ def test_invariant_holds(load_budget) -> None:
                 D(0),
             )
             assert total == cash_row.balance, name
+
+
+def test_tolerated_residual_is_absorbed(load_budget) -> None:
+    """A residual within Beancount's tolerance is folded into the pool."""
+    result = load_budget("rounding_residual.bean")
+    assert result.diagnostics == ()
+    for pool_row, cash_row in zip(result.pool, result.cash, strict=True):
+        total = pool_row.closing + sum(
+            (report.closing_at(pool_row.month) for report in result.envelopes), D(0)
+        )
+        assert total == cash_row.balance
+
+
+def test_rounding_plug_reconciles(load_budget) -> None:
+    """Booking the residual to Equity:Rounding-Errors keeps it clean."""
+    result = load_budget("rounding_plugged.bean")
+    assert result.diagnostics == ()
+
+
+def test_material_residual_fails_the_invariant() -> None:
+    """A residual beyond the inferred tolerance still fails the invariant."""
+    ledger = """
+option "operating_currency" "USD"
+2020-01-01 open Assets:Brokerage:VTI VTI
+  envelope: "Taxable Investments"
+2020-01-01 open Assets:Brokerage:Cash USD
+  cash-account: TRUE
+2020-01-01 open Income:Gains USD
+2020-01-01 open Equity:Opening-Balances USD
+2025-12-31 * "Opening balance"
+  Assets:Brokerage:Cash       5000.00 USD
+  Equity:Opening-Balances    -5000.00 USD
+2026-01-01 custom "envelope" "start"
+2026-01-01 custom "envelope" "open" "Taxable Investments"
+2026-01-01 custom "envelope" "allocate" "Taxable Investments" 5000.00 USD
+2026-01-05 * "Sell VTI (imported)"
+  Assets:Brokerage:VTI          -3 VTI {200.00 USD}
+  Assets:Brokerage:Cash        632.11 USD
+  Income:Gains                 -32.10 USD
+"""
+    entries, errors, options = loader.load_string(ledger)
+    assert errors, "Beancount itself reports the one-cent imbalance"
+    assert "E007" in _codes(compute(entries, options))
 
 
 def test_no_start(load_budget) -> None:

@@ -19,7 +19,7 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from beancount.core import convert
+from beancount.core import convert, interpolate
 from beancount.core.amount import Amount
 from beancount.core.data import Custom, Directive, Open, Posting, Transaction
 
@@ -508,11 +508,13 @@ def _amount_number(units: Amount | None) -> Decimal | None:
 def _operating_value(posting: Posting, operating_currency: str) -> Decimal | None:
     """Return a posting's signed value in the operating currency.
 
-    A posting is valued at its Beancount weight, so a commodity posting is
-    converted through its cost or price: ``5 VTI {200.00 USD}`` counts as
-    ``1000.00 USD``, and ``2 VTI @ 210.00 USD`` as ``420.00 USD``. A posting
-    already in the operating currency is taken at face value. A posting with no
-    units, or whose weight is in a different currency, has no operating value.
+    A posting is valued at its Beancount weight, the same value Beancount
+    balances a transaction by, so a commodity posting is converted through its
+    cost or price: ``5 VTI {200.00 USD}`` counts as ``1000.00 USD``, and
+    ``2 VTI @ 210.00 USD`` as ``420.00 USD``. A posting already in the operating
+    currency is normally its own weight, but a cost or price on it is honoured
+    too. A posting with no units, or whose weight is in a different currency, has
+    no operating value.
 
     Args:
         posting: The posting.
@@ -525,7 +527,7 @@ def _operating_value(posting: Posting, operating_currency: str) -> Decimal | Non
     units = posting.units
     if units is None:
         return None
-    if not operating_currency or units.currency == operating_currency:
+    if not operating_currency:
         return units.number if isinstance(units.number, Decimal) else None
     weight = convert.get_weight(posting)
     if not isinstance(weight.number, Decimal):
@@ -1390,12 +1392,25 @@ def _resolve_envelope(
     return POOL
 
 
+@dataclass(frozen=True, slots=True)
+class _Valuation:
+    """The operating currency and the options used to value and tolerate.
+
+    Attributes:
+        currency: The single operating currency, or ``""`` when none.
+        options: The ledger options map, for the inferred rounding tolerance.
+    """
+
+    currency: str
+    options: Mapping[str, object]
+
+
 def _process_transactions(
     entries: list[Directive],
     accounts: dict[str, AccountInfo],
     declarations: _Declarations,
     start: date,
-    operating_currency: str,
+    valuation: _Valuation,
     diagnostics: list[Diagnostic],
     *,
     collect_resolved: bool = False,
@@ -1408,7 +1423,7 @@ def _process_transactions(
         accounts: The account metadata.
         declarations: The declared envelopes.
         start: The start date.
-        operating_currency: The single operating currency.
+        valuation: The operating currency and tolerance options.
         diagnostics: The list to append diagnostics to.
         collect_resolved: Whether to record each posting's resolved envelope.
         collect_activity: Whether to record per-posting activity detail.
@@ -1416,6 +1431,7 @@ def _process_transactions(
     Returns:
         The gathered :class:`_Effects`.
     """
+    operating_currency = valuation.currency
     activity: list[tuple[str, date, Decimal]] = []
     cash: list[tuple[date, Decimal]] = []
     resolved: list[tuple[int, str]] = []
@@ -1432,6 +1448,7 @@ def _process_transactions(
         for posting in cash_postings:
             cash_total += _operating_value(posting, operating_currency) or Decimal(0)
         cash.append((entry.date, cash_total))
+        _absorb_rounding(entry, valuation, activity)
         cash_ids = {id(posting) for posting in cash_postings}
         txn_meta = _meta(entry)
         for posting in entry.postings:
@@ -1471,6 +1488,78 @@ def _txn_label(entry: Transaction) -> str:
     return f"{payee} {narration}".strip() or "(no description)"
 
 
+def _transaction_residual(entry: Transaction, operating_currency: str) -> Decimal:
+    """Return the sum of a transaction's postings in the operating currency.
+
+    Every posting is valued at its Beancount weight, so a transaction Beancount
+    considers balanced sums to zero, up to Beancount's inferred tolerance.
+
+    Args:
+        entry: The transaction.
+        operating_currency: The single operating currency.
+
+    Returns:
+        The signed residual: zero when the postings balance exactly.
+    """
+    residual = Decimal(0)
+    for posting in entry.postings:
+        value = _operating_value(posting, operating_currency)
+        if value is not None:
+            residual += value
+    return residual
+
+
+def _tolerance_options(options: Mapping[str, object]) -> Mapping[str, object]:
+    """Return the option subset Beancount needs to infer a tolerance.
+
+    :func:`beancount.core.interpolate.infer_tolerances` reads three options
+    directly; a hand-built options map may omit them, so they are defaulted here.
+
+    Args:
+        options: The ledger options map.
+
+    Returns:
+        A mapping with the tolerance options always present.
+    """
+    return {
+        "infer_tolerance_from_cost": options.get("infer_tolerance_from_cost", False),
+        "tolerance_multiplier": options.get("tolerance_multiplier", Decimal("0.5")),
+        "inferred_tolerance_default": options.get("inferred_tolerance_default", {}),
+    }
+
+
+def _absorb_rounding(
+    entry: Transaction,
+    valuation: _Valuation,
+    activity: list[tuple[str, date, Decimal]],
+) -> None:
+    """Fold a sub-tolerance residual into the pool so the invariant stays exact.
+
+    Beancount accepts a small imbalance, sized by ``inferred_tolerance_default``
+    and the precision of the numbers involved. The budget cannot ignore it, so a
+    residual within that tolerance is treated as rounding and routed to the pool —
+    the same place an ``Equity:Rounding-Errors`` posting would land. A residual
+    beyond the tolerance is left alone: Beancount reports the imbalance and the
+    month-end invariant (``E007``) reflects it until it is booked.
+
+    Args:
+        entry: The transaction.
+        valuation: The operating currency and tolerance options.
+        activity: The activity events, extended in place.
+    """
+    operating_currency = valuation.currency
+    if not operating_currency:
+        return
+    residual = _transaction_residual(entry, operating_currency)
+    if residual == 0:
+        return
+    tolerance = interpolate.infer_tolerances(
+        entry.postings, _tolerance_options(valuation.options)
+    ).get(operating_currency, Decimal(0))
+    if abs(residual) <= tolerance:
+        activity.append((POOL, entry.date, residual))
+
+
 def _cash_postings(
     entry: Transaction,
     accounts: dict[str, AccountInfo],
@@ -1507,8 +1596,9 @@ def _has_foreign_currency(
 
     A posting in a foreign currency is accepted when its cost or price converts
     it to the operating currency — a security bought with USD is an
-    operating-currency posting at cost, not a foreign one. Only a posting whose
-    units and weight are both non-operating is reported.
+    operating-currency posting at cost, not a foreign one. Any posting whose
+    value in the operating currency cannot be determined is reported, including
+    an operating-currency posting whose price or cost is in another currency.
 
     Args:
         entry: The transaction.
@@ -1522,15 +1612,16 @@ def _has_foreign_currency(
         return False
     for posting in entry.postings:
         units = posting.units
-        if units is None or units.currency == operating_currency:
+        if units is None or units.number is None:
             continue
         if _operating_value(posting, operating_currency) is not None:
             continue
+        weight = convert.get_weight(posting)
         diagnostics.append(
             _diag(
                 "E006",
                 entry=entry,
-                currency=units.currency,
+                currency=weight.currency,
                 date=entry.date.isoformat(),
                 operating_currency=operating_currency,
             )
@@ -1679,7 +1770,7 @@ def compute(
         accounts,
         declarations,
         start,
-        operating_currency,
+        _Valuation(operating_currency, options),
         diagnostics,
         collect_resolved=collect_resolved,
         collect_activity=collect_activity,

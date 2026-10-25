@@ -53,6 +53,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cash transfers are neutral, a `cash-account` clearing account keeps in-flight
   transfers neutral, and off-budget transfers must avoid cash accounts so they
   stay out of the budget.
+- The engine honours Beancount's inferred tolerance (including
+  `inferred_tolerance_default`): a transaction whose postings do not sum to zero
+  is treated as balanced when the residual is within that tolerance, and the
+  residual is folded into the pool so the month-end invariant stays exact. A
+  residual beyond the tolerance is still reported, by Beancount itself and by
+  `E007`. This stops imported trades rounded by a fraction of a cent from raising
+  spurious invariant failures.
 
 ### Changed
 
@@ -76,3 +83,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flow through the pool and envelopes, and the invariant holds. Genuinely
   foreign currencies still raise `E006`. See
   [`docs/concepts.md`](docs/concepts.md#investments-and-securities).
+- Postings are valued by their Beancount weight even when their units are already
+  in the operating currency, so an operating-currency posting that carries a cost
+  or price no longer drifts pool plus envelopes away from cash. A posting whose
+  weight is in another currency is now reported as `E006` rather than counted at
+  face value.

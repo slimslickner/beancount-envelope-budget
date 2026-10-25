@@ -307,6 +307,15 @@ The one to know best is the **invariant** (`E007`): at every month end, the pool
 plus all envelope balances must equal the ledger's cash balance. A mismatch means
 a posting was missed or unsupported.
 
+Because the invariant cross-checks flows against cash, it is sensitive to
+transactions that do not balance exactly. Beancount accepts a small imbalance,
+sized by its inferred tolerance and by `option "inferred_tolerance_default"`. The
+budget needs exact arithmetic, so it treats any residual within that same
+tolerance as rounding and folds it into the pool — the same place an
+`Equity:Rounding-Errors` posting would land. A residual beyond the tolerance is
+left alone: Beancount reports the imbalance itself, and the month-end invariant
+(`E007`) reflects it until it is booked.
+
 If there is no `start` directive, the plugin does nothing and warns (`W003`).
 
 ## Command line
