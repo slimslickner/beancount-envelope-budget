@@ -8,6 +8,11 @@ computation), :mod:`beancount_envelope_budget.plugin` (the Beancount plugin),
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("beancount-envelope-budget")
+except PackageNotFoundError:  # pragma: no cover - only from an uninstalled tree
+    __version__ = "0.0.0"
 
 __all__ = ["__version__"]

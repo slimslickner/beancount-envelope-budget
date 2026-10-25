@@ -27,6 +27,7 @@ from beancount import loader
 from beancount.core.amount import Amount
 from beancount.core.data import Custom, Open, Transaction
 
+from beancount_envelope_budget import __version__
 from beancount_envelope_budget.core import (
     BudgetResult,
     Diagnostic,
@@ -1303,7 +1304,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 0.1.0",
+        version=f"%(prog)s {__version__}",
         help="show the program version and exit",
     )
     subparsers = parser.add_subparsers(

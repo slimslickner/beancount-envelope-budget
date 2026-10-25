@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from beancount_envelope_budget import cli
+from beancount_envelope_budget import __version__, cli
 
 _LEDGERS = Path(__file__).parent / "ledgers"
 
@@ -23,6 +23,14 @@ def _ledger(name: str) -> str:
         The path as a string.
     """
     return str(_LEDGERS / name)
+
+
+def test_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
+    """--version prints the version sourced from the installed metadata."""
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["--version"])
+    assert excinfo.value.code == 0
+    assert __version__ in capsys.readouterr().out
 
 
 def test_check_clean_ledger(capsys: pytest.CaptureFixture[str]) -> None:
