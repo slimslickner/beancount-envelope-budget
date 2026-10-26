@@ -472,8 +472,9 @@ def test_template_has_collapse_all() -> None:
     html = _render(
         _extension("parent_groups.bean"), {"month": "2024-01", "months": "1"}
     )
-    assert 'class="envelope-collapse-all"' in html
     assert ":has(.envelope-collapse-all:checked)" in html
+    nav = html[html.index('<p class="envelope-nav">') : html.index("</p>")]
+    assert 'id="envelope-collapse-all"' in nav
     flat = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
     assert 'id="envelope-collapse-all"' not in flat
 

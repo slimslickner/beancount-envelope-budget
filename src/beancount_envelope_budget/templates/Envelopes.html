@@ -32,7 +32,8 @@
         border-collapse: separate;
         border-spacing: 0;
         border: 1px solid rgba(128, 128, 128, 0.5);
-        /* The sticky Cash row draws the table's bottom edge instead. */
+        /* The sticky nav draws the top edge, the Cash row the bottom. */
+        border-top: 0;
         border-bottom: 0;
       }
       /* Clear Fava's per-cell grid so our own section rules are the only ones. */
@@ -185,9 +186,6 @@
       }
       /* A single control collapses every parent; the group toggles still work. */
       .envelope-collapse {
-        margin: 0.25rem 0;
-      }
-      .envelope-collapse label {
         cursor: pointer;
       }
       .envelope-report:has(.envelope-collapse-all:checked) .envelope-child {
@@ -204,14 +202,14 @@
       <a href="?{{ view.nav.previous }}">&laquo; previous month</a> &middot;
       <a href="?{{ extension.today_nav(view.months|length) }}">this month</a> &middot;
       <a href="?{{ view.nav.next }}">next month &raquo;</a>
+      {% if view.groups | selectattr('parent', 'ne', none) | list %}
+        &middot;
+        <label class="envelope-collapse">
+          <input type="checkbox" class="envelope-collapse-all" id="envelope-collapse-all">
+          Collapse all
+        </label>
+      {% endif %}
     </p>
-
-    {% if view.groups | selectattr('parent', 'ne', none) | list %}
-      <div class="envelope-collapse">
-        <input type="checkbox" class="envelope-collapse-all" id="envelope-collapse-all">
-        <label for="envelope-collapse-all">Collapse all</label>
-      </div>
-    {% endif %}
 
     {% if view.warnings %}
       <div class="envelope-warnings">
