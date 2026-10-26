@@ -56,12 +56,15 @@ class ActivityLine:
         amount: The signed effect on the envelope.
         entry_hash: The Beancount hash of the transaction, for linking back to
             it in Fava.
+        narration: The posting's own ``narration`` metadata, if any — the
+            ``autobean.narration`` convention for describing a line item.
     """
 
     date: date
     label: str
     amount: Decimal
     entry_hash: str
+    narration: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -492,7 +495,13 @@ def _detail_index(
     for event in events:
         key = (event.destination, month_of(event.date))
         index.setdefault(key, []).append(
-            ActivityLine(event.date, event.label, event.amount, event.entry_hash)
+            ActivityLine(
+                event.date,
+                event.label,
+                event.amount,
+                event.entry_hash,
+                event.narration,
+            )
         )
     return index
 
@@ -819,6 +828,7 @@ def _cell_json(cell: Cell) -> dict[str, object]:
                 "label": line.label,
                 "amount": f"{line.amount:.2f}",
                 "entry_hash": line.entry_hash,
+                "narration": line.narration,
             }
             for line in cell.detail
         ],

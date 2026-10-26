@@ -111,6 +111,9 @@ class ActivityEvent:
         entry_hash: The Beancount hash of the transaction, for linking back to
             it. It is the same value Beancount's ``compare.hash_entry`` yields,
             so Fava can resolve it to the entry.
+        narration: The posting's ``narration`` metadata, if any. This is the
+            convention used by the ``autobean.narration`` plugin; it is read,
+            not validated.
     """
 
     destination: str
@@ -118,6 +121,7 @@ class ActivityEvent:
     amount: Decimal
     label: str
     entry_hash: str
+    narration: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1612,6 +1616,7 @@ def _process_transactions(
                         amount,
                         _txn_label(entry),
                         compare.hash_entry(entry),
+                        _posting_narration(posting),
                     )
                 )
             activity.append((dest, entry.date, amount))
@@ -1635,6 +1640,35 @@ def _txn_label(entry: Transaction) -> str:
     payee = entry.payee or ""
     narration = entry.narration or ""
     return f"{payee} {narration}".strip() or "(no description)"
+
+
+def _posting_narration(posting: Posting) -> str | None:
+    """Return a posting's narration metadata, when it has one.
+
+    This surfaces the ``narration`` metadata convention used by the
+    ``autobean.narration`` plugin: a line item's own description, which can
+    differ from its transaction's narration. It is read, not validated.
+
+    Args:
+        posting: The posting.
+
+    Returns:
+        The trimmed narration, or ``None`` when it is absent, empty or not a
+        string.
+
+    Examples:
+        >>> _posting_narration(Posting("Expenses:E", None, None, None, None, {"narration": "Escrow"}))
+        'Escrow'
+        >>> _posting_narration(Posting("Expenses:E", None, None, None, None, {"narration": "  "})) is None
+        True
+        >>> _posting_narration(Posting("Expenses:E", None, None, None, None, None)) is None
+        True
+    """
+    meta = posting.meta
+    value = meta.get("narration") if meta else None
+    if not isinstance(value, str):
+        return None
+    return value.strip() or None
 
 
 def _transaction_residual(entry: Transaction, operating_currency: str) -> Decimal:

@@ -12,7 +12,7 @@
     {%- if cell.visible and not (blank and cell.activity == 0) %}{{ extension.money(cell.activity) }}{% endif -%}
     {%- if cell.detail %}
     <div class="envelope-detail">
-      {% for line in cell.detail %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ line.label }} &middot; {{ extension.money(line.amount) }}</a>{% endfor %}
+      {% for line in cell.detail %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ line.label }}{% if line.narration %} ({{ line.narration }}){% endif %} &middot; {{ extension.money(line.amount) }}</a>{% endfor %}
       {%- if cell.detail_total > cell.detail | length %}<span class="envelope-detail-more">and {{ cell.detail_total - cell.detail | length }} more</span>{% endif %}
     </div>
     {%- endif %}

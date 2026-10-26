@@ -294,6 +294,18 @@ def test_report_json(capsys: pytest.CaptureFixture[str]) -> None:
     assert groceries["cells"][0]["fill"] is None
 
 
+def test_report_json_narration(capsys: pytest.CaptureFixture[str]) -> None:
+    """--json carries each posting's narration metadata."""
+    code = cli.main(
+        ["report", _ledger("posting_narration.bean"), "--month", "2024-02", "--json"]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    housing = next(e for e in payload["envelopes"] if e["name"] == "Housing")
+    narrations = {line["narration"] for line in housing["cells"][0]["detail"]}
+    assert narrations == {"Principal", "Escrow", "Interest"}
+
+
 def test_report_rejects_bad_month(capsys: pytest.CaptureFixture[str]) -> None:
     """A malformed month is a usage error."""
     with pytest.raises(SystemExit) as exit_info:

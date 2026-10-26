@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   under, on or over it, for the CLI and Fava.
 - The Fava report reveals the postings behind an activity figure in a popover on
   hover or focus, each linking to that transaction in Fava's entry popup.
+- The activity drill-down shows a posting's `narration` metadata (the
+  `autobean.narration` convention) in parentheses, so the line items of one
+  transaction read apart.
 - The report view exposes each envelope's goal `target` and how full it is toward
   it (`fill`), for the CLI and Fava.
 - A planned envelope in the Fava report carries a ring beside its closing

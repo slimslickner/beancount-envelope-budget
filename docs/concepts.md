@@ -377,11 +377,14 @@ Add the extension line and an **Envelopes** report appears in the sidebar:
 
 It is read-only, shows one to three months, and offers hover text for envelope
 targets. Hovering or focusing an activity figure reveals a popover listing the
-postings behind it; each line links to that transaction in Fava's entry popup.
-The months sit side by side when the window is wide enough and stack when it is
-narrow, and envelopes are grouped by their `parent` label with a subtotal per
-group, parent headings and envelopes in alphabetical order. Parent categories
-collapse to their subtotal when their name is clicked.
+postings behind it; each line links to that transaction in Fava's entry popup. A
+posting's own `narration` metadata — the `autobean.narration` convention — is
+shown in parentheses, so the line items of one transaction read apart, such as a
+mortgage payment's `Principal`, `Escrow` and `Interest`. The months sit side by
+side when the window is wide enough and stack when it is narrow, and envelopes
+are grouped by their `parent` label with a subtotal per group, parent headings
+and envelopes in alphabetical order. Parent categories collapse to their subtotal
+when their name is clicked.
 
 The table is a self-contained scroll area: its header, envelope column and
 pool/cash rows stay in place, and the month links stay reachable at the top, so

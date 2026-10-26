@@ -220,6 +220,40 @@ def test_template_activity_popover_links_to_entry() -> None:
     assert "January groceries" in html
 
 
+def test_report_activity_narration() -> None:
+    """A posting's narration metadata surfaces on its activity line."""
+    view = _extension("posting_narration.bean").report("2024-02", "1")
+    housing = next(e for e in view.envelopes if e.name == "Housing")
+    lines = {line.narration: line.amount for line in housing.cells[0].detail}
+    assert lines == {"Principal": D("-300"), "Escrow": D("-100"), "Interest": D("-400")}
+
+
+def test_report_activity_without_narration() -> None:
+    """A posting without narration metadata leaves it unset."""
+    view = _extension("fund_backfill.bean").report("2024-01", "1")
+    groceries = next(e for e in view.envelopes if e.name == "Groceries")
+    assert groceries.cells[0].detail[0].narration is None
+
+
+def test_template_activity_narration() -> None:
+    """The popover shows the transaction label with the posting narration."""
+    html = _render(
+        _extension("posting_narration.bean"), {"month": "2024-02", "months": "1"}
+    )
+    assert "Mortgage payment (Escrow)" in html
+    assert "Mortgage payment (Principal)" in html
+    assert "Mortgage payment (Interest)" in html
+
+
+def test_activity_title_narration() -> None:
+    """The text fallback shows the label with the posting narration."""
+    extension = _extension("posting_narration.bean")
+    view = extension.report("2024-02", "1")
+    housing = next(e for e in view.envelopes if e.name == "Housing")
+    title = extension.activity_title(housing.cells[0])
+    assert "Mortgage payment (Escrow)" in title
+
+
 def test_envelope_target_tooltip() -> None:
     """The envelope tooltip shows the target and deadline."""
     view = _extension("savings_goal.bean").report("2024-02", "1")

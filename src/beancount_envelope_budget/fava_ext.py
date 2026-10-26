@@ -28,6 +28,7 @@ from fava.ext import ExtensionConfigError, FavaExtensionBase
 from beancount_envelope_budget.core import BudgetResult, compute
 from beancount_envelope_budget.report import (
     MAX_MONTHS,
+    ActivityLine,
     BudgetView,
     Cell,
     EnvelopeView,
@@ -192,7 +193,7 @@ class Envelopes(FavaExtensionBase):
             list was capped.
         """
         lines = [
-            f"{line.date.isoformat()}  {line.label}  {line.amount:.2f}"
+            f"{line.date.isoformat()}  {_line_label(line)}  {line.amount:.2f}"
             for line in cell.detail
         ]
         remaining = cell.detail_total - len(cell.detail)
@@ -207,6 +208,22 @@ class Envelopes(FavaExtensionBase):
             The relative URL, computed from the extension page's depth.
         """
         return "../../errors/"
+
+
+def _line_label(line: ActivityLine) -> str:
+    """Build the description for one activity detail line.
+
+    A posting's own ``narration`` metadata — the ``autobean.narration``
+    convention — is appended in parentheses when present, so a line item reads
+    apart from its transaction.
+
+    Args:
+        line: The activity detail line.
+
+    Returns:
+        The transaction label, with the posting narration when it has one.
+    """
+    return f"{line.label} ({line.narration})" if line.narration else line.label
 
 
 def _parse_month(value: object) -> date | None:
