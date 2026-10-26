@@ -176,3 +176,16 @@ uv run ruff format --check && uv run ruff check && uv run ty check && uv run pyt
 
 `pytest` runs the doctests, enforces a coverage floor on the core, and the
 fixture ledgers double as tests.
+
+### Commit messages
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/).
+Use a type and an optional scope, a short imperative subject, and reference the
+issue with `(#N)`:
+
+```
+fix(topup): fund goal envelopes to their on-track level (#8)
+docs: document the plan level and overfunded note (#8)
+```
+
+Common types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`.

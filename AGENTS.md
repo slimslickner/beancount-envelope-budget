@@ -51,6 +51,18 @@ only `beancount` (plus our `schema` and the standard library), and only
 ledger file; the registries in `schema.py` are the source of truth for schema and
 errors; update `CHANGELOG.md` for every user-visible change.
 
+## Commits
+
+Write [Conventional Commits](https://www.conventionalcommits.org/) and reference
+the issue with `(#N)`:
+
+```
+fix(topup): fund goal envelopes to their on-track level (#8)
+```
+
+Use `feat`, `fix`, `docs`, `test`, `refactor` or `chore` as the type. Keep the
+subject imperative and under about 72 characters.
+
 ## Gotchas
 
 - Never rewrite a ledger by regenerating it; `pin` edits files by literal line
