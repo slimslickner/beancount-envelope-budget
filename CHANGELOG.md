@@ -20,8 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pool and cash always show numbers.
 - The Fava report keeps its header, envelope column and pool/cash rows in place
   while the table scrolls, and its month links stay reachable at the top.
-- The Fava report tints the current month's column and adds a "this month" link
-  that jumps to it.
+- The Fava report labels the current month's header `(current)` and adds a
+  "this month" link that jumps to it.
 - Fava balances are colour-coded: a closing balance is red when overspent, green
   when funded to its plan, and amber when underfunded; an opening balance turns
   red when negative. The colours follow Fava's light/dark scheme.

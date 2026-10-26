@@ -435,27 +435,33 @@ def test_template_colors_funding_status() -> None:
 
 
 def test_template_marks_current_month(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The current month's column is highlighted and linked from the nav."""
+    """The current month is labelled in the header and linked from the nav."""
     monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2024, 1, 1))
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
-    header = _row(html, ">Envelope<")
-    assert "envelope-current" in header
+    assert "(current)" in _row(html, ">Envelope<")
     assert "month=2024-01&amp;months=3" in html
+    # The this-month link sits between the two window links.
+    nav = html.split("<tr")[0]
+    assert (
+        nav.index("last 3 months")
+        < nav.index("this month")
+        < nav.index("next 3 months")
+    )
 
 
 def test_template_no_current_month_outside_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """No column is highlighted when the current month is outside the view."""
+    """No month is labelled current when today is outside the view."""
     monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2019, 6, 1))
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
-    header = _row(html, ">Envelope<")
-    assert "envelope-current" not in header
+    assert "(current)" not in _row(html, ">Envelope<")
 
 
 def test_template_freezes_header_and_footer() -> None:
     """The table header, name column and pool/cash rows are sticky."""
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
     assert "position: sticky" in html
+    assert "border-collapse: separate" in html
     assert "max-height: 80vh" in html
     assert "bottom: var(--envelope-total-row-height)" in html

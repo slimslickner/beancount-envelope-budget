@@ -1,15 +1,15 @@
 {% set view = extension.report(request.args.get('month'), request.args.get('months')) %}
 {% set today = extension.today_month() %}
-{% macro opening(cell, blank=false, current=false) -%}
-  <td class="num envelope-sep{{ ' envelope-current' if current else '' }}{{ ' envelope-neg' if cell.visible and cell.opening < 0 else '' }}">{% if cell.visible and not (blank and cell.opening == 0) %}{{ extension.money(cell.opening) }}{% endif %}</td>
+{% macro opening(cell, blank=false) -%}
+  <td class="num envelope-sep{{ ' envelope-neg' if cell.visible and cell.opening < 0 else '' }}">{% if cell.visible and not (blank and cell.opening == 0) %}{{ extension.money(cell.opening) }}{% endif %}</td>
 {%- endmacro %}
 {% macro closing_class(cell) -%}
 {%- if cell.visible and cell.closing < 0 %} envelope-neg{% elif cell.visible and cell.funding in ('on', 'over') %} envelope-funded{% elif cell.visible and cell.funding == 'under' %} envelope-partial{% endif -%}
 {%- endmacro %}
-{% macro amounts(cell, sep=false, blank=false, current=false) -%}
-  <td class="num{{ ' envelope-sep' if sep else '' }}{{ ' envelope-current' if current else '' }}">{% if cell.visible and not (blank and cell.allocated == 0) %}{{ extension.money(cell.allocated) }}{% endif %}</td>
-  <td class="num{{ ' envelope-current' if current else '' }}">{% if cell.visible and not (blank and cell.activity == 0) %}{{ extension.money(cell.activity) }}{% endif %}</td>
-  <td class="num{{ ' envelope-current' if current else '' }}{{ closing_class(cell) }}">{% if cell.visible and not (blank and cell.closing == 0) %}{{ extension.money(cell.closing) }}{% endif %}</td>
+{% macro amounts(cell, sep=false, blank=false) -%}
+  <td class="num{{ ' envelope-sep' if sep else '' }}">{% if cell.visible and not (blank and cell.allocated == 0) %}{{ extension.money(cell.allocated) }}{% endif %}</td>
+  <td class="num">{% if cell.visible and not (blank and cell.activity == 0) %}{{ extension.money(cell.activity) }}{% endif %}</td>
+  <td class="num{{ closing_class(cell) }}">{% if cell.visible and not (blank and cell.closing == 0) %}{{ extension.money(cell.closing) }}{% endif %}</td>
 {%- endmacro %}
 {% if not view.has_start %}
   <p>There is no <code>custom "envelope" "start"</code> directive, so there is nothing to show.</p>
@@ -28,7 +28,9 @@
       }
       .envelope-table {
         width: auto;
-        border-collapse: collapse;
+        /* Separate, not collapse: a sticky cell must paint its own borders. */
+        border-collapse: separate;
+        border-spacing: 0;
         border: 1px solid rgba(128, 128, 128, 0.5);
       }
       /* Clear Fava's per-cell grid so our own section rules are the only ones. */
@@ -52,6 +54,7 @@
         margin: 0;
         padding: 0.25rem 0;
         background: var(--background, #fff);
+        border-bottom: 1px solid rgba(128, 128, 128, 0.5);
       }
       .envelope-table thead th {
         position: sticky;
@@ -83,11 +86,6 @@
       .envelope-table thead th:first-child {
         z-index: 4;
         background: var(--table-header-background, var(--background, #fff));
-      }
-      .envelope-table thead tr:last-child > * {
-        border-bottom: 1px solid rgba(128, 128, 128, 0.5);
-        /* Keep the header's bottom rule while the header is stuck. */
-        box-shadow: inset 0 -1px 0 rgba(128, 128, 128, 0.5);
       }
       .envelope-table .envelope-sep {
         border-left: 1px solid rgba(128, 128, 128, 0.5);
@@ -126,11 +124,6 @@
       }
       .envelope-child td:first-child {
         padding-left: 1.5rem;
-      }
-      /* The current month's column is tinted; keep it opaque over sticky cells. */
-      .envelope-table thead .envelope-current,
-      .envelope-table tbody .envelope-current {
-        background: var(--table-background-even, var(--background-darker, #f2f2f2));
       }
       /* Red for overspent, green for fully funded, amber for partly funded.
          The diff variables come from Fava and swap with its colour scheme. */
@@ -176,9 +169,9 @@
     <p class="envelope-nav">
       <a href="?{{ view.nav.previous }}">&laquo; previous month</a> &middot;
       <a href="?{{ view.nav.last3 }}">last 3 months</a> &middot;
+      <a href="?{{ extension.today_nav(view.months|length) }}">this month</a> &middot;
       <a href="?{{ view.nav.forward3 }}">next 3 months</a> &middot;
-      <a href="?{{ view.nav.next }}">next month &raquo;</a> &middot;
-      <a href="?{{ extension.today_nav(view.months|length) }}">this month</a>
+      <a href="?{{ view.nav.next }}">next month &raquo;</a>
     </p>
 
     {% if view.warnings %}
@@ -204,18 +197,19 @@
           <tr>
             <th rowspan="2">Envelope</th>
             {% for index in range(view.months|length) %}
-              <th colspan="{{ 4 if loop.first else 3 }}" class="envelope-sep{{ ' envelope-current' if view.months[index] == today else '' }}">
+              <th colspan="{{ 4 if loop.first else 3 }}" class="envelope-sep">
                 {{ view.months[index].strftime('%Y-%m') }}
+                {% if view.months[index] == today %}<small>(current)</small>{% endif %}
                 {% if view.projected[index] %}<small>(projected)</small>{% endif %}
               </th>
             {% endfor %}
           </tr>
           <tr>
             {% for index in range(view.months|length) %}
-              {% if loop.first %}<th class="envelope-sep{{ ' envelope-current' if view.months[index] == today else '' }}">Opening</th>{% endif %}
-              <th class="envelope-sep{{ ' envelope-current' if view.months[index] == today else '' }}">Allocated</th>
-              <th class="{{ 'envelope-current' if view.months[index] == today else '' }}">Activity</th>
-              <th class="{{ 'envelope-current' if view.months[index] == today else '' }}">Closing</th>
+              {% if loop.first %}<th class="envelope-sep">Opening</th>{% endif %}
+              <th class="envelope-sep">Allocated</th>
+              <th>Activity</th>
+              <th>Closing</th>
             {% endfor %}
           </tr>
         </thead>
@@ -227,8 +221,8 @@
                   {% if envelope.visible %}
                     <tr>
                       <td title="{{ extension.envelope_title(envelope) }}">{{ envelope.name }}</td>
-                      {{ opening(envelope.cells[0], blank=true, current=envelope.cells[0].month == today) }}
-                      {% for cell in envelope.cells %}{{ amounts(cell, not loop.first, blank=true, current=cell.month == today) }}{% endfor %}
+                      {{ opening(envelope.cells[0], blank=true) }}
+                      {% for cell in envelope.cells %}{{ amounts(cell, not loop.first, blank=true) }}{% endfor %}
                     </tr>
                   {% endif %}
                 {% endfor %}
@@ -241,15 +235,15 @@
                   <input type="checkbox" class="envelope-toggle" id="envelope-group-{{ loop.index }}">
                   <label for="envelope-group-{{ loop.index }}">{{ group.parent }}</label>
                 </th>
-                {{ opening(group.subtotal[0], current=group.subtotal[0].month == today) }}
-                {% for cell in group.subtotal %}{{ amounts(cell, not loop.first, current=cell.month == today) }}{% endfor %}
+                {{ opening(group.subtotal[0]) }}
+                {% for cell in group.subtotal %}{{ amounts(cell, not loop.first) }}{% endfor %}
               </tr>
               {% for envelope in group.envelopes %}
                 {% if envelope.visible %}
                   <tr class="envelope-child">
                     <td title="{{ extension.envelope_title(envelope) }}">{{ envelope.name }}</td>
-                    {{ opening(envelope.cells[0], blank=true, current=envelope.cells[0].month == today) }}
-                    {% for cell in envelope.cells %}{{ amounts(cell, not loop.first, blank=true, current=cell.month == today) }}{% endfor %}
+                    {{ opening(envelope.cells[0], blank=true) }}
+                    {% for cell in envelope.cells %}{{ amounts(cell, not loop.first, blank=true) }}{% endfor %}
                   </tr>
                 {% endif %}
               {% endfor %}
@@ -259,16 +253,16 @@
         <tbody class="envelope-total-body">
           <tr class="envelope-total">
             <td>Pool</td>
-            {{ opening(view.pool[0], current=view.pool[0].month == today) }}
-            {% for cell in view.pool %}{{ amounts(cell, not loop.first, current=cell.month == today) }}{% endfor %}
+            {{ opening(view.pool[0]) }}
+            {% for cell in view.pool %}{{ amounts(cell, not loop.first) }}{% endfor %}
           </tr>
           <tr class="envelope-total">
             <td>Cash</td>
-            <td class="num envelope-sep{{ ' envelope-current' if view.cash[0].month == today else '' }}{{ ' envelope-neg' if view.cash[0].opening < 0 else '' }}">{{ extension.money(view.cash[0].opening) }}</td>
+            <td class="num envelope-sep{{ ' envelope-neg' if view.cash[0].opening < 0 else '' }}">{{ extension.money(view.cash[0].opening) }}</td>
             {% for cell in view.cash %}
-              <td class="num{{ ' envelope-sep' if not loop.first else '' }}{{ ' envelope-current' if cell.month == today else '' }}"></td>
-              <td class="num{{ ' envelope-current' if cell.month == today else '' }}"></td>
-              <td class="num{{ ' envelope-current' if cell.month == today else '' }}{{ ' envelope-neg' if cell.closing < 0 else '' }}">{{ extension.money(cell.closing) }}</td>
+              <td class="num{{ ' envelope-sep' if not loop.first else '' }}"></td>
+              <td class="num"></td>
+              <td class="num{{ ' envelope-neg' if cell.closing < 0 else '' }}">{{ extension.money(cell.closing) }}</td>
             {% endfor %}
           </tr>
         </tbody>
