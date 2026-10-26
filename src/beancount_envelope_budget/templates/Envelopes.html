@@ -1,24 +1,39 @@
 {% set view = extension.report(request.args.get('month'), request.args.get('months')) %}
-{% macro opening(cell) -%}
-  <td class="num envelope-sep">{% if cell.visible %}{{ extension.money(cell.opening) }}{% endif %}</td>
+{% set today = extension.today_month() %}
+{% macro opening(cell, blank=false) -%}
+  <td class="num envelope-sep{{ ' envelope-neg' if cell.visible and cell.opening < 0 else '' }}">{% if cell.visible and not (blank and cell.opening == 0) %}{{ extension.money(cell.opening) }}{% endif %}</td>
 {%- endmacro %}
-{% macro amounts(cell, sep=false) -%}
-  <td class="num{{ ' envelope-sep' if sep else '' }}">{% if cell.visible %}{{ extension.money(cell.allocated) }}{% endif %}</td>
-  <td class="num">{% if cell.visible %}{{ extension.money(cell.activity) }}{% endif %}</td>
-  <td class="num">{% if cell.visible %}{{ extension.money(cell.closing) }}{% endif %}</td>
+{% macro closing_class(cell) -%}
+{%- if cell.visible and cell.closing < 0 %} envelope-neg{% elif cell.visible and cell.funding in ('on', 'over') %} envelope-funded{% elif cell.visible and cell.funding == 'under' %} envelope-partial{% endif -%}
+{%- endmacro %}
+{% macro amounts(cell, sep=false, blank=false) -%}
+  <td class="num{{ ' envelope-sep' if sep else '' }}">{% if cell.visible and not (blank and cell.allocated == 0) %}{{ extension.money(cell.allocated) }}{% endif %}</td>
+  <td class="num">{% if cell.visible and not (blank and cell.activity == 0) %}{{ extension.money(cell.activity) }}{% endif %}</td>
+  <td class="num{{ closing_class(cell) }}">{% if cell.visible and not (blank and cell.closing == 0) %}{{ extension.money(cell.closing) }}{% endif %}</td>
 {%- endmacro %}
 {% if not view.has_start %}
   <p>There is no <code>custom "envelope" "start"</code> directive, so there is nothing to show.</p>
 {% else %}
   <div class="envelope-report">
     <style>
+      .envelope-report {
+        --envelope-total-row-height: 1.9rem;
+        --envelope-header-row-height: 2rem;
+      }
+      /* A self-contained scroll box, so the header (and footer) can stay put
+         while the middle rows scroll, vertically or horizontally. */
       .envelope-table-scroll {
-        overflow-x: auto;
+        overflow: auto;
+        max-height: 80vh;
       }
       .envelope-table {
         width: auto;
-        border-collapse: collapse;
+        /* Separate, not collapse: a sticky cell must paint its own borders. */
+        border-collapse: separate;
+        border-spacing: 0;
         border: 1px solid rgba(128, 128, 128, 0.5);
+        /* The sticky Cash row draws the table's bottom edge instead. */
+        border-bottom: 0;
       }
       /* Clear Fava's per-cell grid so our own section rules are the only ones. */
       .envelope-table th,
@@ -33,16 +48,50 @@
       .envelope-value {
         width: 7.5rem;
       }
-      .envelope-table thead th {
-        text-align: right;
+      /* Keep the month links reachable while the table scrolls. */
+      .envelope-nav {
+        position: sticky;
+        top: 0;
+        z-index: 3;
+        margin: 0;
+        padding: 0.25rem 0;
+        background: var(--background, #fff);
+        border-bottom: 1px solid rgba(128, 128, 128, 0.5);
       }
-      .envelope-table thead tr:first-child th:first-child,
+      .envelope-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        text-align: right;
+        background: var(--table-header-background, var(--background, #fff));
+      }
+      /* The month row sticks at the top; the metric row sticks beneath it. */
+      .envelope-table thead tr {
+        height: var(--envelope-header-row-height);
+      }
+      .envelope-table thead tr:last-child th {
+        top: var(--envelope-header-row-height);
+      }
+      /* The envelope name column stays put during horizontal scroll. */
+      .envelope-table thead th:first-child,
       .envelope-table tbody th:first-child,
       .envelope-table tbody td:first-child {
+        position: sticky;
+        left: 0;
+        z-index: 1;
         white-space: nowrap;
         text-align: left;
+        background: var(--background, #fff);
+        box-shadow: inset -1px 0 0 rgba(128, 128, 128, 0.5);
       }
-      .envelope-table thead tr:last-child > * {
+      /* The corner cell is sticky in both axes, so it sits above the rest. */
+      .envelope-table thead th:first-child {
+        z-index: 4;
+        background: var(--table-header-background, var(--background, #fff));
+      }
+      /* The header keeps its bottom rule while it is stuck. */
+      .envelope-table thead tr:last-child > *,
+      .envelope-table thead th:first-child {
         border-bottom: 1px solid rgba(128, 128, 128, 0.5);
       }
       .envelope-table .envelope-sep {
@@ -54,8 +103,38 @@
       .envelope-table tbody.envelope-section-body > tr:first-child > * {
         border-top: 1px solid rgba(128, 128, 128, 0.5);
       }
+      /* The header's own bottom rule replaces the first body row's top edge. */
+      .envelope-table thead + tbody.envelope-section-body > tr:first-child > *,
+      .envelope-table thead + tbody.envelope-group-body > tr:first-child > * {
+        border-top: 0;
+      }
       .envelope-table tr.envelope-total > * {
         border-top: 2px solid rgba(128, 128, 128, 0.6);
+      }
+      /* The pool and cash rows stay put at the bottom of the scroll box. */
+      .envelope-table .envelope-total-body tr {
+        height: var(--envelope-total-row-height);
+      }
+      .envelope-table .envelope-total-body tr:last-child > * {
+        position: sticky;
+        bottom: 0;
+        z-index: 2;
+        background: var(--background, #fff);
+        border-bottom: 1px solid rgba(128, 128, 128, 0.5);
+      }
+      .envelope-table .envelope-total-body tr:first-child > * {
+        position: sticky;
+        bottom: var(--envelope-total-row-height);
+        z-index: 2;
+        background: var(--background, #fff);
+      }
+      /* A parent heading pins under the table header while its group is in
+         view, and the next group pushes it up. */
+      .envelope-table tbody.envelope-group-body > tr.envelope-group > * {
+        position: sticky;
+        top: calc(2 * var(--envelope-header-row-height));
+        z-index: 1;
+        background: var(--background, #fff);
       }
       .envelope-group th {
         font-weight: 600;
@@ -66,6 +145,17 @@
       }
       .envelope-child td:first-child {
         padding-left: 1.5rem;
+      }
+      /* Red for overspent, green for fully funded, amber for partly funded.
+         The diff variables come from Fava and swap with its colour scheme. */
+      .envelope-table .envelope-neg {
+        color: var(--diff-negative, #973535);
+      }
+      .envelope-table .envelope-funded {
+        color: var(--diff-positive, #35973d);
+      }
+      .envelope-table .envelope-partial {
+        color: var(--warning, #edd431);
       }
       /* Collapsible parents: CSS-only, so the state is not persisted. */
       .envelope-toggle {
@@ -93,16 +183,35 @@
       .envelope-table tbody.envelope-group-body:has(.envelope-toggle:checked) label::before {
         content: "\25B8";
       }
+      /* A single control collapses every parent; the group toggles still work. */
+      .envelope-collapse {
+        margin: 0.25rem 0;
+      }
+      .envelope-collapse label {
+        cursor: pointer;
+      }
+      .envelope-report:has(.envelope-collapse-all:checked) .envelope-child {
+        display: none;
+      }
+      .envelope-report:has(.envelope-collapse-all:checked) .envelope-group label::before {
+        content: "\25B8";
+      }
     </style>
 
     <h2>Envelope report <small>in {{ view.currency }}</small></h2>
 
     <p class="envelope-nav">
       <a href="?{{ view.nav.previous }}">&laquo; previous month</a> &middot;
-      <a href="?{{ view.nav.last3 }}">last 3 months</a> &middot;
-      <a href="?{{ view.nav.forward3 }}">next 3 months</a> &middot;
+      <a href="?{{ extension.today_nav(view.months|length) }}">this month</a> &middot;
       <a href="?{{ view.nav.next }}">next month &raquo;</a>
     </p>
+
+    {% if view.groups | selectattr('parent', 'ne', none) | list %}
+      <div class="envelope-collapse">
+        <input type="checkbox" class="envelope-collapse-all" id="envelope-collapse-all">
+        <label for="envelope-collapse-all">Collapse all</label>
+      </div>
+    {% endif %}
 
     {% if view.warnings %}
       <div class="envelope-warnings">
@@ -129,6 +238,7 @@
             {% for index in range(view.months|length) %}
               <th colspan="{{ 4 if loop.first else 3 }}" class="envelope-sep">
                 {{ view.months[index].strftime('%Y-%m') }}
+                {% if view.months[index] == today %}<small>(current)</small>{% endif %}
                 {% if view.projected[index] %}<small>(projected)</small>{% endif %}
               </th>
             {% endfor %}
@@ -136,7 +246,7 @@
           <tr>
             {% for index in range(view.months|length) %}
               {% if loop.first %}<th class="envelope-sep">Opening</th>{% endif %}
-              <th{% if not loop.first %} class="envelope-sep"{% endif %}>Allocated</th>
+              <th class="envelope-sep">Allocated</th>
               <th>Activity</th>
               <th>Closing</th>
             {% endfor %}
@@ -150,8 +260,8 @@
                   {% if envelope.visible %}
                     <tr>
                       <td title="{{ extension.envelope_title(envelope) }}">{{ envelope.name }}</td>
-                      {{ opening(envelope.cells[0]) }}
-                      {% for cell in envelope.cells %}{{ amounts(cell, not loop.first) }}{% endfor %}
+                      {{ opening(envelope.cells[0], blank=true) }}
+                      {% for cell in envelope.cells %}{{ amounts(cell, not loop.first, blank=true) }}{% endfor %}
                     </tr>
                   {% endif %}
                 {% endfor %}
@@ -171,8 +281,8 @@
                 {% if envelope.visible %}
                   <tr class="envelope-child">
                     <td title="{{ extension.envelope_title(envelope) }}">{{ envelope.name }}</td>
-                    {{ opening(envelope.cells[0]) }}
-                    {% for cell in envelope.cells %}{{ amounts(cell, not loop.first) }}{% endfor %}
+                    {{ opening(envelope.cells[0], blank=true) }}
+                    {% for cell in envelope.cells %}{{ amounts(cell, not loop.first, blank=true) }}{% endfor %}
                   </tr>
                 {% endif %}
               {% endfor %}
@@ -187,11 +297,11 @@
           </tr>
           <tr class="envelope-total">
             <td>Cash</td>
-            <td class="num envelope-sep">{{ extension.money(view.cash[0].opening) }}</td>
+            <td class="num envelope-sep{{ ' envelope-neg' if view.cash[0].opening < 0 else '' }}">{{ extension.money(view.cash[0].opening) }}</td>
             {% for cell in view.cash %}
               <td class="num{{ ' envelope-sep' if not loop.first else '' }}"></td>
               <td class="num"></td>
-              <td class="num">{{ extension.money(cell.closing) }}</td>
+              <td class="num{{ ' envelope-neg' if cell.closing < 0 else '' }}">{{ extension.money(cell.closing) }}</td>
             {% endfor %}
           </tr>
         </tbody>

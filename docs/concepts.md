@@ -379,7 +379,18 @@ It is read-only, shows one to three months, and offers hover text for envelope
 targets and the transactions behind each activity figure. The months sit side by
 side when the window is wide enough and stack when it is narrow, and envelopes
 are grouped by their `parent` label with a subtotal per group, parent headings
-and envelopes in alphabetical order.
+and envelopes in alphabetical order. Parent categories collapse to their subtotal
+when their name is clicked.
+
+The table is a self-contained scroll area: its header, envelope column and
+pool/cash rows stay in place, and the month links stay reachable at the top, so
+you can move around a long or wide report. Each parent heading pins under the
+table header while its group scrolls, and a single "Collapse all" control folds
+every parent. The current month's header is labelled `(current)`, alongside the
+`(projected)` label, and a "this month" link jumps to it. Closing balances are
+colour-coded — red when overspent, green when funded to their plan, amber when
+underfunded — and an opening balance turns red when negative. The colours come
+from Fava's own variables, so they follow its light and dark schemes.
 
 Set the default number of months (1 to 3) with an optional config, a
 stringified Python mapping on the extension line; the `months` URL parameter

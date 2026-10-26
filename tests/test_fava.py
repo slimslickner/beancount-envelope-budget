@@ -381,3 +381,107 @@ def test_template_without_start() -> None:
     """A ledger without a start directive explains itself."""
     html = _render(_extension("no_start.bean"), {})
     assert "nothing to show" in html
+
+
+def _row(html: str, marker: str) -> str:
+    """Return the ``<tr>`` fragment that contains a marker.
+
+    Args:
+        html: The rendered template.
+        marker: A substring unique to the row.
+
+    Returns:
+        The row's HTML, up to the next ``<tr``.
+    """
+    return next(row for row in html.split("<tr") if marker in row)
+
+
+def test_template_blanks_zero_envelope_values() -> None:
+    """A leaf envelope's 0.00 values render blank, while the pool shows them."""
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
+    groceries = _row(html, ">Groceries<")
+    # Opening, and the projected months' zero allocated and activity, are blank.
+    assert ">0.00<" not in groceries
+    assert groceries.count(">380.00<") == 3
+    assert ">0.00<" in _row(html, ">Pool<")
+
+
+def test_template_parent_subtotal_keeps_zeros() -> None:
+    """A parent subtotal always shows its numbers, including zeros."""
+    html = _render(
+        _extension("parent_groups.bean"), {"month": "2024-01", "months": "1"}
+    )
+    assert ">0.00<" in _row(html, ">Living<")
+
+
+def test_template_colors_overspent_closing() -> None:
+    """A negative closing balance is marked red."""
+    html = _render(
+        _extension("overspend_carry.bean"), {"month": "2024-01", "months": "1"}
+    )
+    groceries = _row(html, ">Groceries<")
+    assert "envelope-neg" in groceries
+    assert "-30.00" in groceries
+
+
+def test_template_colors_funding_status() -> None:
+    """Closing balances are green when funded and amber when underfunded."""
+    html = _render(
+        _extension("funding_colors.bean"), {"month": "2024-01", "months": "1"}
+    )
+    assert "envelope-partial" in _row(html, ">Under<")
+    assert "envelope-funded" in _row(html, ">On<")
+    assert "envelope-funded" in _row(html, ">Over<")
+
+
+def test_template_marks_current_month(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The current month is labelled in the header and linked from the nav."""
+    monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2024, 1, 1))
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
+    assert "(current)" in _row(html, ">Envelope<")
+    assert "month=2024-01&amp;months=3" in html
+    # The this-month link sits between previous and next.
+    nav = html.split("<tr")[0]
+    assert (
+        nav.index("previous month") < nav.index("this month") < nav.index("next month")
+    )
+    assert "last 3 months" not in nav
+    assert "next 3 months" not in nav
+
+
+def test_template_no_current_month_outside_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No month is labelled current when today is outside the view."""
+    monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2019, 6, 1))
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
+    assert "(current)" not in _row(html, ">Envelope<")
+
+
+def test_template_freezes_header_and_footer() -> None:
+    """The table header, name column and pool/cash rows are sticky."""
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
+    assert "position: sticky" in html
+    assert "border-collapse: separate" in html
+    assert "max-height: 80vh" in html
+    assert "bottom: var(--envelope-total-row-height)" in html
+
+
+def test_template_has_collapse_all() -> None:
+    """One control collapses every parent group, and only when there are some."""
+    html = _render(
+        _extension("parent_groups.bean"), {"month": "2024-01", "months": "1"}
+    )
+    assert 'class="envelope-collapse-all"' in html
+    assert ":has(.envelope-collapse-all:checked)" in html
+    flat = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
+    assert 'id="envelope-collapse-all"' not in flat
+
+
+def test_template_freezes_parent_headings() -> None:
+    """A parent heading sticks under the table header while its group scrolls."""
+    html = _render(
+        _extension("parent_groups.bean"), {"month": "2024-01", "months": "1"}
+    )
+    assert "tbody.envelope-group-body > tr.envelope-group > *" in html
+    assert "top: calc(2 * var(--envelope-header-row-height))" in html
