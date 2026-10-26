@@ -465,3 +465,23 @@ def test_template_freezes_header_and_footer() -> None:
     assert "border-collapse: separate" in html
     assert "max-height: 80vh" in html
     assert "bottom: var(--envelope-total-row-height)" in html
+
+
+def test_template_has_collapse_all() -> None:
+    """One control collapses every parent group, and only when there are some."""
+    html = _render(
+        _extension("parent_groups.bean"), {"month": "2024-01", "months": "1"}
+    )
+    assert 'class="envelope-collapse-all"' in html
+    assert ":has(.envelope-collapse-all:checked)" in html
+    flat = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
+    assert 'id="envelope-collapse-all"' not in flat
+
+
+def test_template_freezes_parent_headings() -> None:
+    """A parent heading sticks under the table header while its group scrolls."""
+    html = _render(
+        _extension("parent_groups.bean"), {"month": "2024-01", "months": "1"}
+    )
+    assert "tbody.envelope-group-body > tr.envelope-group > *" in html
+    assert "top: calc(2 * var(--envelope-header-row-height))" in html

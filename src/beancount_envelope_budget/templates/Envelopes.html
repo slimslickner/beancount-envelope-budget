@@ -128,6 +128,14 @@
         z-index: 2;
         background: var(--background, #fff);
       }
+      /* A parent heading pins under the table header while its group is in
+         view, and the next group pushes it up. */
+      .envelope-table tbody.envelope-group-body > tr.envelope-group > * {
+        position: sticky;
+        top: calc(2 * var(--envelope-header-row-height));
+        z-index: 1;
+        background: var(--background, #fff);
+      }
       .envelope-group th {
         font-weight: 600;
         text-align: left;
@@ -175,6 +183,19 @@
       .envelope-table tbody.envelope-group-body:has(.envelope-toggle:checked) label::before {
         content: "\25B8";
       }
+      /* A single control collapses every parent; the group toggles still work. */
+      .envelope-collapse {
+        margin: 0.25rem 0;
+      }
+      .envelope-collapse label {
+        cursor: pointer;
+      }
+      .envelope-report:has(.envelope-collapse-all:checked) .envelope-child {
+        display: none;
+      }
+      .envelope-report:has(.envelope-collapse-all:checked) .envelope-group label::before {
+        content: "\25B8";
+      }
     </style>
 
     <h2>Envelope report <small>in {{ view.currency }}</small></h2>
@@ -184,6 +205,13 @@
       <a href="?{{ extension.today_nav(view.months|length) }}">this month</a> &middot;
       <a href="?{{ view.nav.next }}">next month &raquo;</a>
     </p>
+
+    {% if view.groups | selectattr('parent', 'ne', none) | list %}
+      <div class="envelope-collapse">
+        <input type="checkbox" class="envelope-collapse-all" id="envelope-collapse-all">
+        <label for="envelope-collapse-all">Collapse all</label>
+      </div>
+    {% endif %}
 
     {% if view.warnings %}
       <div class="envelope-warnings">

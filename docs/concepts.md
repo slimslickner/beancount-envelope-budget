@@ -384,12 +384,13 @@ when their name is clicked.
 
 The table is a self-contained scroll area: its header, envelope column and
 pool/cash rows stay in place, and the month links stay reachable at the top, so
-you can move around a long or wide report. The current month's header is labelled
-`(current)`, alongside the `(projected)` label, and a "this month" link jumps to
-it. Closing balances are colour-coded — red when overspent, green when funded to
-their plan, amber when underfunded — and an opening balance turns red when
-negative. The colours come from Fava's own variables, so they follow its light
-and dark schemes.
+you can move around a long or wide report. Each parent heading pins under the
+table header while its group scrolls, and a single "Collapse all" control folds
+every parent. The current month's header is labelled `(current)`, alongside the
+`(projected)` label, and a "this month" link jumps to it. Closing balances are
+colour-coded — red when overspent, green when funded to their plan, amber when
+underfunded — and an opening balance turns red when negative. The colours come
+from Fava's own variables, so they follow its light and dark schemes.
 
 Set the default number of months (1 to 3) with an optional config, a
 stringified Python mapping on the extension line; the `months` URL parameter
