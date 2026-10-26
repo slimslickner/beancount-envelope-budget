@@ -23,7 +23,7 @@ Declares an envelope.
 | `envelope` | string | yes | The name of the envelope to declare. |
 
 
-Metadata: `monthly`, `ahead`, `priority`, `target`, `by`, `parent`.
+Metadata: `monthly`, `priority`, `target`, `by`, `parent`.
 
 ### `allocate`
 
@@ -74,7 +74,7 @@ Changes an envelope's plan from that date. It takes the same metadata as `open` 
 | `envelope` | string | yes | The envelope the plan applies to. |
 
 
-Metadata: `monthly`, `ahead`, `priority`, `target`, `by`.
+Metadata: `monthly`, `priority`, `target`, `by`.
 
 ### `unplan`
 
@@ -95,7 +95,6 @@ Metadata: none.
 | `envelope` | string | no | — | account open, transaction, posting | The envelope an account's or posting's effects belong to. The reserved value pool sends them to the pool instead. |
 | `cash-account` | boolean | no | — | account open | TRUE marks an Assets or Liabilities account as spendable cash whose balance counts toward the pool. FALSE is the same as leaving the key out. |
 | `monthly` | number or "avgN" | no | — | envelope open, envelope plan | The planned monthly funding amount, or "avgN" for the average of the last N completed months of spending. |
-| `ahead` | whole number | no | `0` | envelope open, envelope plan | Whole months to hold in reserve beyond the current one when auto-funding with topup. |
 | `priority` | decimal | no | — | envelope open, envelope plan | Lower numbers fund first during topup. Ties fund in declaration order; envelopes without a priority fund last. |
 | `target` | amount (number and currency) | no | — | envelope open, envelope plan | A goal balance for the envelope, e.g. 15000.00 USD. |
 | `by` | date | no | — | envelope open, envelope plan | The date by which the target should be reached, e.g. 2028-06-01. |

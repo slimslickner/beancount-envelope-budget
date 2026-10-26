@@ -51,7 +51,6 @@ class ValueKind(StrEnum):
     DECIMAL = "decimal"
     DATE = "date"
     BOOLEAN = "boolean"
-    WHOLE_NUMBER = "whole number"
     NUMBER_OR_AVG = 'number or "avgN"'
     AMOUNT = "amount (number and currency)"
 
@@ -180,7 +179,7 @@ DIRECTIVE_VERBS: tuple[DirectiveVerb, ...] = (
                 description="The name of the envelope to declare.",
             ),
         ),
-        metadata=("monthly", "ahead", "priority", "target", "by", "parent"),
+        metadata=("monthly", "priority", "target", "by", "parent"),
         description="Declares an envelope.",
     ),
     DirectiveVerb(
@@ -259,7 +258,7 @@ DIRECTIVE_VERBS: tuple[DirectiveVerb, ...] = (
                 description="The envelope the plan applies to.",
             ),
         ),
-        metadata=("monthly", "ahead", "priority", "target", "by"),
+        metadata=("monthly", "priority", "target", "by"),
         description=(
             "Changes an envelope's plan from that date. It takes the same "
             "metadata as `open` and changes only the fields it names; the "
@@ -321,17 +320,6 @@ METADATA_KEYS: tuple[MetadataKey, ...] = (
         description=(
             'The planned monthly funding amount, or "avgN" for the average of '
             "the last N completed months of spending."
-        ),
-    ),
-    MetadataKey(
-        key="ahead",
-        kind=ValueKind.WHOLE_NUMBER,
-        required=False,
-        default="0",
-        applies_to=(AppliesTo.ENVELOPE_OPEN, AppliesTo.ENVELOPE_PLAN),
-        description=(
-            "Whole months to hold in reserve beyond the current one when "
-            "auto-funding with topup."
         ),
     ),
     MetadataKey(
@@ -479,9 +467,8 @@ DIAGNOSTIC_CODES: tuple[DiagnosticCode, ...] = (
         severity=Severity.ERROR,
         summary="Invalid envelope metadata: {detail}.",
         explanation=(
-            'Check the types: `monthly` must be a number or "avgN", `ahead` a '
-            "whole number, `priority` a number, `target` an amount, `by` a date "
-            "and `parent` a string."
+            'Check the types: `monthly` must be a number or "avgN", `priority` '
+            "a number, `target` an amount, `by` a date and `parent` a string."
         ),
     ),
     DiagnosticCode(
@@ -491,6 +478,18 @@ DIAGNOSTIC_CODES: tuple[DiagnosticCode, ...] = (
         explanation=(
             'Set `option "operating_currency" "USD"` (or your own currency). '
             "Envelope budgeting supports one currency only."
+        ),
+    ),
+    DiagnosticCode(
+        code="E010",
+        severity=Severity.ERROR,
+        summary="Envelope {name} has a plan that has no effect: {detail}.",
+        explanation=(
+            "A plan funds an envelope either by `monthly` or by a `target` with "
+            "a `by` date, never both. `target` without `by`, `by` without "
+            "`target`, and `monthly` with `target` are all errors because the "
+            "ignored key would otherwise have no effect. Remove the unused or "
+            "conflicting key, or start a fresh plan with `unplan`."
         ),
     ),
     DiagnosticCode(

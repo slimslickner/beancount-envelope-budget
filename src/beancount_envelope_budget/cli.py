@@ -38,7 +38,7 @@ from beancount_envelope_budget.core import (
     month_of,
     row_for,
 )
-from beancount_envelope_budget.report import build_view, to_jsonable
+from beancount_envelope_budget.report import build_view, plan_level, to_jsonable
 from beancount_envelope_budget.schema import (
     Severity,
     dump_schema_json,
@@ -310,11 +310,13 @@ def _cmd_suggest(args: argparse.Namespace) -> int:
     if not args.ledger.exists():
         print(f"no such ledger: {args.ledger}", file=sys.stderr)
         return 2
-    result = _load(args.ledger).result
+    loaded = _load(args.ledger)
+    result = loaded.result
     if result.start is None:
         print("there is no start directive; nothing to suggest", file=sys.stderr)
         return 0
-    rows = _suggest_rows(result)
+    latest = max(entry.date for entry in loaded.entries)
+    rows = _suggest_rows(result, latest)
     if not rows:
         print("no goal envelopes with a target and a `by` date")
         return 0
@@ -384,11 +386,16 @@ def _fund_topup(
         print("--mode topup takes --date, not --from/--to", file=sys.stderr)
         return 2
     on = args.date or date.today()  # noqa: DTZ011 - local today is intended
-    lines, unfunded = _plan_topup(result, on, args.reserve, pattern)
+    lines, unfunded, overfunded = _plan_topup(result, on, args.reserve, pattern)
     for line in lines:
         print(line)
     for name, amount in unfunded:
         print(f"; UNFUNDED {name}: needs {_money(amount)} {result.operating_currency}")
+    for name, amount in overfunded:
+        print(
+            f"; OVERFUNDED {name}: {_money(amount)} "
+            f"{result.operating_currency} above plan"
+        )
     return 1 if args.strict and unfunded else 0
 
 
@@ -621,79 +628,16 @@ def _fund_amount(
     return allocation
 
 
-def _resolve_monthly(
-    report: EnvelopeReport,
-    on: date,
-) -> Decimal | None:
-    """Resolve an envelope's planned monthly amount on a date.
-
-    Args:
-        report: The envelope's report.
-        on: The date to evaluate.
-
-    Returns:
-        The monthly amount, or ``None`` when the envelope has no plan.
-    """
-    plan = report.envelope.effective(on)
-    if isinstance(plan.monthly, Decimal):
-        return plan.monthly
-    if isinstance(plan.monthly, str):
-        return _average_spend(report, on, _avg_window(plan.monthly))
-    if plan.target is not None and plan.by is not None:
-        anchor = month_of(on)
-        balance = row_for(report.rows, anchor).closing
-        remaining = (plan.by.year - anchor.year) * _MONTHS_PER_YEAR + (
-            plan.by.month - anchor.month
-        )
-        return _monthly_need(plan.target, balance, remaining)
-    return None
-
-
-def _avg_window(monthly: str) -> int:
-    """Return the window size of an ``avgN`` monthly amount.
-
-    Args:
-        monthly: An ``avgN`` string, already validated by the core.
-
-    Returns:
-        The window size, ``N``.
-
-    Examples:
-        >>> _avg_window("avg6")
-        6
-    """
-    return int(monthly[3:])
-
-
-def _average_spend(report: EnvelopeReport, on: date, window: int) -> Decimal | None:
-    """Average an envelope's spending over the last ``window`` completed months.
-
-    Args:
-        report: The envelope's report.
-        on: The date to evaluate.
-        window: How many completed months to average.
-
-    Returns:
-        The average spending, or ``None`` when there is no history.
-    """
-    anchor = month_of(on)
-    total = Decimal(0)
-    count = 0
-    for offset in range(1, window + 1):
-        row = _maybe_row(report.rows, _shift_month(anchor, -offset))
-        if row is None:
-            continue
-        total += -row.activity
-        count += 1
-    return total / count if count else None
-
-
 def _plan_topup(
     result: BudgetResult,
     on: date,
     reserve: Decimal,
     pattern: re.Pattern[str] | None,
-) -> tuple[list[str], list[tuple[str, Decimal]]]:
+) -> tuple[
+    list[str],
+    list[tuple[str, Decimal]],
+    list[tuple[str, Decimal]],
+]:
     """Plan a ``topup`` run.
 
     Args:
@@ -703,22 +647,26 @@ def _plan_topup(
         pattern: An optional envelope-name filter.
 
     Returns:
-        The directive lines and the sum of any unfunded shortfalls.
+        The directive lines, the unfunded shortfalls, and the amounts by which
+        goal envelopes already exceed their level.
     """
     currency = result.operating_currency
     remaining = row_for(result.pool, month_of(on)).closing - reserve
     candidates: list[tuple[bool, Decimal, int, str, Decimal]] = []
+    overfunded: list[tuple[str, Decimal]] = []
     for index, report in enumerate(result.envelopes):
         envelope = report.envelope
         if pattern is not None and not pattern.search(envelope.name):
             continue
-        monthly = _resolve_monthly(report, on)
-        if monthly is None:
-            continue
         plan = envelope.effective(on)
-        level = monthly * (1 + plan.ahead)
-        need = level - row_for(report.rows, month_of(on)).closing
+        level = plan_level(report, on)
+        if level is None:
+            continue
+        balance = row_for(report.rows, month_of(on)).closing
+        need = (level - balance).quantize(_CENT, rounding=ROUND_CEILING)
         if need <= 0:
+            if plan.target is not None and balance > level:
+                overfunded.append((envelope.name, (balance - level).quantize(_CENT)))
             continue
         rank = plan.priority if plan.priority is not None else Decimal(0)
         candidates.append((plan.priority is None, rank, index, envelope.name, need))
@@ -735,7 +683,7 @@ def _plan_topup(
         lines.append(_allocate_line(on, name, amount, currency))
         if amount < need:
             unfunded.append((name, need - amount))
-    return lines, unfunded
+    return lines, unfunded, overfunded
 
 
 def _parse_decimal(value: str) -> Decimal:
@@ -1189,23 +1137,24 @@ def _format_view(view: BudgetView) -> str:
     return rendered
 
 
-def _suggest_rows(result: BudgetResult) -> list[tuple[str, ...]]:
+def _suggest_rows(result: BudgetResult, latest: date) -> list[tuple[str, ...]]:
     """Build the suggestion table rows.
 
     Args:
         result: The computed budget.
+        latest: The latest date in the ledger, so a mid-month plan counts.
 
     Returns:
         One row per goal envelope.
     """
-    anchor = result.months[-1]
+    anchor = month_of(latest)
     rows: list[tuple[str, ...]] = []
     for report in result.envelopes:
         envelope = report.envelope
-        plan = envelope.effective(anchor)
+        plan = envelope.effective(latest)
         if plan.target is None or plan.by is None:
             continue
-        balance = report.closing_at(anchor)
+        balance = row_for(report.rows, anchor).closing
         remaining = _months_remaining(anchor, plan.by)
         need = _monthly_need(plan.target, balance, remaining)
         rows.append(

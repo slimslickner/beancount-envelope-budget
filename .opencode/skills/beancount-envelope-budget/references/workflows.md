@@ -42,13 +42,15 @@ beancount-envelope-budget fund main.bean --mode topup --date 2027-03-01 --reserv
 ```
 
 This prints `allocate` directives, funding envelopes in priority order up to
-`monthly × (1 + ahead)` and holding `--reserve` back in the pool. Anything that
-could not be funded prints as a comment:
+their level — `monthly`, or the on-track balance for a goal — and holding
+`--reserve` back in the pool. Anything that could not be funded prints as a
+comment, and a goal already above its level prints as overfunded:
 
 ```beancount
 2027-03-01 custom "envelope" "allocate" "Mortgage" 2500.00 USD
 2027-03-01 custom "envelope" "allocate" "Groceries" 500.00 USD
 ; UNFUNDED Groceries: needs 120.00 USD
+; OVERFUNDED Emergency Fund: 500.00 USD above plan
 ```
 
 Append the output to a file you `include`, then re-check. Rerunning after another

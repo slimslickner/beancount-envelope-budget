@@ -13,6 +13,7 @@
 | `E007` | error | Invariant fails for {month}: pool plus envelopes is {actual} but cash is {expected} (difference {difference}). |
 | `E008` | error | Invalid envelope metadata: {detail}. |
 | `E009` | error | The ledger does not declare a single operating currency. |
+| `E010` | error | Envelope {name} has a plan that has no effect: {detail}. |
 | `W001` | warning | The pool is negative on {date}, reaching a low of {balance}. |
 | `W002` | warning | {kind} for {name} is dated before the start directive and is ignored. |
 | `W003` | warning | There is no start directive, so envelope budgeting does nothing. |
@@ -71,7 +72,7 @@ At each month end the pool plus all envelope balances must equal the ledger's ca
 
 **Error:** Invalid envelope metadata: {detail}.
 
-Check the types: `monthly` must be a number or "avgN", `ahead` a whole number, `priority` a number, `target` an amount, `by` a date and `parent` a string.
+Check the types: `monthly` must be a number or "avgN", `priority` a number, `target` an amount, `by` a date and `parent` a string.
 
 
 ## E009
@@ -79,6 +80,13 @@ Check the types: `monthly` must be a number or "avgN", `ahead` a whole number, `
 **Error:** The ledger does not declare a single operating currency.
 
 Set `option "operating_currency" "USD"` (or your own currency). Envelope budgeting supports one currency only.
+
+
+## E010
+
+**Error:** Envelope {name} has a plan that has no effect: {detail}.
+
+A plan funds an envelope either by `monthly` or by a `target` with a `by` date, never both. `target` without `by`, `by` without `target`, and `monthly` with `target` are all errors because the ignored key would otherwise have no effect. Remove the unused or conflicting key, or start a fresh plan with `unplan`.
 
 
 ## W001

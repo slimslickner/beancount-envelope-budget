@@ -314,11 +314,20 @@ def test_bad_metadata(load_budget) -> None:
     }
     # cash-account: FALSE is the same as omitting the key, so Assets:401k is
     # absent from the diagnostics above.
-    assert len([code for code in _codes(result) if code == "E008"]) == 4
+    assert len([code for code in _codes(result) if code == "E008"]) == 3
     groceries = _envelope(result, "Groceries")
     assert groceries.envelope.plan.monthly == "avg3"
-    assert groceries.envelope.plan.ahead == 2
     assert groceries.envelope.plan.priority == D("1")
+
+
+def test_plan_with_no_effect_is_reported(load_budget) -> None:
+    """A plan whose metadata has no effect is reported as E010."""
+    result = load_budget("bad_plan.bean")
+    messages = [d.message for d in result.diagnostics if d.code == "E010"]
+    assert len(messages) == 3
+    assert any("target requires by" in message for message in messages)
+    assert any("by requires target" in message for message in messages)
+    assert any("mutually exclusive" in message for message in messages)
 
 
 def test_envelope_lifecycle(load_budget) -> None:
@@ -337,7 +346,7 @@ def test_plan_changes_effective_parameters(load_budget) -> None:
     envelope = _envelope(load_budget("envelope_lifecycle.bean"), "A").envelope
     assert envelope.effective(date(2024, 1, 1)) == Plan()
     assert envelope.effective(date(2024, 2, 1)) == Plan(
-        monthly=D("200"), ahead=3, priority=D("2")
+        monthly=D("200"), priority=D("2")
     )
 
 
@@ -346,8 +355,6 @@ def test_plan_merges_only_named_fields(load_budget) -> None:
     envelope = _envelope(load_budget("plan_merge.bean"), "Car").envelope
     before = envelope.effective(date(2024, 1, 1))
     assert before == Plan(
-        monthly=D("500"),
-        ahead=1,
         priority=D("2"),
         target=D("15000"),
         target_currency="USD",
@@ -355,8 +362,6 @@ def test_plan_merges_only_named_fields(load_budget) -> None:
     )
     after = envelope.effective(date(2024, 6, 1))
     assert after == Plan(
-        monthly=D("500"),
-        ahead=1,
         priority=D("1"),
         target=D("15000"),
         target_currency="USD",
