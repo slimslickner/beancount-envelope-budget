@@ -250,6 +250,29 @@ def test_report_shows_envelope_from_open_month(
     assert "Late" in capsys.readouterr().out
 
 
+def test_report_spans_late_envelope_across_months(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A late-opened envelope gets one row spanning the window, blanked before it opens."""
+    code = cli.main(
+        ["report", _ledger("open_late.bean"), "--month", "2024-06", "--months", "3"]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    late = next(line for line in out.splitlines() if line.split()[:1] == ["Late"])
+    # Opening and the June columns are blank (not yet open); July and the
+    # projected August carry the values.
+    assert late.split() == [
+        "Late",
+        "200.00",
+        "-50.00",
+        "150.00",
+        "0.00",
+        "0.00",
+        "150.00",
+    ]
+
+
 def test_report_json(capsys: pytest.CaptureFixture[str]) -> None:
     """--json prints the view as stable, parseable JSON."""
     code = cli.main(

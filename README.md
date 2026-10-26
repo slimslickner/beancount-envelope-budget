@@ -138,8 +138,9 @@ beancount-envelope-budget completion SHELL   # bash or zsh
 ```
 
 - `check` exits non-zero on any error.
-- `report` prints opening, allocated, activity and closing for one to three
-  months, plus the pool and cash rows. Parent headings and envelopes are ordered
+- `report` prints one table spanning one to three months: a row per envelope
+  with its opening once and then allocated, activity and closing per month, plus
+  the pool and cash rows. Parent headings and envelopes are ordered
   alphabetically; a zero-padded number prefix (`01`, `02`, `10`) puts a name in a
   chosen place.
 - `fund` prints `allocate` directives to stdout (redirect them into a file you

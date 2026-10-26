@@ -33,7 +33,7 @@ When working inside this repository, prefix commands with `uv run`.
 | Command | Purpose |
 | --- | --- |
 | `check LEDGER` | Validate and check the invariant. Exits non-zero on any error. |
-| `report LEDGER [--month YYYY-MM] [--months N] [--json]` | Opening / allocated / activity / closing per envelope, plus pool and cash, for one to three months. |
+| `report LEDGER [--month YYYY-MM] [--months N] [--json]` | One table spanning one to three months: a row per envelope (opening once, then allocated / activity / closing per month) plus pool and cash. |
 | `suggest LEDGER` | The monthly amount each goal envelope (`target` + `by`) needs. |
 | `fund LEDGER --from YYYY-MM --to YYYY-MM [--mode actuals\|overspend\|copy] [--envelopes REGEX] [--force]` | Print `allocate` directives to backfill or roll a range forward. |
 | `fund LEDGER --mode topup [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]` | Print `allocate` directives funding envelopes up to their level, in priority order. |

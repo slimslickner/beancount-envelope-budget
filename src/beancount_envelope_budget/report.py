@@ -112,6 +112,33 @@ class EnvelopeView:
     cells: tuple[Cell, ...]
     parent: str | None = None
 
+    @property
+    def visible(self) -> bool:
+        """Whether the envelope is shown in any month of the view.
+
+        A unified table gives each envelope one row spanning the whole window,
+        so the row exists when the envelope is visible in at least one of the
+        view's months — an envelope opened partway through still spans it.
+        The individual :class:`Cell` flags then blank the months outside its
+        life.
+
+        Examples:
+            >>> cell = Cell(
+            ...     month=date(2024, 1, 1),
+            ...     projected=False,
+            ...     opening=Decimal(0),
+            ...     allocated=Decimal(0),
+            ...     activity=Decimal(0),
+            ...     closing=Decimal(0),
+            ...     detail=(),
+            ...     detail_total=0,
+            ...     visible=False,
+            ... )
+            >>> EnvelopeView("Groceries", Plan(), (cell,)).visible
+            False
+        """
+        return any(cell.visible for cell in self.cells)
+
 
 @dataclass(frozen=True, slots=True)
 class EnvelopeGroup:
@@ -127,6 +154,20 @@ class EnvelopeGroup:
     parent: str | None
     envelopes: tuple[EnvelopeView, ...]
     subtotal: tuple[Cell, ...]
+
+    @property
+    def visible(self) -> bool:
+        """Whether the group is shown in any month of the view.
+
+        A named group keeps its heading row while any member is visible
+        somewhere in the window; its :class:`Cell` flags then blank the months
+        where no member is open.
+
+        Examples:
+            >>> EnvelopeGroup(None, (), ()).visible
+            False
+        """
+        return any(cell.visible for cell in self.subtotal)
 
 
 @dataclass(frozen=True, slots=True)
