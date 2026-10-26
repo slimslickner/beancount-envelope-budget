@@ -17,7 +17,7 @@
     </div>
     {%- endif %}
   </td>
-  <td class="num{{ closing_class(cell) }}">{% if cell.visible and not (blank and cell.closing == 0) %}{{ extension.money(cell.closing) }}{% endif %}</td>
+  <td class="num{{ closing_class(cell) }}">{% if cell.visible and cell.fill is not none %}<span class="envelope-ring" style="--envelope-fill: {{ extension.fill_percent(cell) }}"></span>{% endif %}{% if cell.visible and not (blank and cell.closing == 0) %}{{ extension.money(cell.closing) }}{% endif %}</td>
 {%- endmacro %}
 {% if not view.has_start %}
   <p>There is no <code>custom "envelope" "start"</code> directive, so there is nothing to show.</p>
@@ -210,6 +210,24 @@
       .envelope-detail-more {
         display: block;
         opacity: 0.7;
+      }
+      /* A planned envelope carries a small ring beside its closing balance,
+         filled in proportion to its goal (or monthly level). It inherits the
+         closing balance's funding colour, and is sized in ems so it adds no
+         height to the row. */
+      .envelope-ring {
+        display: inline-block;
+        width: 0.75em;
+        height: 0.75em;
+        margin-right: 0.4em;
+        border-radius: 50%;
+        vertical-align: -0.05em;
+        background: conic-gradient(
+          currentColor var(--envelope-fill, 0%),
+          rgba(128, 128, 128, 0.25) 0
+        );
+        -webkit-mask: radial-gradient(closest-side, transparent 56%, #000 57%);
+        mask: radial-gradient(closest-side, transparent 56%, #000 57%);
       }
       /* Collapsible parents: CSS-only, so the state is not persisted. */
       .envelope-toggle {

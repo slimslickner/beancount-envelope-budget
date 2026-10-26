@@ -84,6 +84,11 @@ class Cell:
             or ``None`` when it has no funding plan.
         funding: Whether the envelope is ``"under"``, ``"on"`` or ``"over"`` its
             level this month, or ``None`` when there is no level.
+        target: The envelope's goal balance this month, or ``None`` when it has
+            no target.
+        fill: How full the envelope is toward its goal, clamped to ``0`` to
+            ``1`` — its closing balance divided by its ``target``, or by its
+            ``level`` when it has no target. ``None`` when it has neither.
     """
 
     month: date
@@ -97,6 +102,8 @@ class Cell:
     visible: bool = True
     level: Decimal | None = None
     funding: str | None = None
+    target: Decimal | None = None
+    fill: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -347,6 +354,32 @@ def _funding(level: Decimal | None, closing: Decimal) -> str | None:
     return "on"
 
 
+def _fill(reference: Decimal | None, closing: Decimal) -> Decimal | None:
+    """Return how full an envelope is toward a reference balance.
+
+    Args:
+        reference: The balance to measure against, or ``None``.
+        closing: The envelope's closing balance for the month.
+
+    Returns:
+        ``closing`` divided by ``reference``, clamped to ``0`` to ``1``, or
+        ``None`` when there is no positive reference.
+
+    Examples:
+        >>> _fill(Decimal("200"), Decimal("50"))
+        Decimal('0.25')
+        >>> _fill(Decimal("200"), Decimal("500"))
+        Decimal('1')
+        >>> _fill(Decimal("0"), Decimal("50")) is None
+        True
+        >>> _fill(None, Decimal("50")) is None
+        True
+    """
+    if reference is None or reference <= 0:
+        return None
+    return min(max(closing / reference, Decimal(0)), Decimal(1))
+
+
 def _sort_key(name: str) -> str:
     """Return the sort key for an envelope or parent name.
 
@@ -472,6 +505,8 @@ def _cell(
     visible: bool = True,
     level: Decimal | None = None,
     funding: str | None = None,
+    target: Decimal | None = None,
+    fill: Decimal | None = None,
 ) -> Cell:
     """Build a cell from a monthly row and its detail.
 
@@ -482,6 +517,8 @@ def _cell(
         visible: Whether the row should be shown for the month.
         level: The month's funding level, or ``None``.
         funding: The month's funding status, or ``None``.
+        target: The month's goal balance, or ``None``.
+        fill: How full the envelope is toward its goal, or ``None``.
 
     Returns:
         The :class:`Cell`.
@@ -498,6 +535,8 @@ def _cell(
         visible=visible,
         level=level,
         funding=funding,
+        target=target,
+        fill=fill,
     )
 
 
@@ -524,7 +563,9 @@ def _envelope_view(
     cells: list[Cell] = []
     for month in months:
         row = row_for(report.rows, month)
+        plan = envelope.effective(_last_day(month))
         level = plan_level(report, _last_day(month))
+        reference = plan.target if plan.target is not None else level
         cells.append(
             _cell(
                 row,
@@ -534,6 +575,8 @@ def _envelope_view(
                 and (closed_month is None or month <= closed_month),
                 level=level,
                 funding=_funding(level, row.closing),
+                target=plan.target,
+                fill=_fill(reference, row.closing),
             )
         )
     return EnvelopeView(
@@ -714,6 +757,18 @@ def _money_json(value: Decimal | None) -> str | None:
     return None if value is None else f"{value:.2f}"
 
 
+def _ratio_json(value: Decimal | None) -> str | None:
+    """Format an optional ratio for JSON.
+
+    Args:
+        value: The ratio, or ``None``.
+
+    Returns:
+        A four-decimal string, or ``None``.
+    """
+    return None if value is None else f"{value:.4f}"
+
+
 def _plan_json(plan: Plan) -> dict[str, object]:
     """Serialise an envelope's effective plan.
 
@@ -756,6 +811,8 @@ def _cell_json(cell: Cell) -> dict[str, object]:
         "closing": f"{cell.closing:.2f}",
         "level": _money_json(cell.level),
         "funding": cell.funding,
+        "target": _money_json(cell.target),
+        "fill": _ratio_json(cell.fill),
         "detail": [
             {
                 "date": line.date.isoformat(),

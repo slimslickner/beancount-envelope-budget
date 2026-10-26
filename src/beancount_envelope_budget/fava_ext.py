@@ -125,6 +125,18 @@ class Envelopes(FavaExtensionBase):
         """
         return f"{value:.2f}"
 
+    def fill_percent(self, cell: Cell) -> str:
+        """Format a cell's goal fill as a CSS percentage.
+
+        Args:
+            cell: The view cell.
+
+        Returns:
+            The fill from ``0%`` to ``100%``, or ``0%`` when the cell has no
+            goal or level to measure against.
+        """
+        return f"{cell.fill * 100:.1f}%" if cell.fill is not None else "0%"
+
     def today_month(self) -> date:
         """Return the first day of the current month.
 

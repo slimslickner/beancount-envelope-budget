@@ -229,6 +229,49 @@ def test_envelope_target_tooltip() -> None:
     assert "2028-06-01" in title
 
 
+def test_report_goal_fill() -> None:
+    """A goal cell carries its target and how full it is toward it."""
+    view = _extension("savings_goal.bean").report("2024-01", "1")
+    car = next(e for e in view.envelopes if e.name == "Car")
+    cell = car.cells[0]
+    assert cell.target == D("15000")
+    assert cell.fill is not None
+    assert D("0") < cell.fill < D("1")
+
+
+def test_report_monthly_fill_clamps() -> None:
+    """A monthly envelope fills to its level, clamped at a whole ring."""
+    view = _extension("funding_colors.bean").report("2024-01", "1")
+    fills = {e.name: e.cells[0].fill for e in view.envelopes}
+    assert fills["Under"] == D("0.5")
+    assert fills["On"] == D("1")
+    assert fills["Over"] == D("1")
+
+
+def test_report_no_fill_without_a_plan() -> None:
+    """An envelope with no plan has nothing to fill toward."""
+    view = _extension("basic.bean").report("2024-01", "1")
+    groceries = next(e for e in view.envelopes if e.name == "Groceries")
+    assert groceries.cells[0].fill is None
+    assert groceries.cells[0].target is None
+
+
+def test_template_renders_funding_ring() -> None:
+    """A planned envelope renders a ring sized to its fill."""
+    html = _render(
+        _extension("funding_colors.bean"), {"month": "2024-01", "months": "1"}
+    )
+    assert 'class="envelope-ring"' in html
+    assert "--envelope-fill: 50.0%" in html
+    assert "--envelope-fill: 100.0%" in html
+
+
+def test_template_no_ring_without_a_plan() -> None:
+    """An unplanned envelope renders no ring."""
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
+    assert 'class="envelope-ring"' not in html
+
+
 def test_report_includes_warnings() -> None:
     """Warnings surface on the view."""
     view = _extension("mid_month_dip.bean").report("2024-01", "1")

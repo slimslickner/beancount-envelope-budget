@@ -390,8 +390,11 @@ table header while its group scrolls, and a single "Collapse all" control folds
 every parent. The current month's header is labelled `(current)`, alongside the
 `(projected)` label, and a "this month" link jumps to it. Closing balances are
 colour-coded — red when overspent, green when funded to their plan, amber when
-underfunded — and an opening balance turns red when negative. The colours come
-from Fava's own variables, so they follow its light and dark schemes.
+underfunded — and an opening balance turns red when negative. A planned envelope
+also carries a small ring beside its closing balance, filled in proportion to its
+goal (its `target`, or its monthly `level` when it has no target); the ring takes
+the balance's colour. The colours come from Fava's own variables, so they follow
+its light and dark schemes.
 
 Set the default number of months (1 to 3) with an optional config, a
 stringified Python mapping on the extension line; the `months` URL parameter

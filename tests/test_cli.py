@@ -289,6 +289,9 @@ def test_report_json(capsys: pytest.CaptureFixture[str]) -> None:
     assert detail["label"] == "January groceries"
     # The detail carries the transaction's identity so Fava can link to it.
     assert len(detail["entry_hash"]) == 32
+    # The cell carries its goal figures for the funding ring.
+    assert groceries["cells"][0]["target"] is None
+    assert groceries["cells"][0]["fill"] is None
 
 
 def test_report_rejects_bad_month(capsys: pytest.CaptureFixture[str]) -> None:
