@@ -2,7 +2,9 @@
 
 Both the CLI and the Fava report render from :func:`build_view`, so the terminal
 and the web page cannot disagree about the numbers. This module is pure: no I/O
-and no Fava or CLI imports.
+and no Fava or CLI imports. The one exception is :func:`today_month`, which reads
+the wall clock to pick a default month — a display concern that the CLI and the
+Fava report share from here rather than each reimplement.
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ __all__ = [
     "build_view",
     "plan_level",
     "to_jsonable",
+    "today_month",
 ]
 
 #: The most activity detail lines shown for a single cell.
@@ -44,6 +47,24 @@ MAX_DETAIL = 20
 
 #: The maximum number of months a view may span.
 MAX_MONTHS = 3
+
+
+def today_month() -> date:
+    """Return the first day of the current month.
+
+    The current month is a wall-clock, display concern, so it is resolved here
+    rather than inside the pure :func:`build_view`. The CLI and the Fava report
+    both call it to choose the month to show by default, so a future-dated
+    directive cannot drag the default window into the future.
+
+    Returns:
+        The first day of the local current month.
+
+    Examples:
+        >>> today_month().day
+        1
+    """
+    return date.today().replace(day=1)  # noqa: DTZ011 - local today is intended
 
 
 @dataclass(frozen=True, slots=True)
@@ -415,6 +436,9 @@ def build_view(
     Args:
         result: The computed budget.
         month: The first month to show; defaults to the latest month computed.
+            Callers that want the current month — the CLI and the Fava report —
+            pass :func:`today_month`, so a future-dated directive does not move
+            the default window forward.
         count: The number of months to show, clamped to ``1..MAX_MONTHS``.
 
     Returns:

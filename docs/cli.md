@@ -53,7 +53,7 @@ Print opening, allocated, activity and closing for every envelope, plus the pool
 | --- | --- |
 | `-h, --help` | show this help message and exit |
 | `ledger` | path to the Beancount ledger (.bean or .beancount) |
-| `--month` | the first month to report; defaults to the latest month in the ledger |
+| `--month` | the first month to report; defaults to the current month |
 | `--months` | how many months to show, forward from --month (1, 2 or 3) |
 | `--json` | print the report as JSON instead of a table |
 

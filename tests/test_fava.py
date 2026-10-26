@@ -85,12 +85,22 @@ def test_extension_is_discoverable() -> None:
     assert (_TEMPLATES / "Envelopes.html").exists()
 
 
-def test_report_defaults_to_three_months() -> None:
-    """The default view spans the latest month plus the next two."""
+def test_report_defaults_to_current_month(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The default view starts at the current month, spanning the next two."""
+    monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2024, 1, 1))
     view = _extension("basic.bean").report()
     assert view.has_start is True
     assert view.months == (date(2024, 1, 1), date(2024, 2, 1), date(2024, 3, 1))
     assert view.projected == (False, True, True)
+
+
+def test_report_default_ignores_future_directive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A future-dated directive does not move the default month forward."""
+    monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2024, 1, 1))
+    view = _extension("future_directive.bean").report()
+    assert view.months[0] == date(2024, 1, 1)
 
 
 def test_config_sets_default_months() -> None:
@@ -189,8 +199,9 @@ def test_template_spans_late_envelope_across_months() -> None:
     assert late.count("<td") == 11
 
 
-def test_report_clamps_and_parses() -> None:
+def test_report_clamps_and_parses(monkeypatch: pytest.MonkeyPatch) -> None:
     """Malformed parameters fall back and an early month is clamped up."""
+    monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2024, 1, 1))
     extension = _extension("basic.bean")
     assert extension.report("nonsense", "lots").months[0] == date(2024, 1, 1)
     assert len(extension.report("2024-01", "9").months) == 3
