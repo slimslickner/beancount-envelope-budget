@@ -54,11 +54,14 @@ class ActivityLine:
         date: The transaction date.
         label: A short description of the transaction.
         amount: The signed effect on the envelope.
+        entry_hash: The Beancount hash of the transaction, for linking back to
+            it in Fava.
     """
 
     date: date
     label: str
     amount: Decimal
+    entry_hash: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -456,7 +459,7 @@ def _detail_index(
     for event in events:
         key = (event.destination, month_of(event.date))
         index.setdefault(key, []).append(
-            ActivityLine(event.date, event.label, event.amount)
+            ActivityLine(event.date, event.label, event.amount, event.entry_hash)
         )
     return index
 
@@ -758,6 +761,7 @@ def _cell_json(cell: Cell) -> dict[str, object]:
                 "date": line.date.isoformat(),
                 "label": line.label,
                 "amount": f"{line.amount:.2f}",
+                "entry_hash": line.entry_hash,
             }
             for line in cell.detail
         ],

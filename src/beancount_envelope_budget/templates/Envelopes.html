@@ -8,7 +8,15 @@
 {%- endmacro %}
 {% macro amounts(cell, sep=false, blank=false) -%}
   <td class="num{{ ' envelope-sep' if sep else '' }}">{% if cell.visible and not (blank and cell.allocated == 0) %}{{ extension.money(cell.allocated) }}{% endif %}</td>
-  <td class="num">{% if cell.visible and not (blank and cell.activity == 0) %}{{ extension.money(cell.activity) }}{% endif %}</td>
+  <td class="num envelope-activity"{% if cell.detail %} tabindex="0"{% endif %}>
+    {%- if cell.visible and not (blank and cell.activity == 0) %}{{ extension.money(cell.activity) }}{% endif -%}
+    {%- if cell.detail %}
+    <div class="envelope-detail">
+      {% for line in cell.detail %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ line.label }} &middot; {{ extension.money(line.amount) }}</a>{% endfor %}
+      {%- if cell.detail_total > cell.detail | length %}<span class="envelope-detail-more">and {{ cell.detail_total - cell.detail | length }} more</span>{% endif %}
+    </div>
+    {%- endif %}
+  </td>
   <td class="num{{ closing_class(cell) }}">{% if cell.visible and not (blank and cell.closing == 0) %}{{ extension.money(cell.closing) }}{% endif %}</td>
 {%- endmacro %}
 {% if not view.has_start %}
@@ -160,6 +168,48 @@
       }
       .envelope-table .envelope-partial {
         color: var(--warning, #edd431);
+      }
+      /* Activity drill-down: hovering or focusing the activity figure reveals
+         the contributing postings, each linking to Fava's entry context popup.
+         The popover hangs below the figure, anchored to its right edge so it
+         grows leftward over the table rather than off the right. It scrolls
+         with the table; the scroll box grows to reveal it. */
+      .envelope-activity {
+        position: relative;
+      }
+      .envelope-detail {
+        display: none;
+      }
+      .envelope-activity:hover .envelope-detail,
+      .envelope-activity:focus-within .envelope-detail {
+        display: block;
+        position: absolute;
+        top: 100%;
+        right: 0;
+        z-index: 10;
+        max-width: min(26rem, 60vw);
+        max-height: 50vh;
+        overflow: auto;
+        padding: 0.35rem 0.5rem;
+        background: var(--background, #fff);
+        border: 1px solid rgba(128, 128, 128, 0.6);
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+        text-align: left;
+        white-space: nowrap;
+      }
+      .envelope-detail a {
+        display: block;
+        color: inherit;
+        text-decoration: none;
+      }
+      .envelope-detail a:hover,
+      .envelope-detail a:focus {
+        text-decoration: underline;
+      }
+      .envelope-detail-more {
+        display: block;
+        opacity: 0.7;
       }
       /* Collapsible parents: CSS-only, so the state is not persisted. */
       .envelope-toggle {

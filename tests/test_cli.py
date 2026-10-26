@@ -285,6 +285,10 @@ def test_report_json(capsys: pytest.CaptureFixture[str]) -> None:
     groceries = next(e for e in payload["envelopes"] if e["name"] == "Groceries")
     assert groceries["cells"][0]["activity"] == "-100.00"
     assert groceries["cells"][0]["detail_total"] == 1
+    detail = groceries["cells"][0]["detail"][0]
+    assert detail["label"] == "January groceries"
+    # The detail carries the transaction's identity so Fava can link to it.
+    assert len(detail["entry_hash"]) == 32
 
 
 def test_report_rejects_bad_month(capsys: pytest.CaptureFixture[str]) -> None:

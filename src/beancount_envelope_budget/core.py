@@ -19,7 +19,7 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from beancount.core import convert, interpolate
+from beancount.core import compare, convert, interpolate
 from beancount.core.amount import Amount
 from beancount.core.data import Custom, Directive, Open, Posting, Transaction
 
@@ -108,12 +108,16 @@ class ActivityEvent:
         date: The transaction date.
         amount: The signed effect on the destination.
         label: A short description of the transaction.
+        entry_hash: The Beancount hash of the transaction, for linking back to
+            it. It is the same value Beancount's ``compare.hash_entry`` yields,
+            so Fava can resolve it to the entry.
     """
 
     destination: str
     date: date
     amount: Decimal
     label: str
+    entry_hash: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -1602,7 +1606,13 @@ def _process_transactions(
             amount = -number
             if collect_activity:
                 details.append(
-                    ActivityEvent(dest, entry.date, amount, _txn_label(entry))
+                    ActivityEvent(
+                        dest,
+                        entry.date,
+                        amount,
+                        _txn_label(entry),
+                        compare.hash_entry(entry),
+                    )
                 )
             activity.append((dest, entry.date, amount))
     return _Effects(

@@ -167,7 +167,10 @@ class Envelopes(FavaExtensionBase):
         return " · ".join(parts)
 
     def activity_title(self, cell: Cell) -> str:
-        """Build the hover text listing an activity cell's transactions.
+        """Build the plain-text listing of an activity cell's transactions.
+
+        This is the text-only fallback for the activity drill-down; the report
+        renders the same lines as links into Fava's entry popup.
 
         Args:
             cell: The view cell.

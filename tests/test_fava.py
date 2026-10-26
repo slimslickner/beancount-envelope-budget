@@ -208,6 +208,18 @@ def test_activity_tooltip() -> None:
     assert "January groceries" in title
 
 
+def test_template_activity_popover_links_to_entry() -> None:
+    """An activity figure reveals links to Fava's entry popup."""
+    extension = _extension("fund_backfill.bean")
+    view = extension.report("2024-01", "1")
+    groceries = next(e for e in view.envelopes if e.name == "Groceries")
+    entry_hash = groceries.cells[0].detail[0].entry_hash
+    html = _render(extension, {"month": "2024-01", "months": "1"})
+    assert 'class="num envelope-activity" tabindex="0"' in html
+    assert f'href="#context-{entry_hash}"' in html
+    assert "January groceries" in html
+
+
 def test_envelope_target_tooltip() -> None:
     """The envelope tooltip shows the target and deadline."""
     view = _extension("savings_goal.bean").report("2024-02", "1")

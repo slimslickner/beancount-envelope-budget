@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `by` without `target`, or `monthly` with `target`.
 - The report view exposes each envelope's funding `level` and whether it is
   under, on or over it, for the CLI and Fava.
+- The Fava report reveals the postings behind an activity figure in a popover on
+  hover or focus, each linking to that transaction in Fava's entry popup.
 - The Fava report's parent categories can be collapsed to their subtotal row by
   clicking the category name; the collapsed state is not persisted across page
   loads.
