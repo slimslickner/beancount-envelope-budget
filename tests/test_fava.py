@@ -146,6 +146,29 @@ def test_report_hides_envelope_before_open() -> None:
     assert [cell.visible for cell in late.cells] == [False, True]
 
 
+def test_envelope_view_visible_spans_window() -> None:
+    """A late-opened envelope's row spans the whole visible window."""
+    view = _extension("open_late.bean").report("2024-06", "3")
+    late = next(e for e in view.envelopes if e.name == "Late")
+    assert [cell.visible for cell in late.cells] == [False, True, True]
+    assert late.visible is True
+
+
+def test_envelope_view_dropped_outside_its_life() -> None:
+    """An envelope with no visible month is dropped from the unified table."""
+    view = _extension("open_late.bean").report("2024-01", "3")
+    late = next(e for e in view.envelopes if e.name == "Late")
+    assert late.visible is False
+
+
+def test_group_view_visible_spans_window() -> None:
+    """A group's row spans the window while any member is open in it."""
+    view = _extension("parent_close.bean").report("2024-01", "4")
+    gone = next(group for group in view.groups if group.parent == "Gone")
+    assert gone.visible is True
+    assert gone.subtotal[-1].visible is False
+
+
 def test_template_hides_envelope_before_open() -> None:
     """The template omits a not-yet-open envelope and shows it from open on."""
     before = _render(_extension("open_late.bean"), {"month": "2024-01", "months": "1"})
@@ -153,6 +176,16 @@ def test_template_hides_envelope_before_open() -> None:
     assert "Late" not in before
     after = _render(_extension("open_late.bean"), {"month": "2024-07", "months": "1"})
     assert "Late" in after
+
+
+def test_template_spans_late_envelope_across_months() -> None:
+    """The template gives a late-opened envelope one row across the window."""
+    html = _render(_extension("open_late.bean"), {"month": "2024-06", "months": "3"})
+    # Groceries and Late each get one row, plus Pool and Cash.
+    rows = html.split("<tr")
+    late = next(row for row in rows if ">Late<" in row)
+    # Name + opening + three columns for each of the three visible months.
+    assert late.count("<td") == 11
 
 
 def test_report_clamps_and_parses() -> None:
@@ -251,6 +284,7 @@ def test_report_hides_group_when_all_members_closed() -> None:
     view = _extension("parent_close.bean").report("2024-04", "1")
     gone = next(group for group in view.groups if group.parent == "Gone")
     assert gone.subtotal[0].visible is False
+    assert gone.visible is False
 
 
 def test_report_shows_group_in_close_month() -> None:
@@ -273,12 +307,29 @@ def test_template_renders_groups() -> None:
     html = _render(
         _extension("parent_groups.bean"), {"month": "2024-01", "months": "2"}
     )
-    assert "envelope-months" in html
+    assert "envelope-table-scroll" in html
     assert "envelope-group" in html
     assert "Living" in html
     assert "Transport" in html
     assert "envelope-subtotal" not in html
     assert "380.00" in html
+    # One table spans both visible months, four columns for the first
+    # (Opening plus its three) and three for the second.
+    assert html.count("<table") == 1
+    assert html.count('colspan="4"') == 1
+    assert html.count('colspan="3"') == 1
+
+
+def test_template_groups_are_collapsible() -> None:
+    """Each parent group is its own tbody with a toggle and a label."""
+    html = _render(
+        _extension("parent_groups.bean"), {"month": "2024-01", "months": "1"}
+    )
+    assert 'class="envelope-group-body"' in html
+    assert 'class="envelope-toggle"' in html
+    assert 'type="checkbox"' in html
+    assert '<label for="envelope-group-' in html
+    assert ":has(.envelope-toggle:checked)" in html
 
 
 def test_template_renders() -> None:

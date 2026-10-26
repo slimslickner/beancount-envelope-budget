@@ -1054,59 +1054,116 @@ def _money(value: Decimal) -> str:
     return f"{value:.2f}"
 
 
-def _cell_values(cell: Cell) -> tuple[str, str, str, str]:
-    """Format a view cell's four amounts.
+def _cell_values(cell: Cell) -> tuple[str, str, str]:
+    """Format a view cell's allocated, activity and closing amounts.
+
+    A cell outside the envelope's life is blanked, so a row spanning several
+    months shows values only where the envelope was open.
 
     Args:
         cell: The view cell.
 
     Returns:
-        Opening, allocated, activity and closing, formatted.
+        Allocated, activity and closing, formatted, or three blanks.
     """
-    return (
-        _money(cell.opening),
-        _money(cell.allocated),
-        _money(cell.activity),
-        _money(cell.closing),
-    )
+    if not cell.visible:
+        return ("", "", "")
+    return (_money(cell.allocated), _money(cell.activity), _money(cell.closing))
 
 
-def _envelope_rows(view: BudgetView, index: int) -> list[tuple[str, ...]]:
-    """Build the envelope rows for one month, grouped by parent.
+def _row(name: str, cells: tuple[Cell, ...]) -> tuple[str, ...]:
+    """Build one envelope, group or pool row across the view's months.
+
+    Args:
+        name: The row label.
+        cells: One cell per visible month.
+
+    Returns:
+        The label, the window's opening balance, then allocated, activity and
+        closing per month. The opening is blank unless the first month is
+        within the row's life.
+    """
+    opening = _money(cells[0].opening) if cells and cells[0].visible else ""
+    values = [name, opening]
+    for cell in cells:
+        values.extend(_cell_values(cell))
+    return tuple(values)
+
+
+def _cash_row(cells: tuple[Cell, ...]) -> tuple[str, ...]:
+    """Build the cash row across the view's months.
+
+    Cash posts to no envelope, so only its opening and each month's closing
+    appear; the allocated and activity columns stay blank.
+
+    Args:
+        cells: One cash cell per visible month.
+
+    Returns:
+        The cash row.
+    """
+    values = ["Cash", _money(cells[0].opening) if cells else ""]
+    for cell in cells:
+        values.extend(("", "", _money(cell.closing)))
+    return tuple(values)
+
+
+def _envelope_rows(view: BudgetView) -> list[tuple[str, ...]]:
+    """Build the envelope rows, grouped by parent.
 
     Args:
         view: The view to render.
-        index: The month's index within the view.
 
     Returns:
-        The rows: a bracketed heading row carrying each named group's subtotal,
-        followed by its members indented. With no parents the rows are the
-        envelopes, alphabetically. Envelopes not yet open or already closed for
-        the month, and named groups with none left, are omitted.
+        One row per visible envelope spanning every visible month, with a
+        bracketed heading row carrying each named group's subtotal followed by
+        its members indented. With no parents the rows are the envelopes,
+        alphabetically. Envelopes never open during the window and named groups
+        with none open anywhere are omitted.
     """
     rows: list[tuple[str, ...]] = []
     for group in view.groups:
-        members = [
-            envelope for envelope in group.envelopes if envelope.cells[index].visible
-        ]
         if group.parent is None:
             rows.extend(
-                (envelope.name, *_cell_values(envelope.cells[index]))
-                for envelope in members
+                _row(envelope.name, envelope.cells)
+                for envelope in group.envelopes
+                if envelope.visible
             )
             continue
-        if not group.subtotal[index].visible:
+        if not group.visible:
             continue
-        rows.append((f"[{group.parent}]", *_cell_values(group.subtotal[index])))
+        rows.append(_row(f"[{group.parent}]", group.subtotal))
         rows.extend(
-            (f"  {envelope.name}", *_cell_values(envelope.cells[index]))
-            for envelope in members
+            _row(f"  {envelope.name}", envelope.cells)
+            for envelope in group.envelopes
+            if envelope.visible
         )
     return rows
 
 
+def _view_headers(view: BudgetView) -> list[tuple[str, ...]]:
+    """Build the two header rows for the unified table.
+
+    Args:
+        view: The view to render.
+
+    Returns:
+        A month heading row spanning each month's three columns, then a metric
+        row naming the columns.
+    """
+    headings = ["", ""]
+    metrics = ["Envelope", "Opening"]
+    for index, month in enumerate(view.months):
+        label = f"{month:%Y-%m}"
+        if view.projected[index]:
+            label += " (projected)"
+        headings.extend((label, "", ""))
+        metrics.extend(("Allocated", "Activity", "Closing"))
+    return [tuple(headings), tuple(metrics)]
+
+
 def _format_view(view: BudgetView) -> str:
-    """Render a budget view as one table per month.
+    """Render a budget view as one table spanning the visible months.
 
     Args:
         view: The view to render.
@@ -1117,18 +1174,11 @@ def _format_view(view: BudgetView) -> str:
     heading = "Envelope report"
     if view.currency:
         heading += f"\nAmounts in {view.currency}"
-    blocks: list[str] = []
-    for index, month in enumerate(view.months):
-        title = f"{month:%Y-%m}" + (" (projected)" if view.projected[index] else "")
-        rows = _envelope_rows(view, index)
-        rows.append(("Pool", *_cell_values(view.pool[index])))
-        cash = view.cash[index]
-        rows.append(("Cash", _money(cash.opening), "", "", _money(cash.closing)))
-        table = _table(
-            ("Envelope", "Opening", "Allocated", "Activity", "Closing"), rows
-        )
-        blocks.append(f"{title}\n{table}")
-    rendered = f"{heading}\n\n" + "\n\n".join(blocks)
+    rows = _envelope_rows(view)
+    rows.append(_row("Pool", view.pool))
+    rows.append(_cash_row(view.cash))
+    table = _grid(_view_headers(view), rows)
+    rendered = f"{heading}\n\n{table}"
     if view.warnings:
         rendered += "\n\n" + "\n".join(
             f"{warning.code}: {warning.message}" for warning in view.warnings
@@ -1201,6 +1251,34 @@ def _monthly_need(target: Decimal, balance: Decimal, remaining: int) -> Decimal:
     return (shortfall / remaining).quantize(_CENT, rounding=ROUND_CEILING)
 
 
+def _grid(header: list[tuple[str, ...]], rows: list[tuple[str, ...]]) -> str:
+    """Render a grid with a left-aligned first column and right-aligned rest.
+
+    Args:
+        header: The header rows, all the same width.
+        rows: The body rows.
+
+    Returns:
+        The rendered grid.
+    """
+    widths = [0] * len(header[0])
+    for row in (*header, *rows):
+        for index, cell in enumerate(row):
+            widths[index] = max(widths[index], len(cell))
+
+    def render(cells: tuple[str, ...]) -> str:
+        parts = [
+            cell.ljust(widths[index]) if index == 0 else cell.rjust(widths[index])
+            for index, cell in enumerate(cells)
+        ]
+        return "  ".join(parts).rstrip()
+
+    lines = [render(row) for row in header]
+    lines.append("  ".join("-" * width for width in widths))
+    lines.extend(render(row) for row in rows)
+    return "\n".join(lines)
+
+
 def _table(headers: tuple[str, ...], rows: list[tuple[str, ...]]) -> str:
     """Render a left-aligned first column and right-aligned numeric columns.
 
@@ -1211,21 +1289,7 @@ def _table(headers: tuple[str, ...], rows: list[tuple[str, ...]]) -> str:
     Returns:
         The rendered table.
     """
-    widths = [len(header) for header in headers]
-    for row in rows:
-        for index, cell in enumerate(row):
-            widths[index] = max(widths[index], len(cell))
-
-    def render(cells: Sequence[str]) -> str:
-        parts = [
-            cell.ljust(widths[index]) if index == 0 else cell.rjust(widths[index])
-            for index, cell in enumerate(cells)
-        ]
-        return "  ".join(parts).rstrip()
-
-    lines = [render(headers), "  ".join("-" * width for width in widths)]
-    lines.extend(render(row) for row in rows)
-    return "\n".join(lines)
+    return _grid([headers], rows)
 
 
 # --- Argument parser -----------------------------------------------------------

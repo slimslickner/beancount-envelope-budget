@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `by` without `target`, or `monthly` with `target`.
 - The report view exposes each envelope's funding `level` and whether it is
   under, on or over it, for the CLI and Fava.
+- The Fava report's parent categories can be collapsed to their subtotal row by
+  clicking the category name; the collapsed state is not persisted across page
+  loads.
 
 ### Changed
 
@@ -28,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sorts as text, so a zero-padded prefix (`01`, `02`, `10`) controls the order.
 - `fund --mode topup` prints `; OVERFUNDED <name>: ... above plan` for a goal
   envelope already above its level.
+- The CLI report and Fava page render one table spanning all visible months,
+  with each envelope on a single row (opening once, then allocated, activity and
+  closing per month). An envelope open in any visible month spans the whole
+  window, blanking the months before it opens or after it closes.
 
 ### Removed
 
