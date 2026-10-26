@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   effect to its `by` month, counting both ends.
 - `suggest` and the report evaluate a plan at the latest date (or the month a
   cell represents), so a `plan` dated mid-month is reflected.
+- The report and Fava view order parent headings and envelopes alphabetically,
+  with ungrouped envelopes last, instead of declaration order. A leading number
+  sorts as text, so a zero-padded prefix (`01`, `02`, `10`) controls the order.
 - `fund --mode topup` prints `; OVERFUNDED <name>: ... above plan` for a goal
   envelope already above its level.
 

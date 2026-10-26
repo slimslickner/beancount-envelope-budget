@@ -205,7 +205,10 @@ One directive name, `"envelope"`, with a verb as the first argument. See
 - `open` also accepts `parent`, a free-form grouping label. Envelopes sharing a
   parent are shown together under a heading in the report, with a subtotal of
   their balances. It does not need to name another envelope, and it does not
-  affect funding, balances or the invariant.
+  affect funding, balances or the invariant. Parent headings and the envelopes
+  within them are ordered alphabetically; a leading number sorts as text, so
+  prefix a name with a zero-padded number (`01`, `02`, `10`) to put it in a
+  chosen place.
 - `allocate` moves money from the pool into an envelope. A negative amount moves
   money back to the pool.
 - `move` moves money between two envelopes, e.g. to cover an overspend.
@@ -375,7 +378,8 @@ Add the extension line and an **Envelopes** report appears in the sidebar:
 It is read-only, shows one to three months, and offers hover text for envelope
 targets and the transactions behind each activity figure. The months sit side by
 side when the window is wide enough and stack when it is narrow, and envelopes
-are grouped by their `parent` label with a subtotal per group.
+are grouped by their `parent` label with a subtotal per group, parent headings
+and envelopes in alphabetical order.
 
 Set the default number of months (1 to 3) with an optional config, a
 stringified Python mapping on the extension line; the `months` URL parameter
