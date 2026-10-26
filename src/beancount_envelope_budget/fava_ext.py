@@ -33,6 +33,7 @@ from beancount_envelope_budget.report import (
     Cell,
     EnvelopeView,
     build_view,
+    today_month,
 )
 
 if TYPE_CHECKING:
@@ -96,7 +97,7 @@ class Envelopes(FavaExtensionBase):
 
         Args:
             month: The first month to show, as ``YYYY-MM``, or ``None`` for the
-                latest month in the ledger.
+                current month.
             months: The number of months to show (1-3), or ``None`` for the
                 default.
 
@@ -112,7 +113,9 @@ class Envelopes(FavaExtensionBase):
             )
             self.result = result
         return build_view(
-            result, _parse_month(month), _parse_count(months, self.default_months)
+            result,
+            _parse_month(month) or self.today_month(),
+            _parse_count(months, self.default_months),
         )
 
     def money(self, value: Decimal) -> str:
@@ -141,14 +144,14 @@ class Envelopes(FavaExtensionBase):
     def today_month(self) -> date:
         """Return the first day of the current month.
 
-        The current month is a display concern, so it is resolved here rather
-        than in the pure :func:`~beancount_envelope_budget.report.build_view`.
+        Delegates to :func:`~beancount_envelope_budget.report.today_month`, the
+        single implementation shared with the CLI, so the two never disagree.
         The template highlights the current month's column and links to it.
 
         Returns:
             The first day of the local current month.
         """
-        return date.today().replace(day=1)  # noqa: DTZ011 - local today is intended
+        return today_month()
 
     def today_nav(self, count: int) -> str:
         """Build the query string linking to the current month.

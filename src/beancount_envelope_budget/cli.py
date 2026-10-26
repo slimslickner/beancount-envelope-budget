@@ -38,7 +38,12 @@ from beancount_envelope_budget.core import (
     month_of,
     row_for,
 )
-from beancount_envelope_budget.report import build_view, plan_level, to_jsonable
+from beancount_envelope_budget.report import (
+    build_view,
+    plan_level,
+    to_jsonable,
+    today_month,
+)
 from beancount_envelope_budget.schema import (
     Severity,
     dump_schema_json,
@@ -271,7 +276,8 @@ def _cmd_report(args: argparse.Namespace) -> int:
     """Print opening, allocated, activity and closing per envelope.
 
     Args:
-        args: Parsed arguments; ``args.ledger`` and ``args.month``.
+        args: Parsed arguments; ``args.ledger``, ``args.month`` and
+            ``args.months``. A missing month defaults to the current one.
 
     Returns:
         The process exit status.
@@ -290,7 +296,7 @@ def _cmd_report(args: argparse.Namespace) -> int:
             f"showing {result.months[0]:%Y-%m}",
             file=sys.stderr,
         )
-    view = build_view(result, args.month, args.months)
+    view = build_view(result, args.month or today_month(), args.months)
     if args.json:
         print(json.dumps(to_jsonable(view), indent=2))
     else:
@@ -1359,7 +1365,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--month",
         type=_parse_month,
         metavar="YYYY-MM",
-        help="the first month to report; defaults to the latest month in the ledger",
+        help="the first month to report; defaults to the current month",
     )
     report.add_argument(
         "--months",

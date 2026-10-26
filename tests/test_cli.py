@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -69,14 +70,28 @@ def test_check_beancount_error(
     assert "BEANCOUNT" in capsys.readouterr().out
 
 
-def test_report_default_month(capsys: pytest.CaptureFixture[str]) -> None:
-    """The report defaults to the latest month and lists the envelopes."""
+def test_report_default_month(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The report defaults to the current month and lists the envelopes."""
+    monkeypatch.setattr(cli, "today_month", lambda: date(2024, 1, 1))
     assert cli.main(["report", _ledger("basic.bean")]) == 0
     out = capsys.readouterr().out
     assert "2024-01" in out
     assert "Groceries" in out
     assert "380.00" in out
     assert "Amounts in USD" in out
+
+
+def test_report_default_ignores_future_directive(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A future-dated directive does not move the default month forward."""
+    monkeypatch.setattr(cli, "today_month", lambda: date(2024, 1, 1))
+    assert cli.main(["report", _ledger("future_directive.bean")]) == 0
+    out = capsys.readouterr().out
+    assert "2024-01" in out
+    assert "2024-12" not in out
 
 
 def test_report_explicit_month(capsys: pytest.CaptureFixture[str]) -> None:
