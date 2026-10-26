@@ -15,6 +15,7 @@ from fava.ext import ExtensionConfigError, find_extensions
 
 from beancount_envelope_budget import fava_ext
 from beancount_envelope_budget.fava_ext import Envelopes
+from beancount_envelope_budget.report import ActivityLine
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -224,34 +225,82 @@ def test_report_activity_narration() -> None:
     """A posting's narration metadata surfaces on its activity line."""
     view = _extension("posting_narration.bean").report("2024-02", "1")
     housing = next(e for e in view.envelopes if e.name == "Housing")
-    lines = {line.narration: line.amount for line in housing.cells[0].detail}
+    lines = {line.posting_narration: line.amount for line in housing.cells[0].detail}
     assert lines == {"Principal": D("-300"), "Escrow": D("-100"), "Interest": D("-400")}
+    line = housing.cells[0].detail[0]
+    assert line.payee == "Bank"
+    assert line.transaction_narration == "Mortgage payment"
 
 
 def test_report_activity_without_narration() -> None:
     """A posting without narration metadata leaves it unset."""
     view = _extension("fund_backfill.bean").report("2024-01", "1")
     groceries = next(e for e in view.envelopes if e.name == "Groceries")
-    assert groceries.cells[0].detail[0].narration is None
+    line = groceries.cells[0].detail[0]
+    assert line.posting_narration is None
+    assert line.transaction_narration == "January groceries"
+
+
+def test_detail_text_prefers_posting_narration() -> None:
+    """The description reads payee - the posting narration, when present."""
+    extension = _extension("posting_narration.bean")
+    line = ActivityLine(
+        date=date(2024, 2, 1),
+        amount=D("-100"),
+        entry_hash="x",
+        payee="Bank",
+        transaction_narration="Mortgage payment",
+        posting_narration="Escrow",
+    )
+    assert extension.detail_text(line) == "Bank - Escrow"
+
+
+def test_detail_text_falls_back_to_transaction_narration() -> None:
+    """Without a posting narration the transaction narration is used."""
+    extension = _extension("posting_narration.bean")
+    line = ActivityLine(
+        date=date(2024, 3, 1),
+        amount=D("-10"),
+        entry_hash="x",
+        payee="Bank",
+        transaction_narration="Service fee",
+        posting_narration=None,
+    )
+    assert extension.detail_text(line) == "Bank - Service fee"
+
+
+def test_detail_text_without_a_description() -> None:
+    """A line with no payee or narration reads as no description."""
+    extension = _extension("posting_narration.bean")
+    line = ActivityLine(date=date(2024, 3, 1), amount=D("-10"), entry_hash="x")
+    assert extension.detail_text(line) == "(no description)"
 
 
 def test_template_activity_narration() -> None:
-    """The popover shows the transaction label with the posting narration."""
+    """The popover shows the payee and the posting narration."""
     html = _render(
         _extension("posting_narration.bean"), {"month": "2024-02", "months": "1"}
     )
-    assert "Mortgage payment (Escrow)" in html
-    assert "Mortgage payment (Principal)" in html
-    assert "Mortgage payment (Interest)" in html
+    assert "Bank - Escrow" in html
+    assert "Bank - Principal" in html
+    assert "Bank - Interest" in html
+
+
+def test_template_activity_narration_fallback() -> None:
+    """A posting without narration falls back to the transaction narration."""
+    html = _render(
+        _extension("posting_narration.bean"), {"month": "2024-03", "months": "1"}
+    )
+    assert "Bank - Service fee" in html
 
 
 def test_activity_title_narration() -> None:
-    """The text fallback shows the label with the posting narration."""
+    """The text fallback shows the payee and the posting narration."""
     extension = _extension("posting_narration.bean")
     view = extension.report("2024-02", "1")
     housing = next(e for e in view.envelopes if e.name == "Housing")
     title = extension.activity_title(housing.cells[0])
-    assert "Mortgage payment (Escrow)" in title
+    assert "Bank - Escrow" in title
 
 
 def test_envelope_target_tooltip() -> None:

@@ -18,7 +18,7 @@ option "operating_currency" "USD"
 2024-01-01 custom "envelope" "open" "Housing"
 2024-01-01 custom "envelope" "allocate" "Housing" 1500.00 USD
 
-2024-02-01 * "Mortgage payment"
+2024-02-01 * "Bank" "Mortgage payment"
   Expenses:Mortgage:Principal   300.00 USD
     narration: "Principal"
   Expenses:Mortgage:Escrow      100.00 USD
@@ -26,3 +26,7 @@ option "operating_currency" "USD"
   Expenses:Mortgage:Interest    400.00 USD
     narration: "Interest"
   Assets:Checking              -800.00 USD
+
+2024-03-01 * "Bank" "Service fee"
+  Expenses:Mortgage:Interest    10.00 USD
+  Assets:Checking              -10.00 USD

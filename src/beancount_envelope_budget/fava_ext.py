@@ -193,13 +193,33 @@ class Envelopes(FavaExtensionBase):
             list was capped.
         """
         lines = [
-            f"{line.date.isoformat()}  {_line_label(line)}  {line.amount:.2f}"
+            f"{line.date.isoformat()}  {self.detail_text(line)}  {line.amount:.2f}"
             for line in cell.detail
         ]
         remaining = cell.detail_total - len(cell.detail)
         if remaining > 0:
             lines.append(f"and {remaining} more")
         return "\n".join(lines)
+
+    def detail_text(self, line: ActivityLine) -> str:
+        """Describe one activity detail line.
+
+        The line reads ``payee - narration``: the transaction's payee, then the
+        posting's ``narration`` metadata (the ``autobean.narration`` convention),
+        falling back to the transaction's narration. The posting's own narration
+        wins, so a transaction whose narration ``autobean.narration`` synthesised
+        from its postings does not repeat it.
+
+        Args:
+            line: The activity detail line.
+
+        Returns:
+            The description, or ``(no description)`` when there is nothing to
+            show.
+        """
+        narration = line.posting_narration or line.transaction_narration
+        parts = [part for part in (line.payee, narration) if part]
+        return " - ".join(parts) or "(no description)"
 
     def errors_url(self) -> str:
         """Return a relative link to Fava's errors page.
@@ -208,22 +228,6 @@ class Envelopes(FavaExtensionBase):
             The relative URL, computed from the extension page's depth.
         """
         return "../../errors/"
-
-
-def _line_label(line: ActivityLine) -> str:
-    """Build the description for one activity detail line.
-
-    A posting's own ``narration`` metadata — the ``autobean.narration``
-    convention — is appended in parentheses when present, so a line item reads
-    apart from its transaction.
-
-    Args:
-        line: The activity detail line.
-
-    Returns:
-        The transaction label, with the posting narration when it has one.
-    """
-    return f"{line.label} ({line.narration})" if line.narration else line.label
 
 
 def _parse_month(value: object) -> date | None:

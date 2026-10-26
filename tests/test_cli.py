@@ -286,7 +286,7 @@ def test_report_json(capsys: pytest.CaptureFixture[str]) -> None:
     assert groceries["cells"][0]["activity"] == "-100.00"
     assert groceries["cells"][0]["detail_total"] == 1
     detail = groceries["cells"][0]["detail"][0]
-    assert detail["label"] == "January groceries"
+    assert detail["transaction_narration"] == "January groceries"
     # The detail carries the transaction's identity so Fava can link to it.
     assert len(detail["entry_hash"]) == 32
     # The cell carries its goal figures for the funding ring.
@@ -302,7 +302,7 @@ def test_report_json_narration(capsys: pytest.CaptureFixture[str]) -> None:
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
     housing = next(e for e in payload["envelopes"] if e["name"] == "Housing")
-    narrations = {line["narration"] for line in housing["cells"][0]["detail"]}
+    narrations = {line["posting_narration"] for line in housing["cells"][0]["detail"]}
     assert narrations == {"Principal", "Escrow", "Interest"}
 
 

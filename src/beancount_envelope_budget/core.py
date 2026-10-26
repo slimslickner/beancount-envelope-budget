@@ -107,21 +107,23 @@ class ActivityEvent:
         destination: An envelope name or :data:`POOL`.
         date: The transaction date.
         amount: The signed effect on the destination.
-        label: A short description of the transaction.
         entry_hash: The Beancount hash of the transaction, for linking back to
             it. It is the same value Beancount's ``compare.hash_entry`` yields,
             so Fava can resolve it to the entry.
-        narration: The posting's ``narration`` metadata, if any. This is the
-            convention used by the ``autobean.narration`` plugin; it is read,
-            not validated.
+        payee: The transaction's payee, if any.
+        transaction_narration: The transaction's narration, if any.
+        posting_narration: The posting's ``narration`` metadata, if any. This is
+            the convention used by the ``autobean.narration`` plugin; it is
+            read, not validated.
     """
 
     destination: str
     date: date
     amount: Decimal
-    label: str
     entry_hash: str
-    narration: str | None = None
+    payee: str | None = None
+    transaction_narration: str | None = None
+    posting_narration: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1598,6 +1600,7 @@ def _process_transactions(
         _absorb_rounding(entry, valuation, activity)
         cash_ids = {id(posting) for posting in cash_postings}
         txn_meta = _meta(entry)
+        payee, narration = _txn_parts(entry)
         for posting in entry.postings:
             number = _operating_value(posting, operating_currency)
             if number is None or id(posting) in cash_ids:
@@ -1614,8 +1617,9 @@ def _process_transactions(
                         dest,
                         entry.date,
                         amount,
-                        _txn_label(entry),
                         compare.hash_entry(entry),
+                        payee,
+                        narration,
                         _posting_narration(posting),
                     )
                 )
@@ -1628,18 +1632,34 @@ def _process_transactions(
     )
 
 
-def _txn_label(entry: Transaction) -> str:
-    """Return a short label for a transaction.
+def _txn_parts(entry: Transaction) -> tuple[str | None, str | None]:
+    """Return a transaction's payee and narration, trimmed.
 
     Args:
         entry: The transaction.
 
     Returns:
-        The payee and narration, joined where both are present.
+        The payee and narration, each ``None`` when it is empty.
+
+    Examples:
+        >>> _txn_parts(
+        ...     Transaction(
+        ...         None, date(2024, 1, 1), "*", "Amazon", "Order",
+        ...         frozenset(), frozenset(), (),
+        ...     )
+        ... )
+        ('Amazon', 'Order')
+        >>> _txn_parts(
+        ...     Transaction(
+        ...         None, date(2024, 1, 1), "*", None, "  ",
+        ...         frozenset(), frozenset(), (),
+        ...     )
+        ... )
+        (None, None)
     """
-    payee = entry.payee or ""
-    narration = entry.narration or ""
-    return f"{payee} {narration}".strip() or "(no description)"
+    payee = (entry.payee or "").strip() or None
+    narration = (entry.narration or "").strip() or None
+    return payee, narration
 
 
 def _posting_narration(posting: Posting) -> str | None:
