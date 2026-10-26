@@ -119,7 +119,7 @@ class EnvelopeGroup:
 
     Attributes:
         parent: The grouping label, or ``None`` for envelopes with no parent.
-        envelopes: The member envelopes, in declaration order.
+        envelopes: The member envelopes, in alphabetical order.
         subtotal: One summed :class:`Cell` per month, aligned with the view's
             months. Its detail is always empty.
     """
@@ -138,9 +138,10 @@ class BudgetView:
         currency: The operating currency.
         months: The months shown, ascending.
         projected: Whether each month is beyond the computed range.
-        envelopes: The envelopes, in declaration order.
-        groups: The envelopes grouped by parent category, in first-appearance
-            order. Envelopes with no parent form a headingless group.
+        envelopes: The envelopes, in alphabetical order.
+        groups: The envelopes grouped by parent category, with the parent
+            headings in alphabetical order. Envelopes with no parent form a
+            headingless group placed last.
         pool: The pool's cells.
         cash: The cash balance cells.
         warnings: The warnings from the computation.
@@ -302,6 +303,26 @@ def _funding(level: Decimal | None, closing: Decimal) -> str | None:
     return "on"
 
 
+def _sort_key(name: str) -> str:
+    """Return the sort key for an envelope or parent name.
+
+    Names sort alphabetically, case-insensitively. A leading number is compared
+    as text, not as a value, so a zero-padded prefix (``01``, ``02`` … ``10``)
+    controls the order while a bare ``2`` would sort after ``10``.
+
+    Args:
+        name: The envelope or parent name.
+
+    Returns:
+        The key to sort by.
+
+    Examples:
+        >>> sorted(("Groceries", "car", "Rent"), key=_sort_key)
+        ['car', 'Groceries', 'Rent']
+    """
+    return name.casefold()
+
+
 def build_view(
     result: BudgetResult,
     month: date | None = None,
@@ -351,7 +372,9 @@ def build_view(
 
     envelopes = tuple(
         _envelope_view(report, months, available, details)
-        for report in result.envelopes
+        for report in sorted(
+            result.envelopes, key=lambda report: _sort_key(report.name)
+        )
     )
     pool = tuple(
         _cell(
@@ -481,23 +504,30 @@ def _group(envelopes: tuple[EnvelopeView, ...]) -> tuple[EnvelopeGroup, ...]:
     """Group envelopes by parent category.
 
     Args:
-        envelopes: The envelopes, in declaration order.
+        envelopes: The envelopes, in alphabetical order.
 
     Returns:
-        One :class:`EnvelopeGroup` per distinct parent, in first-appearance
-        order; envelopes with no parent form a headingless group placed where
-        their first member appears.
+        One :class:`EnvelopeGroup` per distinct parent, with the parent
+        headings in alphabetical order; envelopes with no parent form a
+        headingless group placed last. Each group's members keep the order of
+        ``envelopes``.
     """
     buckets: dict[str | None, list[EnvelopeView]] = {}
     for envelope in envelopes:
         buckets.setdefault(envelope.parent, []).append(envelope)
+    ordered_parents = sorted(
+        (parent for parent in buckets if parent is not None), key=_sort_key
+    )
+    headings: list[str | None] = [*ordered_parents]
+    if None in buckets:
+        headings.append(None)
     return tuple(
         EnvelopeGroup(
             parent=parent,
-            envelopes=tuple(members),
-            subtotal=_subtotal(members),
+            envelopes=tuple(buckets[parent]),
+            subtotal=_subtotal(buckets[parent]),
         )
-        for parent, members in buckets.items()
+        for parent in headings
     )
 
 

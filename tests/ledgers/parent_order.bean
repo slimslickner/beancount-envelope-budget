@@ -1,0 +1,43 @@
+; Envelopes and parents are declared out of order on purpose: the report sorts
+; parent headings and envelopes alphabetically. The parents carry zero-padded
+; numbers so the order is explicit, and "2 Food"/"10 Tax" show that a leading
+; number sorts as text (10 before 2), not as a value.
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Expenses:Groceries USD
+  envelope: "Groceries"
+2020-01-01 open Expenses:Rent USD
+  envelope: "Rent"
+2020-01-01 open Expenses:Car USD
+  envelope: "Car"
+2020-01-01 open Expenses:Misc USD
+  envelope: "Misc"
+2020-01-01 open Expenses:Food USD
+  envelope: "2 Food"
+2020-01-01 open Expenses:Tax USD
+  envelope: "10 Tax"
+2020-01-01 open Income:Salary USD
+2020-01-01 open Equity:Opening-Balances USD
+
+2023-12-31 * "Opening balance"
+  Assets:Checking            1000.00 USD
+  Equity:Opening-Balances   -1000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Rent"
+  parent: "01 Living"
+2024-01-01 custom "envelope" "open" "Groceries"
+  parent: "01 Living"
+2024-01-01 custom "envelope" "open" "Car"
+  parent: "02 Transport"
+2024-01-01 custom "envelope" "open" "Misc"
+2024-01-01 custom "envelope" "open" "2 Food"
+  parent: "03 Numbered"
+2024-01-01 custom "envelope" "open" "10 Tax"
+  parent: "03 Numbered"
+
+2024-01-01 * "Salary"
+  Assets:Checking   5000.00 USD
+  Income:Salary    -5000.00 USD

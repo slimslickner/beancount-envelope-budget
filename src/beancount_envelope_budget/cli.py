@@ -1081,9 +1081,8 @@ def _envelope_rows(view: BudgetView, index: int) -> list[tuple[str, ...]]:
     Returns:
         The rows: a bracketed heading row carrying each named group's subtotal,
         followed by its members indented. With no parents the rows are the
-        envelopes in declaration order, unchanged. Envelopes not yet open or
-        already closed for the month, and named groups with none left, are
-        omitted.
+        envelopes, alphabetically. Envelopes not yet open or already closed for
+        the month, and named groups with none left, are omitted.
     """
     rows: list[tuple[str, ...]] = []
     for group in view.groups:

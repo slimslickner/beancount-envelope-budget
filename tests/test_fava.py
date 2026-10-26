@@ -208,6 +208,36 @@ def test_report_groups_by_parent() -> None:
     assert [envelope.name for envelope in view.groups[2].envelopes] == ["Misc"]
 
 
+def test_report_orders_groups_and_envelopes() -> None:
+    """Parents and envelopes sort alphabetically; ungrouped envelopes come last.
+
+    A leading number sorts as text, so ``10 Tax`` precedes ``2 Food``; a
+    zero-padded prefix like ``02 Transport`` is how a caller pins the order.
+    """
+    view = _extension("parent_order.bean").report("2024-01", "1")
+    assert [group.parent for group in view.groups] == [
+        "01 Living",
+        "02 Transport",
+        "03 Numbered",
+        None,
+    ]
+    living = view.groups[0]
+    assert [envelope.name for envelope in living.envelopes] == ["Groceries", "Rent"]
+    assert [envelope.name for envelope in view.groups[2].envelopes] == [
+        "10 Tax",
+        "2 Food",
+    ]
+    assert [envelope.name for envelope in view.groups[3].envelopes] == ["Misc"]
+    assert [envelope.name for envelope in view.envelopes] == [
+        "10 Tax",
+        "2 Food",
+        "Car",
+        "Groceries",
+        "Misc",
+        "Rent",
+    ]
+
+
 def test_report_group_subtotal_excludes_closed_members() -> None:
     """A group subtotal sums only the members still open in the month."""
     view = _extension("parent_close.bean").report("2024-04", "1")

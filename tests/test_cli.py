@@ -138,6 +138,19 @@ def test_report_groups_by_parent(capsys: pytest.CaptureFixture[str]) -> None:
     assert living.split() == ["[Living]", "0.00", "1300.00", "-920.00", "380.00"]
 
 
+def test_report_orders_groups_and_envelopes(capsys: pytest.CaptureFixture[str]) -> None:
+    """Parent headings and envelopes sort alphabetically, ungrouped last."""
+    assert cli.main(["report", _ledger("parent_order.bean"), "--month", "2024-01"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    headings = [line for line in lines if line.startswith("[")]
+    assert headings[0].startswith("[01 Living]")
+    assert headings[1].startswith("[02 Transport]")
+    assert headings[2].startswith("[03 Numbered]")
+    tax = next(i for i, line in enumerate(lines) if line.startswith("  10 Tax"))
+    food = next(i for i, line in enumerate(lines) if line.startswith("  2 Food"))
+    assert tax < food
+
+
 def test_report_hides_fully_closed_group(capsys: pytest.CaptureFixture[str]) -> None:
     """A named group with no open members left is omitted from the report."""
     code = cli.main(["report", _ledger("parent_close.bean"), "--month", "2024-04"])
