@@ -1,0 +1,19 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Equity:Opening-Balances USD
+
+2023-12-31 * "Opening balance"
+  Assets:Checking            1000.00 USD
+  Equity:Opening-Balances   -1000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "NoBy"
+  target: 5000.00 USD
+2024-01-01 custom "envelope" "open" "NoTarget"
+  by: 2028-06-01
+2024-01-01 custom "envelope" "open" "Both"
+  monthly: 500.00
+  target: 5000.00 USD
+  by: 2028-06-01

@@ -42,7 +42,6 @@ option "operating_currency" "USD"
 2024-01-01 custom "envelope" "open" "Car"
   target: 15000.00 USD
   by: 2028-06-01
-  monthly: 500.00
   priority: 1
 
 2024-01-01 custom "envelope" "allocate" "Groceries" 600.00 USD
@@ -79,8 +78,7 @@ option "operating_currency" "USD"
   Assets:Checking             -500.00 USD
 
 2024-01-31 custom "envelope" "plan" "Car"
-  monthly: 600.00
-  ahead: 1
+  target: 16000.00 USD
   priority: 1
 
 2024-02-01 custom "envelope" "move" "Groceries" "Gifts" 50.00 USD

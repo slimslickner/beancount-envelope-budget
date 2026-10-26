@@ -125,7 +125,6 @@ class Plan:
 
     Attributes:
         monthly: The planned monthly amount, a number or ``"avgN"``, or ``None``.
-        ahead: Whole months held in reserve beyond the current one.
         priority: The funding priority, lower first, or ``None``.
         target: A goal balance, if any.
         target_currency: The currency of the target, if any.
@@ -133,11 +132,10 @@ class Plan:
 
     Examples:
         >>> Plan()
-        Plan(monthly=None, ahead=0, priority=None, target=None, target_currency=None, by=None)
+        Plan(monthly=None, priority=None, target=None, target_currency=None, by=None)
     """
 
     monthly: Monthly | None = None
-    ahead: int = 0
     priority: Decimal | None = None
     target: Decimal | None = None
     target_currency: str | None = None
@@ -155,7 +153,6 @@ class PlanChange:
     Attributes:
         date: The date the change takes effect.
         monthly: The new monthly amount, or ``None`` when unchanged.
-        ahead: The new ``ahead`` value, or ``None`` when unchanged.
         priority: The new priority, or ``None`` when unchanged.
         target: The new goal balance, or ``None`` when unchanged.
         target_currency: The currency of the new target, or ``None``.
@@ -165,7 +162,6 @@ class PlanChange:
 
     date: date
     monthly: Monthly | None = None
-    ahead: int | None = None
     priority: Decimal | None = None
     target: Decimal | None = None
     target_currency: str | None = None
@@ -215,7 +211,6 @@ class Envelope:
                 monthly=(
                     change.monthly if change.monthly is not None else plan.monthly
                 ),
-                ahead=change.ahead if change.ahead is not None else plan.ahead,
                 priority=(
                     change.priority if change.priority is not None else plan.priority
                 ),
@@ -228,6 +223,100 @@ class Envelope:
                 by=change.by if change.by is not None else plan.by,
             )
         return plan
+
+    def funding_level(self, on: date) -> Decimal | None:
+        """Return the on-track balance for a goal envelope on a date.
+
+        A goal envelope is one funded by a ``target``. Its level is the balance
+        it should hold at ``on`` to be on schedule: ``target`` grown linearly
+        from the month the target first took effect to its ``by`` month, both
+        ends inclusive, so the level is ``target`` once ``by`` arrives and a
+        fraction of it before.
+
+        Args:
+            on: The date to evaluate.
+
+        Returns:
+            The level, or ``None`` when the envelope has no target (or no
+            ``by``).
+
+        Examples:
+            >>> emergency = Envelope(
+            ...     "Emergency",
+            ...     date(2026, 1, 1),
+            ...     None,
+            ...     Plan(
+            ...         target=Decimal("6000"),
+            ...         target_currency="USD",
+            ...         by=date(2026, 12, 31),
+            ...     ),
+            ...     (),
+            ... )
+            >>> emergency.funding_level(date(2026, 6, 15))
+            Decimal('3000')
+            >>> emergency.funding_level(date(2026, 12, 31))
+            Decimal('6000')
+            >>> Envelope("Misc", date(2026, 1, 1), None, Plan(), ()).funding_level(
+            ...     date(2026, 6, 15)
+            ... ) is None
+            True
+        """
+        plan = self.effective(on)
+        if plan.target is None or plan.by is None:
+            return None
+        start = _goal_start(self, on)
+        if start is None:
+            return None
+        total = _months_inclusive(start, plan.by)
+        if total <= 0:
+            return plan.target
+        elapsed = max(0, min(_months_inclusive(start, on), total))
+        return plan.target * elapsed / total
+
+
+def _goal_start(envelope: Envelope, on: date) -> date | None:
+    """Return the date an envelope's current target first took effect.
+
+    Args:
+        envelope: The envelope.
+        on: The date to evaluate.
+
+    Returns:
+        The ``open`` date when the base plan sets a target, the date of the
+        first ``plan`` on or before ``on`` that introduced one otherwise, or
+        ``None`` when no target is in effect. A clearing ``unplan`` drops the
+        target, so a later plan that sets one starts the clock again; changing
+        ``target`` or ``by`` does not.
+    """
+    start = envelope.opened if envelope.plan.target is not None else None
+    for change in envelope.plans:
+        if change.date > on:
+            break
+        if change.clears:
+            start = None
+        elif change.target is not None and start is None:
+            start = change.date
+    return start
+
+
+def _months_inclusive(start: date, end: date) -> int:
+    """Count whole months from one month to another, counting both ends.
+
+    Args:
+        start: Any date; only its month matters.
+        end: Any date; only its month matters.
+
+    Returns:
+        The number of months, one when both dates fall in the same month, and
+        negative when ``end``'s month is before ``start``'s.
+
+    Examples:
+        >>> _months_inclusive(date(2024, 1, 15), date(2024, 1, 31))
+        1
+        >>> _months_inclusive(date(2024, 1, 1), date(2024, 6, 10))
+        6
+    """
+    return (end.year - start.year) * _MONTHS_PER_YEAR + (end.month - start.month) + 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -412,6 +501,17 @@ class _Draft:
             plans=tuple(sorted(self.plans, key=lambda change: change.date)),
             parent=self.parent,
         )
+
+    def effective(self, on: date) -> Plan:
+        """Return the plan in force on a date, before the draft is frozen.
+
+        Args:
+            on: The date to evaluate.
+
+        Returns:
+            The plan as :meth:`Envelope.effective` would resolve it.
+        """
+        return self.freeze().effective(on)
 
 
 def _unwrap(value: object) -> object:
@@ -843,38 +943,6 @@ def _parse_monthly(
     return number
 
 
-def _parse_ahead(
-    value: object,
-    name: str,
-    entry: Directive,
-    diagnostics: list[Diagnostic],
-) -> int | None:
-    """Parse an ``ahead`` metadata value.
-
-    Args:
-        value: The raw metadata value.
-        name: The envelope or directive name, for the diagnostic.
-        entry: The source directive.
-        diagnostics: The list to append diagnostics to.
-
-    Returns:
-        The parsed whole number, or ``None`` on error.
-    """
-    if value is None:
-        return None
-    number = _as_decimal(value)
-    if number is None or number != number.to_integral_value() or number < 0:
-        diagnostics.append(
-            _diag(
-                "E008",
-                entry=entry,
-                detail=f"ahead for {name} must be a whole number",
-            )
-        )
-        return None
-    return int(number)
-
-
 def _parse_priority(
     value: object,
     name: str,
@@ -980,6 +1048,31 @@ class _Declarations:
     move: tuple[tuple[date, str, str, Decimal], ...]
 
 
+def _validate_plan(
+    plan: Plan,
+    name: str,
+    entry: Directive,
+    diagnostics: list[Diagnostic],
+) -> None:
+    """Report a plan whose metadata has no effect or conflicts.
+
+    Args:
+        plan: The resulting plan.
+        name: The envelope name.
+        entry: The source directive.
+        diagnostics: The list to append diagnostics to.
+    """
+    detail: str | None = None
+    if plan.monthly is not None and plan.target is not None:
+        detail = "monthly and target are mutually exclusive"
+    elif plan.target is not None and plan.by is None:
+        detail = "target requires by"
+    elif plan.by is not None and plan.target is None:
+        detail = "by requires target"
+    if detail is not None:
+        diagnostics.append(_diag("E010", entry=entry, name=name, detail=detail))
+
+
 def _handle_open(
     raw: _RawDirective,
     drafts: dict[str, _Draft],
@@ -1008,7 +1101,6 @@ def _handle_open(
     if name in drafts:
         diagnostics.append(_diag("E003", entry=raw.entry, name=name))
         return
-    ahead = _parse_ahead(raw.meta.get("ahead"), name, raw.entry, diagnostics)
     target = _parse_target(raw.meta.get("target"), name, raw.entry, diagnostics)
     parent = raw.meta.get("parent")
     if parent is not None and not isinstance(parent, str):
@@ -1020,21 +1112,20 @@ def _handle_open(
             )
         )
         parent = None
+    plan = Plan(
+        monthly=_parse_monthly(raw.meta.get("monthly"), name, raw.entry, diagnostics),
+        priority=_parse_priority(
+            raw.meta.get("priority"), name, raw.entry, diagnostics
+        ),
+        target=target[0] if target is not None else None,
+        target_currency=target[1] if target is not None else None,
+        by=_parse_by(raw.meta.get("by"), name, raw.entry, diagnostics),
+    )
+    _validate_plan(plan, name, raw.entry, diagnostics)
     drafts[name] = _Draft(
         name=name,
         opened=raw.date,
-        plan=Plan(
-            monthly=_parse_monthly(
-                raw.meta.get("monthly"), name, raw.entry, diagnostics
-            ),
-            ahead=0 if ahead is None else ahead,
-            priority=_parse_priority(
-                raw.meta.get("priority"), name, raw.entry, diagnostics
-            ),
-            target=target[0] if target is not None else None,
-            target_currency=target[1] if target is not None else None,
-            by=_parse_by(raw.meta.get("by"), name, raw.entry, diagnostics),
-        ),
+        plan=plan,
         parent=parent,
     )
     order.append(name)
@@ -1063,7 +1154,6 @@ def _handle_plan(
             monthly=_parse_monthly(
                 raw.meta.get("monthly"), name, raw.entry, diagnostics
             ),
-            ahead=_parse_ahead(raw.meta.get("ahead"), name, raw.entry, diagnostics),
             priority=_parse_priority(
                 raw.meta.get("priority"), name, raw.entry, diagnostics
             ),
@@ -1072,6 +1162,7 @@ def _handle_plan(
             by=_parse_by(raw.meta.get("by"), name, raw.entry, diagnostics),
         )
     )
+    _validate_plan(drafts[name].effective(raw.date), name, raw.entry, diagnostics)
 
 
 def _handle_unplan(

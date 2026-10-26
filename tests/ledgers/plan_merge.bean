@@ -10,8 +10,6 @@ option "operating_currency" "USD"
 
 2024-01-01 custom "envelope" "start"
 2024-01-01 custom "envelope" "open" "Car"
-  monthly: 500.00
-  ahead: 1
   priority: 2
   target: 15000.00 USD
   by: 2028-06-01

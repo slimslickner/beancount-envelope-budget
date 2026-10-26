@@ -8,7 +8,7 @@ and no Fava or CLI imports.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -35,6 +35,7 @@ __all__ = [
     "EnvelopeGroup",
     "EnvelopeView",
     "build_view",
+    "plan_level",
     "to_jsonable",
 ]
 
@@ -76,6 +77,10 @@ class Cell:
         visible: Whether the row should be shown this month. It is ``False``
             outside the envelope's life — before it opens or after it closes —
             so only the months between ``open`` and ``close`` are shown.
+        level: The balance the envelope should hold this month under its plan,
+            or ``None`` when it has no funding plan.
+        funding: Whether the envelope is ``"under"``, ``"on"`` or ``"over"`` its
+            level this month, or ``None`` when there is no level.
     """
 
     month: date
@@ -87,6 +92,8 @@ class Cell:
     detail: tuple[ActivityLine, ...]
     detail_total: int
     visible: bool = True
+    level: Decimal | None = None
+    funding: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +173,133 @@ def _shift(month: date, delta: int) -> date:
     """
     index = month.year * 12 + (month.month - 1) + delta
     return date(index // 12, index % 12 + 1, 1)
+
+
+def _last_day(month: date) -> date:
+    """Return the last calendar day of a month.
+
+    Args:
+        month: Any date within the month.
+
+    Returns:
+        The last day of that month.
+    """
+    return _shift(month, 1) - timedelta(days=1)
+
+
+def _maybe_row(rows: tuple[MonthRow, ...], month: date) -> MonthRow | None:
+    """Return a monthly row for a month, or ``None`` when out of range.
+
+    Args:
+        rows: The rows to search.
+        month: The month to find.
+
+    Returns:
+        The matching row, or ``None``.
+    """
+    target = month_of(month)
+    return next((row for row in rows if row.month == target), None)
+
+
+def _avg_window(monthly: str) -> int:
+    """Return the window size of an ``avgN`` monthly amount.
+
+    Args:
+        monthly: An ``avgN`` string, already validated by the core.
+
+    Returns:
+        The window size, ``N``.
+
+    Examples:
+        >>> _avg_window("avg6")
+        6
+    """
+    return int(monthly[3:])
+
+
+def _average_spend(report: EnvelopeReport, on: date, window: int) -> Decimal | None:
+    """Average an envelope's spending over the last ``window`` completed months.
+
+    Args:
+        report: The envelope's report.
+        on: The date to evaluate.
+        window: How many completed months to average.
+
+    Returns:
+        The average spending, or ``None`` when there is no history.
+    """
+    anchor = month_of(on)
+    total = Decimal(0)
+    count = 0
+    for offset in range(1, window + 1):
+        row = _maybe_row(report.rows, _shift(anchor, -offset))
+        if row is None:
+            continue
+        total += -row.activity
+        count += 1
+    return total / count if count else None
+
+
+def plan_level(report: EnvelopeReport, on: date) -> Decimal | None:
+    """Resolve an envelope's funding level on a date.
+
+    An envelope with a ``monthly`` plan holds that amount (a number, or the
+    average of its last ``avgN`` completed months of spending). A goal envelope
+    with a ``target`` holds the on-track balance from
+    :meth:`~beancount_envelope_budget.core.Envelope.funding_level`.
+
+    Args:
+        report: The envelope's report.
+        on: The date to evaluate.
+
+    Returns:
+        The balance the envelope should hold, or ``None`` when it has no plan.
+
+    Examples:
+        >>> from decimal import Decimal
+        >>> from beancount_envelope_budget.core import Envelope, EnvelopeReport, Plan
+        >>> goal = EnvelopeReport(
+        ...     Envelope(
+        ...         "Emergency",
+        ...         date(2026, 1, 1),
+        ...         None,
+        ...         Plan(
+        ...             target=Decimal("6000"),
+        ...             target_currency="USD",
+        ...             by=date(2026, 12, 31),
+        ...         ),
+        ...         (),
+        ...     ),
+        ...     (),
+        ... )
+        >>> plan_level(goal, date(2026, 6, 15))
+        Decimal('3000')
+    """
+    plan = report.envelope.effective(on)
+    if isinstance(plan.monthly, Decimal):
+        return plan.monthly
+    if isinstance(plan.monthly, str):
+        return _average_spend(report, on, _avg_window(plan.monthly))
+    return report.envelope.funding_level(on)
+
+
+def _funding(level: Decimal | None, closing: Decimal) -> str | None:
+    """Classify an envelope's balance against its funding level.
+
+    Args:
+        level: The month's funding level, or ``None``.
+        closing: The envelope's closing balance for the month.
+
+    Returns:
+        ``"under"``, ``"on"`` or ``"over"``, or ``None`` when there is no level.
+    """
+    if level is None:
+        return None
+    if closing < level:
+        return "under"
+    if closing > level:
+        return "over"
+    return "on"
 
 
 def build_view(
@@ -269,6 +403,8 @@ def _cell(
     *,
     projected: bool,
     visible: bool = True,
+    level: Decimal | None = None,
+    funding: str | None = None,
 ) -> Cell:
     """Build a cell from a monthly row and its detail.
 
@@ -277,6 +413,8 @@ def _cell(
         detail: The contributing postings.
         projected: Whether the month is beyond the computed range.
         visible: Whether the row should be shown for the month.
+        level: The month's funding level, or ``None``.
+        funding: The month's funding status, or ``None``.
 
     Returns:
         The :class:`Cell`.
@@ -291,6 +429,8 @@ def _cell(
         detail=tuple(detail[:MAX_DETAIL]),
         detail_total=len(detail),
         visible=visible,
+        level=level,
+        funding=funding,
     )
 
 
@@ -314,20 +454,25 @@ def _envelope_view(
     envelope = report.envelope
     opened_month = month_of(envelope.opened)
     closed_month = month_of(envelope.closed) if envelope.closed is not None else None
-    cells = tuple(
-        _cell(
-            row_for(report.rows, month),
-            details.get((report.name, month), []),
-            projected=month not in available,
-            visible=month >= opened_month
-            and (closed_month is None or month <= closed_month),
+    cells: list[Cell] = []
+    for month in months:
+        row = row_for(report.rows, month)
+        level = plan_level(report, _last_day(month))
+        cells.append(
+            _cell(
+                row,
+                details.get((report.name, month), []),
+                projected=month not in available,
+                visible=month >= opened_month
+                and (closed_month is None or month <= closed_month),
+                level=level,
+                funding=_funding(level, row.closing),
+            )
         )
-        for month in months
-    )
     return EnvelopeView(
         name=report.name,
-        plan=envelope.effective(months[0]),
-        cells=cells,
+        plan=envelope.effective(_last_day(months[0])),
+        cells=tuple(cells),
         parent=envelope.parent,
     )
 
@@ -511,7 +656,6 @@ def _plan_json(plan: Plan) -> dict[str, object]:
         monthly = plan.monthly
     return {
         "monthly": monthly,
-        "ahead": plan.ahead,
         "priority": _money_json(plan.priority),
         "target": _money_json(plan.target),
         "target_currency": plan.target_currency,
@@ -536,6 +680,8 @@ def _cell_json(cell: Cell) -> dict[str, object]:
         "allocated": f"{cell.allocated:.2f}",
         "activity": f"{cell.activity:.2f}",
         "closing": f"{cell.closing:.2f}",
+        "level": _money_json(cell.level),
+        "funding": cell.funding,
         "detail": [
             {
                 "date": line.date.isoformat(),

@@ -93,9 +93,8 @@ Add `include "envelope_backfill.bean"` to your ledger and re-run `check`.
 
 ### Planning envelopes
 
-An envelope's **plan** is its `monthly`, `ahead`, `priority`, `target` and `by`
-metadata. Set it on `open`, change it from a date with `plan`, or clear it with
-`unplan`:
+An envelope's **plan** is its `monthly`, `priority`, `target` and `by` metadata.
+Set it on `open`, change it from a date with `plan`, or clear it with `unplan`:
 
 ```beancount
 2024-01-01 custom "envelope" "open" "Mortgage"
@@ -111,9 +110,18 @@ metadata. Set it on `open`, change it from a date with `plan`, or clear it with
 `plan` takes the same metadata as `open` and changes only the fields it names, so
 `open` and `plan` resolve to the same plan. `monthly` may be a number or
 `"avgN"` — the average of the last N completed months of spending — so `"avg3"`
-tracks spending without a fixed figure. `unplan` stops `fund --mode topup`
-funding the envelope while it keeps its balance. `fund --mode topup` uses the
-plan to decide how much each envelope needs.
+tracks spending without a fixed figure. A plan funds an envelope one of two
+ways: `monthly` holds about a month's spending, or a `target` with a `by` date
+holds a goal. The two are mutually exclusive and a `target` needs a `by`; a plan
+that names only one half of a pair, or both `monthly` and `target`, is reported
+as `E010` rather than silently ignored. `unplan` stops `fund --mode topup`
+funding the envelope while it keeps its balance.
+
+A goal envelope's **level** is the balance it should hold to stay on schedule —
+its `target`, grown linearly from the month the target took effect to its `by`
+month, counting both ends. `fund --mode topup` funds up to that level and reports
+`; OVERFUNDED <name>: ... above plan` when a reduced plan leaves the envelope
+above it; `suggest` prints the monthly pace to reach the goal on time.
 
 ## Commands
 
@@ -135,7 +143,8 @@ beancount-envelope-budget completion SHELL   # bash or zsh
 - `fund` prints `allocate` directives to stdout (redirect them into a file you
   include); it never edits your ledger. The `actuals`, `overspend` and `copy`
   modes backfill a month range and skip months that already have an allocation;
-  `topup` funds envelopes up to their level in priority order from the pool.
+  `topup` funds envelopes up to their level in priority order from the pool, and
+  reports any envelope already above its level.
 - `pin` freezes the resolved envelope onto matching postings as metadata, so you
   can change an account's envelope afterwards without reclassifying history. It
   prints a diff by default; `--write` edits the files in place.

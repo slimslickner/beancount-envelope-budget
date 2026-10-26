@@ -14,11 +14,9 @@ option "operating_currency" "USD"
 2024-01-01 custom "envelope" "start"
 2024-01-01 custom "envelope" "open" "Groceries"
   monthly: "avg3"
-  ahead: 2
   priority: 1
 2024-01-01 custom "envelope" "open" "Bad"
   monthly: "weekly"
-  ahead: 2.5
   priority: "high"
 2024-01-01 custom "envelope" "open" "BadAvg"
   monthly: "avg0"

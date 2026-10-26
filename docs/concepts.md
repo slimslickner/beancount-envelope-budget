@@ -18,7 +18,7 @@ existing postings.
 | **Allocation** | A dated amount moved from the pool into an envelope. |
 | **Activity** | The effect of postings on an envelope: spending lowers it, refunds and envelope-level income raise it. |
 | **Carryover** | An envelope's closing balance, positive or negative, becomes next month's opening balance. |
-| **Plan** | An envelope's funding parameters — `monthly`, `ahead`, `priority`, `target`, `by` — set on `open`, changed from a date with `plan`, and cleared with `unplan`. |
+| **Plan** | An envelope's funding parameters — `monthly`, `priority`, `target`, `by` — set on `open`, changed from a date with `plan`, and cleared with `unplan`. |
 
 Months are calendar months, and everything is attributed by its date. Setting
 `cash-account: FALSE` is the same as omitting the key entirely.
@@ -198,10 +198,10 @@ One directive name, `"envelope"`, with a verb as the first argument. See
 
 - `start` begins tracking. Earlier postings and allocations are ignored; the
   pool starts at the cash balance just before this date.
-- `open` declares an envelope. Its five metadata keys — `monthly`, `ahead`,
-  `priority`, `target` and `by` — describe its **plan**: the funding parameters
-  that `fund --mode topup` and `suggest` read. With no metadata, the envelope
-  exists but is never auto-funded.
+- `open` declares an envelope. Its four metadata keys — `monthly`, `priority`,
+  `target` and `by` — describe its **plan**: the funding parameters that
+  `fund --mode topup` and `suggest` read. With no metadata, the envelope exists
+  but is never auto-funded.
 - `open` also accepts `parent`, a free-form grouping label. Envelopes sharing a
   parent are shown together under a heading in the report, with a subtotal of
   their balances. It does not need to name another envelope, and it does not
@@ -212,8 +212,18 @@ One directive name, `"envelope"`, with a verb as the first argument. See
 - `close` retires an envelope. Its balance must be zero.
 - `plan` changes an envelope's plan from its date. It takes the **same** metadata
   as `open` and changes only the fields it names, so `monthly: 2600.00` alone
-  leaves `ahead`, `priority`, `target` and `by` as they were. `open` and `plan`
+  leaves `priority`, `target` and `by` as they were. `open` and `plan`
   therefore resolve to the same object.
+- A plan funds an envelope one of two ways: `monthly` holds about a month's
+  spending, or a `target` with a `by` date holds a goal. The two are mutually
+  exclusive, and a `target` needs a `by`. A plan that names only one half of a
+  pair, or both `monthly` and `target`, is reported as `E010` rather than being
+  silently ignored.
+- A goal envelope's **level** is the balance it should hold to stay on schedule:
+  its `target`, grown linearly from the month the target first took effect to
+  its `by` month, counting both ends, so the level is the full `target` once
+  `by` arrives. `fund --mode topup` funds up to that level, and the report shows
+  each envelope's level and whether it is under, on or over it.
 - `unplan` clears an envelope's plan from its date. The envelope keeps its
   balance and stays in reports, but nothing is planned for it and `topup` stops
   funding it.

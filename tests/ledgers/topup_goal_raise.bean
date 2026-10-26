@@ -1,0 +1,23 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Equity:Opening-Balances USD
+
+2023-12-31 * "Opening balance"
+  Assets:Checking           100000.00 USD
+  Equity:Opening-Balances  -100000.00 USD
+
+2026-10-01 custom "envelope" "start"
+
+2026-10-20 custom "envelope" "open" "Emergency Fund"
+  target: 40000 USD
+  by: 2026-10-26
+  parent: "Funds"
+2026-10-25 custom "envelope" "allocate" "Emergency Fund" 40000.00 USD
+
+2026-10-26 custom "envelope" "plan" "Emergency Fund"
+  target: 50000 USD
+  by: 2026-10-31
+
+2026-10-25 custom "envelope" "allocate" "Emergency Fund" 1.00 USD
