@@ -440,13 +440,13 @@ def test_template_marks_current_month(monkeypatch: pytest.MonkeyPatch) -> None:
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
     assert "(current)" in _row(html, ">Envelope<")
     assert "month=2024-01&amp;months=3" in html
-    # The this-month link sits between the two window links.
+    # The this-month link sits between previous and next.
     nav = html.split("<tr")[0]
     assert (
-        nav.index("last 3 months")
-        < nav.index("this month")
-        < nav.index("next 3 months")
+        nav.index("previous month") < nav.index("this month") < nav.index("next month")
     )
+    assert "last 3 months" not in nav
+    assert "next 3 months" not in nav
 
 
 def test_template_no_current_month_outside_window(

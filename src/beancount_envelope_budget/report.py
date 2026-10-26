@@ -798,6 +798,4 @@ def _nav(start: date, count: int) -> dict[str, str]:
     return {
         "previous": query(_shift(start, -1)),
         "next": query(_shift(start, 1)),
-        "last3": f"month={_shift(start, -2):%Y-%m}&months=3",
-        "forward3": f"month={start:%Y-%m}&months=3",
     }
