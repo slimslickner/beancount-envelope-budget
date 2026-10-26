@@ -1,0 +1,26 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Expenses:Under USD
+  envelope: "Under"
+2020-01-01 open Expenses:On USD
+  envelope: "On"
+2020-01-01 open Expenses:Over USD
+  envelope: "Over"
+2020-01-01 open Equity:Opening-Balances USD
+
+2023-12-31 * "Opening balance"
+  Assets:Checking            1000.00 USD
+  Equity:Opening-Balances   -1000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Under"
+  monthly: 100.00
+2024-01-01 custom "envelope" "open" "On"
+  monthly: 100.00
+2024-01-01 custom "envelope" "open" "Over"
+  monthly: 100.00
+2024-01-01 custom "envelope" "allocate" "Under" 50.00 USD
+2024-01-01 custom "envelope" "allocate" "On" 100.00 USD
+2024-01-01 custom "envelope" "allocate" "Over" 150.00 USD

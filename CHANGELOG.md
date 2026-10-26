@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Fava report's parent categories can be collapsed to their subtotal row by
   clicking the category name; the collapsed state is not persisted across page
   loads.
+- The Fava report blanks an envelope's `0.00` values while parent subtotals, the
+  pool and cash always show numbers.
+- The Fava report keeps its header, envelope column and pool/cash rows in place
+  while the table scrolls, and its month links stay reachable at the top.
+- The Fava report tints the current month's column and adds a "this month" link
+  that jumps to it.
+- Fava balances are colour-coded: a closing balance is red when overspent, green
+  when funded to its plan, and amber when underfunded; an opening balance turns
+  red when negative. The colours follow Fava's light/dark scheme.
 
 ### Changed
 

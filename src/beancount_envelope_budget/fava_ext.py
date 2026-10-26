@@ -125,6 +125,29 @@ class Envelopes(FavaExtensionBase):
         """
         return f"{value:.2f}"
 
+    def today_month(self) -> date:
+        """Return the first day of the current month.
+
+        The current month is a display concern, so it is resolved here rather
+        than in the pure :func:`~beancount_envelope_budget.report.build_view`.
+        The template highlights the current month's column and links to it.
+
+        Returns:
+            The first day of the local current month.
+        """
+        return date.today().replace(day=1)  # noqa: DTZ011 - local today is intended
+
+    def today_nav(self, count: int) -> str:
+        """Build the query string linking to the current month.
+
+        Args:
+            count: The number of months to keep visible.
+
+        Returns:
+            A query string for the report's ``this month`` link.
+        """
+        return f"month={self.today_month():%Y-%m}&months={count}"
+
     def envelope_title(self, envelope: EnvelopeView) -> str:
         """Build the hover text for an envelope name.
 
