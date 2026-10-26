@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `by` without `target`, or `monthly` with `target`.
 - The report view exposes each envelope's funding `level` and whether it is
   under, on or over it, for the CLI and Fava.
+- The Fava report reveals the postings behind an activity figure in a popover on
+  hover or focus, each linking to that transaction in Fava's entry popup.
+- The activity drill-down reads `payee - narration`, preferring a posting's
+  `narration` metadata (the `autobean.narration` convention) and falling back to
+  the transaction's narration, so the line items of one transaction read apart.
+- The report view exposes each envelope's goal `target` and how full it is toward
+  it (`fill`), for the CLI and Fava.
+- A planned envelope in the Fava report carries a ring beside its closing
+  balance, filled in proportion to its goal (or its monthly level) and coloured
+  by its funding status.
 - The Fava report's parent categories can be collapsed to their subtotal row by
   clicking the category name; the collapsed state is not persisted across page
   loads.

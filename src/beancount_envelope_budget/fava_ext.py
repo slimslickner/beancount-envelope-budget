@@ -28,6 +28,7 @@ from fava.ext import ExtensionConfigError, FavaExtensionBase
 from beancount_envelope_budget.core import BudgetResult, compute
 from beancount_envelope_budget.report import (
     MAX_MONTHS,
+    ActivityLine,
     BudgetView,
     Cell,
     EnvelopeView,
@@ -125,6 +126,18 @@ class Envelopes(FavaExtensionBase):
         """
         return f"{value:.2f}"
 
+    def fill_percent(self, cell: Cell) -> str:
+        """Format a cell's goal fill as a CSS percentage.
+
+        Args:
+            cell: The view cell.
+
+        Returns:
+            The fill from ``0%`` to ``100%``, or ``0%`` when the cell has no
+            goal or level to measure against.
+        """
+        return f"{cell.fill * 100:.1f}%" if cell.fill is not None else "0%"
+
     def today_month(self) -> date:
         """Return the first day of the current month.
 
@@ -167,7 +180,10 @@ class Envelopes(FavaExtensionBase):
         return " · ".join(parts)
 
     def activity_title(self, cell: Cell) -> str:
-        """Build the hover text listing an activity cell's transactions.
+        """Build the plain-text listing of an activity cell's transactions.
+
+        This is the text-only fallback for the activity drill-down; the report
+        renders the same lines as links into Fava's entry popup.
 
         Args:
             cell: The view cell.
@@ -177,13 +193,33 @@ class Envelopes(FavaExtensionBase):
             list was capped.
         """
         lines = [
-            f"{line.date.isoformat()}  {line.label}  {line.amount:.2f}"
+            f"{line.date.isoformat()}  {self.detail_text(line)}  {line.amount:.2f}"
             for line in cell.detail
         ]
         remaining = cell.detail_total - len(cell.detail)
         if remaining > 0:
             lines.append(f"and {remaining} more")
         return "\n".join(lines)
+
+    def detail_text(self, line: ActivityLine) -> str:
+        """Describe one activity detail line.
+
+        The line reads ``payee - narration``: the transaction's payee, then the
+        posting's ``narration`` metadata (the ``autobean.narration`` convention),
+        falling back to the transaction's narration. The posting's own narration
+        wins, so a transaction whose narration ``autobean.narration`` synthesised
+        from its postings does not repeat it.
+
+        Args:
+            line: The activity detail line.
+
+        Returns:
+            The description, or ``(no description)`` when there is nothing to
+            show.
+        """
+        narration = line.posting_narration or line.transaction_narration
+        parts = [part for part in (line.payee, narration) if part]
+        return " - ".join(parts) or "(no description)"
 
     def errors_url(self) -> str:
         """Return a relative link to Fava's errors page.

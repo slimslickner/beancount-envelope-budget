@@ -15,6 +15,7 @@ from fava.ext import ExtensionConfigError, find_extensions
 
 from beancount_envelope_budget import fava_ext
 from beancount_envelope_budget.fava_ext import Envelopes
+from beancount_envelope_budget.report import ActivityLine
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -208,6 +209,100 @@ def test_activity_tooltip() -> None:
     assert "January groceries" in title
 
 
+def test_template_activity_popover_links_to_entry() -> None:
+    """An activity figure reveals links to Fava's entry popup."""
+    extension = _extension("fund_backfill.bean")
+    view = extension.report("2024-01", "1")
+    groceries = next(e for e in view.envelopes if e.name == "Groceries")
+    entry_hash = groceries.cells[0].detail[0].entry_hash
+    html = _render(extension, {"month": "2024-01", "months": "1"})
+    assert 'class="num envelope-activity" tabindex="0"' in html
+    assert f'href="#context-{entry_hash}"' in html
+    assert "January groceries" in html
+
+
+def test_report_activity_narration() -> None:
+    """A posting's narration metadata surfaces on its activity line."""
+    view = _extension("posting_narration.bean").report("2024-02", "1")
+    housing = next(e for e in view.envelopes if e.name == "Housing")
+    lines = {line.posting_narration: line.amount for line in housing.cells[0].detail}
+    assert lines == {"Principal": D("-300"), "Escrow": D("-100"), "Interest": D("-400")}
+    line = housing.cells[0].detail[0]
+    assert line.payee == "Bank"
+    assert line.transaction_narration == "Mortgage payment"
+
+
+def test_report_activity_without_narration() -> None:
+    """A posting without narration metadata leaves it unset."""
+    view = _extension("fund_backfill.bean").report("2024-01", "1")
+    groceries = next(e for e in view.envelopes if e.name == "Groceries")
+    line = groceries.cells[0].detail[0]
+    assert line.posting_narration is None
+    assert line.transaction_narration == "January groceries"
+
+
+def test_detail_text_prefers_posting_narration() -> None:
+    """The description reads payee - the posting narration, when present."""
+    extension = _extension("posting_narration.bean")
+    line = ActivityLine(
+        date=date(2024, 2, 1),
+        amount=D("-100"),
+        entry_hash="x",
+        payee="Bank",
+        transaction_narration="Mortgage payment",
+        posting_narration="Escrow",
+    )
+    assert extension.detail_text(line) == "Bank - Escrow"
+
+
+def test_detail_text_falls_back_to_transaction_narration() -> None:
+    """Without a posting narration the transaction narration is used."""
+    extension = _extension("posting_narration.bean")
+    line = ActivityLine(
+        date=date(2024, 3, 1),
+        amount=D("-10"),
+        entry_hash="x",
+        payee="Bank",
+        transaction_narration="Service fee",
+        posting_narration=None,
+    )
+    assert extension.detail_text(line) == "Bank - Service fee"
+
+
+def test_detail_text_without_a_description() -> None:
+    """A line with no payee or narration reads as no description."""
+    extension = _extension("posting_narration.bean")
+    line = ActivityLine(date=date(2024, 3, 1), amount=D("-10"), entry_hash="x")
+    assert extension.detail_text(line) == "(no description)"
+
+
+def test_template_activity_narration() -> None:
+    """The popover shows the payee and the posting narration."""
+    html = _render(
+        _extension("posting_narration.bean"), {"month": "2024-02", "months": "1"}
+    )
+    assert "Bank - Escrow" in html
+    assert "Bank - Principal" in html
+    assert "Bank - Interest" in html
+
+
+def test_template_activity_narration_fallback() -> None:
+    """A posting without narration falls back to the transaction narration."""
+    html = _render(
+        _extension("posting_narration.bean"), {"month": "2024-03", "months": "1"}
+    )
+    assert "Bank - Service fee" in html
+
+
+def test_activity_title_narration() -> None:
+    """The text fallback shows the payee and the posting narration."""
+    extension = _extension("posting_narration.bean")
+    view = extension.report("2024-02", "1")
+    housing = next(e for e in view.envelopes if e.name == "Housing")
+    title = extension.activity_title(housing.cells[0])
+    assert "Bank - Escrow" in title
+
+
 def test_envelope_target_tooltip() -> None:
     """The envelope tooltip shows the target and deadline."""
     view = _extension("savings_goal.bean").report("2024-02", "1")
@@ -215,6 +310,49 @@ def test_envelope_target_tooltip() -> None:
     title = _extension("savings_goal.bean").envelope_title(car)
     assert "15000.00" in title
     assert "2028-06-01" in title
+
+
+def test_report_goal_fill() -> None:
+    """A goal cell carries its target and how full it is toward it."""
+    view = _extension("savings_goal.bean").report("2024-01", "1")
+    car = next(e for e in view.envelopes if e.name == "Car")
+    cell = car.cells[0]
+    assert cell.target == D("15000")
+    assert cell.fill is not None
+    assert D("0") < cell.fill < D("1")
+
+
+def test_report_monthly_fill_clamps() -> None:
+    """A monthly envelope fills to its level, clamped at a whole ring."""
+    view = _extension("funding_colors.bean").report("2024-01", "1")
+    fills = {e.name: e.cells[0].fill for e in view.envelopes}
+    assert fills["Under"] == D("0.5")
+    assert fills["On"] == D("1")
+    assert fills["Over"] == D("1")
+
+
+def test_report_no_fill_without_a_plan() -> None:
+    """An envelope with no plan has nothing to fill toward."""
+    view = _extension("basic.bean").report("2024-01", "1")
+    groceries = next(e for e in view.envelopes if e.name == "Groceries")
+    assert groceries.cells[0].fill is None
+    assert groceries.cells[0].target is None
+
+
+def test_template_renders_funding_ring() -> None:
+    """A planned envelope renders a ring sized to its fill."""
+    html = _render(
+        _extension("funding_colors.bean"), {"month": "2024-01", "months": "1"}
+    )
+    assert 'class="envelope-ring"' in html
+    assert "--envelope-fill: 50.0%" in html
+    assert "--envelope-fill: 100.0%" in html
+
+
+def test_template_no_ring_without_a_plan() -> None:
+    """An unplanned envelope renders no ring."""
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
+    assert 'class="envelope-ring"' not in html
 
 
 def test_report_includes_warnings() -> None:

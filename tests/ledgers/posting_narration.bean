@@ -1,0 +1,32 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Expenses:Mortgage:Principal USD
+  envelope: "Housing"
+2020-01-01 open Expenses:Mortgage:Escrow USD
+  envelope: "Housing"
+2020-01-01 open Expenses:Mortgage:Interest USD
+  envelope: "Housing"
+2020-01-01 open Equity:Opening-Balances USD
+
+2023-12-31 * "Opening balance"
+  Assets:Checking            2000.00 USD
+  Equity:Opening-Balances   -2000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Housing"
+2024-01-01 custom "envelope" "allocate" "Housing" 1500.00 USD
+
+2024-02-01 * "Bank" "Mortgage payment"
+  Expenses:Mortgage:Principal   300.00 USD
+    narration: "Principal"
+  Expenses:Mortgage:Escrow      100.00 USD
+    narration: "Escrow"
+  Expenses:Mortgage:Interest    400.00 USD
+    narration: "Interest"
+  Assets:Checking              -800.00 USD
+
+2024-03-01 * "Bank" "Service fee"
+  Expenses:Mortgage:Interest    10.00 USD
+  Assets:Checking              -10.00 USD
