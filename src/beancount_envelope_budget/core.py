@@ -389,6 +389,49 @@ class EnvelopeReport:
                 return row.closing
         return Decimal(0)
 
+    def funded_at(self, on: date) -> Decimal:
+        """Return the amount credited toward the envelope's plan on a date.
+
+        A goal envelope — one with a ``target`` and no ``monthly`` — is funded by
+        its closing balance, because a ``target`` is a balance to hold and
+        spending draws it down. A ``monthly`` envelope is funded by the money
+        made available that month: the opening balance plus the month's
+        allocation (its closing balance less the month's activity), so receiving
+        the planned amount reads as funded even after the month's spending. The
+        precedence matches :func:`~beancount_envelope_budget.report.plan_level`:
+        a plan with a ``monthly`` is measured as a monthly plan.
+
+        Args:
+            on: A date in the month to evaluate.
+
+        Returns:
+            The amount credited toward the plan.
+
+        Examples:
+            >>> row = MonthRow(
+            ...     date(2026, 10, 1), Decimal(0), Decimal(550), Decimal("-403.69")
+            ... )
+            >>> report = EnvelopeReport(
+            ...     Envelope(
+            ...         "Groceries",
+            ...         date(2026, 10, 1),
+            ...         None,
+            ...         Plan(monthly=Decimal("550")),
+            ...         (),
+            ...     ),
+            ...     (row,),
+            ... )
+            >>> report.funded_at(date(2026, 10, 31))
+            Decimal('550')
+            >>> report.closing_at(date(2026, 10, 31))
+            Decimal('146.31')
+        """
+        plan = self.envelope.effective(on)
+        row = row_for(self.rows, on)
+        if plan.monthly is None and plan.target is not None:
+            return row.closing
+        return row.opening + row.allocated
+
 
 @dataclass(frozen=True, slots=True)
 class CashRow:

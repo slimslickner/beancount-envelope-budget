@@ -227,6 +227,13 @@ One directive name, `"envelope"`, with a verb as the first argument. See
   its `by` month, counting both ends, so the level is the full `target` once
   `by` arrives. `fund --mode topup` funds up to that level, and the report shows
   each envelope's level and whether it is under, on or over it.
+- An envelope's **funded amount** for a month is what its level is compared
+  against. A `monthly` envelope is funded by the money made available that month
+  — its opening balance plus the month's allocation — so receiving the planned
+  amount reads as funded even after the month's spending. A goal envelope is
+  funded by its closing balance, because a `target` is a balance to hold. The
+  report colours and rings envelopes by this comparison, and `fund --mode topup`
+  funds up to it.
 - `unplan` clears an envelope's plan from its date. The envelope keeps its
   balance and stays in reports, but nothing is planned for it and `topup` stops
   funding it.
@@ -394,11 +401,14 @@ table header while its group scrolls, and a single "Collapse all" control folds
 every parent. The current month's header is labelled `(current)`, alongside the
 `(projected)` label, and a "this month" link jumps to it. Closing balances are
 colour-coded — red when overspent, green when funded to their plan, amber when
-underfunded — and an opening balance turns red when negative. A planned envelope
-also carries a small ring beside its closing balance, filled in proportion to its
-goal (its `target`, or its monthly `level` when it has no target); the ring takes
-the balance's colour. The colours come from Fava's own variables, so they follow
-its light and dark schemes.
+underfunded — and an opening balance turns red when negative. Whether an
+envelope is funded is judged by its funded amount, as above: a `monthly`
+envelope stays green once it has received its month's money even if it has since
+been spent, while a goal envelope is measured by its balance. A planned envelope
+also carries a small ring beside its closing balance, filled in proportion to
+that funded amount against its goal (its `target`, or its monthly `level` when it
+has no target); the ring takes the balance's colour. The colours come from
+Fava's own variables, so they follow its light and dark schemes.
 
 Set the default number of months (1 to 3) with an optional config, a
 stringified Python mapping on the extension line; the `months` URL parameter

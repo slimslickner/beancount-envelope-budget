@@ -668,7 +668,7 @@ def _plan_topup(
         level = plan_level(report, on)
         if level is None:
             continue
-        balance = row_for(report.rows, month_of(on)).closing
+        balance = report.funded_at(on)
         need = (level - balance).quantize(_CENT, rounding=ROUND_CEILING)
         if need <= 0:
             if plan.target is not None and balance > level:

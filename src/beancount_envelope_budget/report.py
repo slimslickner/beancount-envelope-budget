@@ -113,8 +113,10 @@ class Cell:
         target: The envelope's goal balance this month, or ``None`` when it has
             no target.
         fill: How full the envelope is toward its goal, clamped to ``0`` to
-            ``1`` — its closing balance divided by its ``target``, or by its
-            ``level`` when it has no target. ``None`` when it has neither.
+            ``1`` — the amount credited toward the plan this month (see
+            :meth:`~beancount_envelope_budget.core.EnvelopeReport.funded_at`)
+            divided by its ``target``, or by its ``level`` when it has no target.
+            ``None`` when it has neither.
     """
 
     month: date
@@ -361,34 +363,36 @@ def plan_level(report: EnvelopeReport, on: date) -> Decimal | None:
     return report.envelope.funding_level(on)
 
 
-def _funding(level: Decimal | None, closing: Decimal) -> str | None:
-    """Classify an envelope's balance against its funding level.
+def _funding(level: Decimal | None, funded: Decimal) -> str | None:
+    """Classify an envelope's funded amount against its funding level.
 
     Args:
         level: The month's funding level, or ``None``.
-        closing: The envelope's closing balance for the month.
+        funded: The amount credited toward the plan this month, from
+            :meth:`~beancount_envelope_budget.core.EnvelopeReport.funded_at`.
 
     Returns:
         ``"under"``, ``"on"`` or ``"over"``, or ``None`` when there is no level.
     """
     if level is None:
         return None
-    if closing < level:
+    if funded < level:
         return "under"
-    if closing > level:
+    if funded > level:
         return "over"
     return "on"
 
 
-def _fill(reference: Decimal | None, closing: Decimal) -> Decimal | None:
+def _fill(reference: Decimal | None, funded: Decimal) -> Decimal | None:
     """Return how full an envelope is toward a reference balance.
 
     Args:
         reference: The balance to measure against, or ``None``.
-        closing: The envelope's closing balance for the month.
+        funded: The amount credited toward the plan this month, from
+            :meth:`~beancount_envelope_budget.core.EnvelopeReport.funded_at`.
 
     Returns:
-        ``closing`` divided by ``reference``, clamped to ``0`` to ``1``, or
+        ``funded`` divided by ``reference``, clamped to ``0`` to ``1``, or
         ``None`` when there is no positive reference.
 
     Examples:
@@ -403,7 +407,7 @@ def _fill(reference: Decimal | None, closing: Decimal) -> Decimal | None:
     """
     if reference is None or reference <= 0:
         return None
-    return min(max(closing / reference, Decimal(0)), Decimal(1))
+    return min(max(funded / reference, Decimal(0)), Decimal(1))
 
 
 def _sort_key(name: str) -> str:
@@ -599,9 +603,11 @@ def _envelope_view(
     cells: list[Cell] = []
     for month in months:
         row = row_for(report.rows, month)
-        plan = envelope.effective(_last_day(month))
-        level = plan_level(report, _last_day(month))
+        on = _last_day(month)
+        plan = envelope.effective(on)
+        level = plan_level(report, on)
         reference = plan.target if plan.target is not None else level
+        funded = report.funded_at(on)
         cells.append(
             _cell(
                 row,
@@ -610,9 +616,9 @@ def _envelope_view(
                 visible=month >= opened_month
                 and (closed_month is None or month <= closed_month),
                 level=level,
-                funding=_funding(level, row.closing),
+                funding=_funding(level, funded),
                 target=plan.target,
-                fill=_fill(reference, row.closing),
+                fill=_fill(reference, funded),
             )
         )
     return EnvelopeView(

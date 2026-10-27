@@ -40,6 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A `monthly` envelope is judged funded by the money made available that month
+  (its opening balance plus allocation) rather than its closing balance, so it
+  stays green and full-ringed after spending its planned amount; a goal envelope
+  is still judged by its balance. This drives both the report's colour and ring
+  and `fund --mode topup`, which no longer re-requests an amount already
+  allocated for the month.
 - `fund --mode topup` funds a goal envelope (`target` + `by`) up to its on-track
   level for the run date, so a plan that raises a target mid-month now funds the
   difference, and reruns stay safe.

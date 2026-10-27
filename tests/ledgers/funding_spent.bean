@@ -1,0 +1,22 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Assets:Credit-Card USD
+  cash-account: TRUE
+2020-01-01 open Expenses:Groceries USD
+  envelope: "Groceries"
+2020-01-01 open Equity:Opening-Balances USD
+
+2023-12-31 * "Opening balance"
+  Assets:Checking            1000.00 USD
+  Equity:Opening-Balances   -1000.00 USD
+
+2026-10-01 custom "envelope" "start"
+2026-10-01 custom "envelope" "open" "Groceries"
+  monthly: 550.00
+2026-10-02 custom "envelope" "allocate" "Groceries" 550.00 USD
+2026-10-03 * "Acme" "Groceries"
+  Assets:Credit-Card -403.69 USD
+  Expenses:Groceries
+    envelope: "Groceries"
