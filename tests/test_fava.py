@@ -342,6 +342,16 @@ def test_report_monthly_fill_clamps() -> None:
     assert fills["Over"] == D("1")
 
 
+def test_report_monthly_funding_after_spending() -> None:
+    """A monthly envelope funded to its plan stays funded after spending."""
+    view = _extension("funding_spent.bean").report("2026-10", "1")
+    groceries = next(e for e in view.envelopes if e.name == "Groceries")
+    cell = groceries.cells[0]
+    assert cell.closing == D("146.31")
+    assert cell.funding == "on"
+    assert cell.fill == D("1")
+
+
 def test_report_no_fill_without_a_plan() -> None:
     """An envelope with no plan has nothing to fill toward."""
     view = _extension("basic.bean").report("2024-01", "1")

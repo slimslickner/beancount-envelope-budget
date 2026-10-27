@@ -210,6 +210,22 @@ def test_topup_level(capsys: pytest.CaptureFixture[str]) -> None:
     ]
 
 
+def test_topup_credits_monthly_allocation(capsys: pytest.CaptureFixture[str]) -> None:
+    """topup credits a monthly envelope's allocation, so it funds nothing."""
+    code = cli.main(
+        [
+            "fund",
+            _ledger("funding_spent.bean"),
+            "--mode",
+            "topup",
+            "--date",
+            "2026-10-15",
+        ]
+    )
+    assert code == 0
+    assert _lines(capsys) == []
+
+
 def test_topup_shortage(capsys: pytest.CaptureFixture[str]) -> None:
     """topup funds in priority order and reports shortfalls."""
     code = cli.main(
