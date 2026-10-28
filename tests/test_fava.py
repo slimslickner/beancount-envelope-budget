@@ -935,6 +935,13 @@ def test_json_includes_allocations_and_plans() -> None:
     assert allocations[0]["entry_hash"]
 
 
+def test_template_lifts_open_popover_above_sticky_layers() -> None:
+    """An open popover's host is raised above the sticky header and headings."""
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
+    assert "td.envelope-pop-host:has(.envelope-pop-toggle:checked)" in html
+    assert "z-index: 6" in html
+
+
 def test_template_read_only_shows_no_forms() -> None:
     """A read-only report shows the figures but no create forms."""
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})

@@ -305,6 +305,12 @@
       .envelope-pop-host:has(.envelope-pop-toggle:checked) .envelope-detail {
         display: block;
       }
+      /* A host that is the sticky name column creates a stacking context, which
+         would trap the popover below the sticky header and parent headings.
+         Lift the whole cell above them while its popover is open. */
+      .envelope-table tbody td.envelope-pop-host:has(.envelope-pop-toggle:checked) {
+        z-index: 6;
+      }
       .envelope-pop {
         display: none;
         position: absolute;
