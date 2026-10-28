@@ -58,6 +58,10 @@ def _extension(
     return extension
 
 
+def _stub_url_for(_endpoint: str, **values: str) -> str:
+    return f"/ledger/{values.get('extension_name', '')}/{values.get('endpoint', '')}"
+
+
 def _render(extension: Envelopes, args: Mapping[str, str]) -> str:
     """Render the extension template standalone.
 
@@ -75,7 +79,10 @@ def _render(extension: Envelopes, args: Mapping[str, str]) -> str:
     template = env.get_template("Envelopes.html")
     request = SimpleNamespace(args=dict(args))
     return template.render(
-        ledger=extension.ledger, extension=extension, request=request
+        ledger=extension.ledger,
+        extension=extension,
+        request=request,
+        url_for=_stub_url_for,
     )
 
 
@@ -227,13 +234,14 @@ def test_activity_tooltip() -> None:
 
 
 def test_template_activity_popover_links_to_entry() -> None:
-    """An activity figure reveals links to Fava's entry popup."""
+    """An activity figure reveals links to Fava's entry popup on click."""
     extension = _extension("fund_backfill.bean")
     view = extension.report("2024-01", "1")
     groceries = next(e for e in view.envelopes if e.name == "Groceries")
     entry_hash = groceries.cells[0].detail[0].entry_hash
     html = _render(extension, {"month": "2024-01", "months": "1"})
-    assert 'class="num envelope-activity" tabindex="0"' in html
+    assert "envelope-activity envelope-pop-host" in html
+    assert 'class="envelope-pop-toggle"' in html
     assert f'href="#context-{entry_hash}"' in html
     assert "January groceries" in html
 
@@ -318,15 +326,6 @@ def test_activity_title_narration() -> None:
     housing = next(e for e in view.envelopes if e.name == "Housing")
     title = extension.activity_title(housing.cells[0])
     assert "Bank - Escrow" in title
-
-
-def test_envelope_target_tooltip() -> None:
-    """The envelope tooltip shows the target and deadline."""
-    view = _extension("savings_goal.bean").report("2024-02", "1")
-    car = next(e for e in view.envelopes if e.name == "Car")
-    title = _extension("savings_goal.bean").envelope_title(car)
-    assert "15000.00" in title
-    assert "2028-06-01" in title
 
 
 def test_report_goal_fill() -> None:
@@ -505,7 +504,6 @@ def test_template_renders() -> None:
     assert "380.00" in html
     assert "2024-03" in html
     assert "(projected)" in html
-    assert 'title="' in html
 
 
 def test_template_renders_target_tooltip() -> None:
@@ -695,9 +693,10 @@ def test_config_refuses_a_non_source_write(tmp_path: Path) -> None:
 
 
 def test_commit_endpoint_is_registered() -> None:
-    """The commit endpoint is a POST handler."""
+    """The commit and source endpoints are POST handlers."""
     extension = _extension("basic.bean")
     assert ("commit", "POST") in extension.endpoints
+    assert ("source", "POST") in extension.endpoints
 
 
 def test_perform_appends_through_the_writer(
@@ -776,16 +775,40 @@ def test_perform_rejects_non_envelope_source(
         extension.perform({"source": "2024-01-01 open Assets:Checking USD\n"})
 
 
-def test_source_helpers_prefill_the_modal() -> None:
-    """The create modals open on sensible Beancount text."""
+def test_render_source_from_fields() -> None:
+    """The source endpoint renders the directive the form's fields describe."""
     extension = _extension("basic.bean")
-    allocate = extension.allocate_source("Groceries", date(2024, 1, 1))
-    assert 'custom "envelope" "allocate" "Groceries" 120.00 USD' in allocate
-    # The plan modal opens on the envelope's current (here empty) plan.
-    plan = extension.plan_source("Groceries", date(2024, 1, 1))
-    assert 'custom "envelope" "plan" "Groceries"' in plan
-    unplan = extension.unplan_source("Groceries", date(2024, 1, 1))
-    assert 'custom "envelope" "unplan" "Groceries"' in unplan
+    allocate = extension.render_source(
+        {
+            "action": "allocate",
+            "envelope": "Groceries",
+            "amount": "120",
+            "date": "2024-01-31",
+        }
+    )
+    assert allocate == (
+        '2024-01-31 custom "envelope" "allocate" "Groceries" 120.00 USD'
+    )
+    unplan = extension.render_source(
+        {"action": "unplan", "envelope": "Groceries", "date": "2024-02-01"}
+    )
+    assert unplan == '2024-02-01 custom "envelope" "unplan" "Groceries"'
+
+
+def test_fill_date_is_the_month_end_or_today() -> None:
+    """A new directive is dated the month end, or today when earlier."""
+    extension = _extension("basic.bean")
+    assert extension.fill_date(date(2024, 1, 1)) == "2024-01-31"
+
+
+def test_plan_fields_open_on_the_current_plan() -> None:
+    """The plan form opens on the plan in force."""
+    extension = _extension("topup_plan.bean")
+    fields = extension.plan_fields("Mortgage", date(2024, 1, 1))
+    assert fields["monthly"] == "2500.00"
+    assert fields["priority"] == "1"
+    empty = _extension("basic.bean").plan_fields("Groceries", date(2024, 1, 1))
+    assert empty == {"monthly": "", "priority": "", "target": "", "by": ""}
 
 
 def test_js_module_is_shipped() -> None:
@@ -913,11 +936,11 @@ def test_json_includes_allocations_and_plans() -> None:
     assert allocations[0]["entry_hash"]
 
 
-def test_template_hides_the_manage_panel_when_read_only() -> None:
-    """A read-only report shows no edit controls."""
+def test_template_read_only_shows_no_forms() -> None:
+    """A read-only report shows the figures but no create forms."""
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
     assert 'name="action"' not in html
-    assert '<div class="envelope-pop' not in html
+    assert "<form" not in html
 
 
 def test_template_shows_edit_popovers_when_writable(tmp_path: Path) -> None:
@@ -931,8 +954,18 @@ def test_template_shows_edit_popovers_when_writable(tmp_path: Path) -> None:
     assert "envelope-alloc-pop" in html
     assert "envelope-plan-pop" in html
     assert '<div class="envelope-pop' in html
-    assert 'action="commit"' in html
+    assert "data-create" in html
+    assert 'action="/ledger/Envelopes/commit"' in html
     assert 'name="action" value="allocate"' in html
     assert 'name="action" value="plan"' in html
     assert 'name="action" value="unplan"' in html
-    assert "Edit budget" not in html
+    assert "title=" not in html
+
+
+def test_template_plan_popover_shows_read_only_info() -> None:
+    """A planned envelope shows its plan on click even without write access."""
+    html = _render(_extension("savings_goal.bean"), {"month": "2024-02", "months": "1"})
+    assert "envelope-plan-pop" in html
+    assert "15000.00" in html
+    assert "2028-06-01" in html
+    assert "<form" not in html

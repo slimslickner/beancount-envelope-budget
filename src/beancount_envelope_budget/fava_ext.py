@@ -40,7 +40,7 @@ from beancount.core.data import Custom
 from beancount.parser import parser
 from fava.core import file as fava_file
 from fava.ext import ExtensionConfigError, FavaExtensionBase, extension_endpoint
-from flask import redirect, request
+from flask import jsonify, make_response, redirect, request
 
 from beancount_envelope_budget import actions, writer
 from beancount_envelope_budget.core import BudgetResult, Plan, compute, row_for
@@ -49,7 +49,6 @@ from beancount_envelope_budget.report import (
     ActivityLine,
     BudgetView,
     Cell,
-    EnvelopeView,
     PlanLine,
     build_view,
     today_month,
@@ -222,77 +221,91 @@ class Envelopes(FavaExtensionBase):
             _insert(self.ledger, self.write_target, entry)
         return entries
 
-    def allocate_source(self, envelope: str, month: date) -> str:
-        """Render the allocation an "add allocation" form would create.
+    def fill_date(self, month: date) -> str:
+        """Return the date a new directive in a month is dated, as text.
 
-        Prefilled with the month's spending (as ``fund`` would), dated the month
-        end or today, whichever is earlier. The JavaScript modal shows this text
-        for editing.
+        The form's date inputs and the rendered source both use this, so the
+        modal opens on the date the form shows.
 
         Args:
-            envelope: The envelope name.
-            month: The month being funded.
+            month: Any date within the month.
 
         Returns:
-            The directive text.
+            The ISO date: the last day of the month, or today when earlier.
         """
-        result = self._result()
-        report = result.envelope(envelope)
-        amount = Decimal(0) if report is None else -row_for(report.rows, month).activity
-        return actions.render(
-            actions.allocate(
-                envelope, amount, _fill_day(month), result.operating_currency
-            )
-        )
+        return _fill_day(month).isoformat()
 
-    def plan_source(self, envelope: str, month: date) -> str:
-        """Render the plan a "set plan" form would create from the current one.
-
-        Prefilled with the envelope's effective plan, dated the fill day, so the
-        modal opens on the plan in force with a fresh date.
+    def plan_fields(self, envelope: str, month: date) -> dict[str, str]:
+        """Return the plan in force as form field values, for the plan form.
 
         Args:
             envelope: The envelope name.
             month: The month the plan is being set in.
 
         Returns:
-            The directive text.
+            ``monthly``, ``priority``, ``target`` and ``by`` as strings, each
+            empty when the plan does not set it.
         """
-        result = self._result()
-        report = result.envelope(envelope)
+        report = self._result().envelope(envelope)
         plan = report.envelope.effective(_fill_day(month)) if report else Plan()
-        return actions.render(
-            actions.plan(
-                envelope,
-                _fill_day(month),
-                monthly=plan.monthly,
-                priority=plan.priority,
-                target=plan.target,
-                target_currency=plan.target_currency,
-                by=plan.by,
-            )
-        )
+        return {
+            "monthly": "" if plan.monthly is None else str(plan.monthly),
+            "priority": "" if plan.priority is None else str(plan.priority),
+            "target": "" if plan.target is None else f"{plan.target}",
+            "by": "" if plan.by is None else plan.by.isoformat(),
+        }
 
-    def unplan_source(self, envelope: str, month: date) -> str:
-        """Render the ``unplan`` a "clear plan" form would create.
+    def render_source(self, params: Mapping[str, str]) -> str:
+        """Render the directive a create form's current fields describe.
+
+        Used to seed the JavaScript modal, so what it opens with matches what
+        the form shows.
 
         Args:
-            envelope: The envelope name.
-            month: The month being cleared.
+            params: The submitted form fields.
 
         Returns:
-            The directive text.
+            The Beancount text.
+
+        Raises:
+            ValueError: If the fields do not describe a valid directive.
         """
-        return actions.render(actions.unplan(envelope, _fill_day(month)))
+        return actions.render(_action_entry(params, self._result()))
+
+    @extension_endpoint("source", ["POST"])
+    def source(self) -> Response:
+        """Render the directive a create form describes, without writing it.
+
+        Returns:
+            ``{"source": ...}``, or ``{"error": ...}`` when the fields are bad.
+        """
+        params = request.form.to_dict()
+        try:
+            text = self.render_source(params)
+        except (ValueError, KeyError) as error:
+            return make_response(jsonify({"error": str(error)}), 400)
+        return make_response(jsonify({"source": text}))
 
     @extension_endpoint("commit", ["POST"])
     def commit(self) -> Response:
         """Append the directive a submitted form describes, then return.
 
+        The JavaScript modal posts ``format=json`` and gets JSON back; the
+        plain form gets a redirect to the report.
+
         Returns:
-            A redirect back to the report.
+            JSON, or a redirect back to the report.
         """
-        self.perform(request.form.to_dict())
+        params = request.form.to_dict()
+        as_json = params.get("format") == "json"
+        try:
+            self.perform(params)
+        except (ValueError, RuntimeError) as error:
+            if as_json:
+                return make_response(jsonify({"error": str(error)}), 400)
+            raise
+        if as_json:
+            return make_response(jsonify({"status": "ok"}))
         return cast("Response", redirect(request.referrer or ".."))
 
     def after_load_file(self) -> None:
@@ -377,24 +390,6 @@ class Envelopes(FavaExtensionBase):
             A query string for the report's ``this month`` link.
         """
         return f"month={self.today_month():%Y-%m}&months={count}"
-
-    def envelope_title(self, envelope: EnvelopeView) -> str:
-        """Build the hover text for an envelope name.
-
-        Args:
-            envelope: The envelope view.
-
-        Returns:
-            The target and deadline, or the envelope name.
-        """
-        plan = envelope.plan
-        parts: list[str] = []
-        if plan.target is not None:
-            currency = f" {plan.target_currency}" if plan.target_currency else ""
-            parts.append(f"target {plan.target:.2f}{currency}")
-        if plan.by is not None:
-            parts.append(f"by {plan.by.isoformat()}")
-        return " · ".join(parts)
 
     def activity_title(self, cell: Cell) -> str:
         """Build the plain-text listing of an activity cell's transactions.

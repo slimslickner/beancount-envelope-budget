@@ -43,14 +43,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (relative to the ledger's directory) and then reload the ledger and report any
   diagnostics.
 - The Fava report can edit the budget when a `write` target is configured on the
-  `fava-extension` line. Every allocation figure reveals a popover listing that
-  month's `allocate` directives, and every envelope name reveals one listing its
-  whole plan history; each directive links to Fava's own editor to be changed or
-  deleted. A `custom "envelope"` directive can be added from the same popover —
-  a plan's editor opens on the plan in force — written by Beancount's printer in
-  a small modal (vanilla JS, no build), with style-neutral forms as the no-JS
-  fallback. Writing is off by default and refuses a target that escapes the
-  ledger directory.
+  `fava-extension` line. Clicking an allocation figure opens a popover listing
+  that month's `allocate` directives, and clicking an envelope name opens one
+  listing its whole plan history; each directive links to Fava's own editor to be
+  changed or deleted, and a click anywhere else closes the popover. A
+  `custom "envelope"` directive can be added from the same popover — a plan's
+  editor opens on the plan in force — shown as editable Beancount, rendered by
+  Beancount's printer, in a small modal (vanilla JS, no build), with the form's
+  fields as the no-JS fallback. Writing is off by default and refuses a target
+  that escapes the ledger directory.
 
 ### Changed
 

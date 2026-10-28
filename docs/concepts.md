@@ -431,8 +431,8 @@ let the report append `custom "envelope"` directives:
 
 A target that escapes the ledger directory or is not a `.bean`/`.beancount` file
 is refused, and writing stays off when the key is absent. With it set, the report
-grows two popovers, both revealed on hover or focus and neither needing
-JavaScript:
+grows two popovers, both opened by clicking the figure or the envelope name and
+closed by clicking anywhere else, and neither needing JavaScript:
 
 - **Every allocation figure** lists that month's `allocate` directives. Each one
   links to Fava's own editor, where it can be changed or deleted through Fava's
@@ -443,14 +443,15 @@ JavaScript:
   forms to add a plan (opening on the plan in force, with a fresh date) and to
   clear the plan.
 
-Adding a directive opens a small modal showing the Beancount text, prefilled by
-`actions.py` — the same generators the CLI's `allocate`, `plan` and `unplan`
-commands print or write — which can be edited before it is saved. The modal is a
-single vanilla-JS module (no build step); without JavaScript the forms submit
-their fields directly, so the report still works. Writes go through Fava's own
-file API, so its lock, watcher and editor stay consistent. This makes a
-write-enabled Fava a remote ledger mutation if Fava is exposed beyond localhost;
-keep it local.
+Adding a directive opens a small modal showing the Beancount text the form's
+fields describe — rendered by `actions.py`, the same generators the CLI's
+`allocate`, `plan` and `unplan` commands print or write — which can be edited
+before it is saved. A new directive is dated the last day of its month, or today
+when today is earlier. The modal is a single vanilla-JS module (no build step);
+without JavaScript the forms submit their fields directly, so the report still
+works. Writes go through Fava's own file API, so its lock, watcher and editor stay
+consistent. This makes a write-enabled Fava a remote ledger mutation if Fava is
+exposed beyond localhost; keep it local.
 
 Moving money between envelopes is not a separate action: a `move` is two
 allocations, one back to the pool and one out of it, so the report expresses it

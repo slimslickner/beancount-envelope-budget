@@ -1,48 +1,83 @@
 // Opt-in editing for the Envelopes report.
 //
 // The server renders a plain `commit` form for every create action, prefilled
-// with the Beancount directive it would write (the `data-source` attribute).
-// Without JavaScript those forms submit their fields as-is. With it, this
-// module opens a small modal showing that directive, lets it be edited as
-// Beancount text, and posts the result to the same endpoint — so the ledger is
-// still written by the server, through Fava's own file API.
+// with sensible fields. Without JavaScript those forms submit those fields
+// directly. With it, this module asks the `source` endpoint to render the
+// Beancount those fields describe, shows it in a small modal for editing, and
+// posts the result to `commit` — so the ledger is still written by the server,
+// through Fava's own file API, and the client talks to it through Fava's
+// extension API (which builds the endpoint URLs correctly).
 
-/** @type {{ init(): void, onPageLoad(): void, onExtensionPageLoad(): void }} */
+/** @type {{ init(): void, onPageLoad(): void, onExtensionPageLoad(ctx: unknown): void }} */
 export default {
   init() {},
   onPageLoad() {},
-  onExtensionPageLoad() {
-    for (const form of document.querySelectorAll("form[data-source]")) {
+  onExtensionPageLoad(ctx) {
+    const api = ctx && ctx.api;
+    if (!api) {
+      return;
+    }
+    for (const form of document.querySelectorAll("form[data-create]")) {
       form.addEventListener("submit", (event) => {
         event.preventDefault();
-        open_editor(form);
+        create(form, api);
       });
     }
   },
 };
 
 /**
- * Open the editor for a form's prefilled directive and, on save, post it.
+ * Render a form's fields, edit the Beancount, and save it.
  *
  * @param {Element} form
+ * @param {{ post(endpoint: string, body: FormData): Promise<any> }} api
  */
-async function open_editor(form) {
+async function create(form, api) {
   if (!(form instanceof HTMLFormElement)) {
     return;
   }
-  const text = await edit_source(form.dataset.source || "");
+  let preview;
+  try {
+    preview = await api.post("source", new FormData(form));
+  } catch (error) {
+    window.alert(`Could not prepare the entry:\n\n${describe(error)}`);
+    return;
+  }
+  if (!preview || preview.error) {
+    window.alert(`Could not prepare the entry:\n\n${preview?.error ?? "unknown error"}`);
+    return;
+  }
+  const text = await edit_source(preview.source || "");
   if (text === null) {
     return;
   }
   const body = new FormData();
   body.append("source", text);
-  const response = await fetch(form.action, { method: "POST", body });
-  if (response.ok) {
-    window.location.reload();
-  } else {
-    const message = await response.text();
-    window.alert(`Could not save:\n\n${message}`);
+  body.append("format", "json");
+  let result;
+  try {
+    result = await api.post("commit", body);
+  } catch (error) {
+    window.alert(`Could not save:\n\n${describe(error)}`);
+    return;
   }
+  if (result && result.error) {
+    window.alert(`Could not save:\n\n${result.error}`);
+    return;
+  }
+  window.location.reload();
+}
+
+/**
+ * Describe an unknown thrown value.
+ *
+ * @param {unknown} error
+ * @returns {string}
+ */
+function describe(error) {
+  return error && typeof error === "object" && "message" in error
+    ? String(error.message)
+    : String(error);
 }
 
 /**
