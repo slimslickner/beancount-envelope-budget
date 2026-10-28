@@ -265,6 +265,31 @@
       .envelope-report:has(.envelope-collapse-all:checked) .envelope-group label::before {
         content: "\25B8";
       }
+      /* The opt-in edit panel: plain forms, no JavaScript. */
+      .envelope-manage {
+        margin-top: 1rem;
+      }
+      .envelope-manage > summary {
+        cursor: pointer;
+        font-weight: 600;
+      }
+      .envelope-edit {
+        margin: 0.5rem 0;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid rgba(128, 128, 128, 0.5);
+        border-radius: 4px;
+      }
+      .envelope-edit form {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        align-items: center;
+        margin: 0.2rem 0;
+      }
+      .envelope-edit input,
+      .envelope-edit select {
+        font: inherit;
+      }
     </style>
 
     <h2>Envelope report <small>in {{ view.currency }}</small></h2>
@@ -376,5 +401,66 @@
         </tbody>
       </table>
     </div>
+
+    {% if extension.writable %}
+    <details class="envelope-manage">
+      <summary>Edit budget</summary>
+      <p>
+        These forms append a <code>custom "envelope"</code> directive to the
+        configured file. Changes are reloaded by Fava on save.
+      </p>
+      {% for group in view.groups %}
+        {% for envelope in group.envelopes %}
+          {% if envelope.visible %}
+          <fieldset class="envelope-edit">
+            <legend>{{ envelope.name }}</legend>
+            <form method="post" action="commit">
+              <input type="hidden" name="action" value="allocate">
+              <input type="hidden" name="envelope" value="{{ envelope.name }}">
+              <label>Allocate
+                <input name="amount" size="10"
+                       value="{{ extension.prefill(envelope.name, view.months[0]) }}">
+              </label>
+              <input type="date" name="date" value="{{ view.months[0].isoformat() }}">
+              <button type="submit">Add allocation</button>
+            </form>
+            <form method="post" action="commit">
+              <input type="hidden" name="action" value="move">
+              <input type="hidden" name="source" value="{{ envelope.name }}">
+              <label>Move to
+                <select name="target">
+                  {% for other in extension.envelope_names() %}
+                    {% if other != envelope.name %}
+                    <option value="{{ other }}">{{ other }}</option>
+                    {% endif %}
+                  {% endfor %}
+                </select>
+              </label>
+              <input name="amount" size="10" placeholder="amount">
+              <input type="date" name="date" value="{{ view.months[0].isoformat() }}">
+              <button type="submit">Move</button>
+            </form>
+            <form method="post" action="commit">
+              <input type="hidden" name="action" value="plan">
+              <input type="hidden" name="envelope" value="{{ envelope.name }}">
+              <label>Monthly <input name="monthly" size="8" placeholder="500 or avg3"></label>
+              <label>Priority <input name="priority" size="4"></label>
+              <label>Target <input name="target" size="10"></label>
+              <label>By <input type="date" name="by"></label>
+              <input type="date" name="date" value="{{ view.months[0].isoformat() }}">
+              <button type="submit">Set plan</button>
+            </form>
+            <form method="post" action="commit">
+              <input type="hidden" name="action" value="unplan">
+              <input type="hidden" name="envelope" value="{{ envelope.name }}">
+              <input type="date" name="date" value="{{ view.months[0].isoformat() }}">
+              <button type="submit">Clear plan</button>
+            </form>
+          </fieldset>
+          {% endif %}
+        {% endfor %}
+      {% endfor %}
+    </details>
+    {% endif %}
   </div>
 {% endif %}

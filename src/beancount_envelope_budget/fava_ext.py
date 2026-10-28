@@ -1,4 +1,4 @@
-"""The read-only Fava report for envelope balances.
+"""The Fava report for envelope balances, read-only by default.
 
 Load with::
 
@@ -11,6 +11,17 @@ Set the default number of months shown (1 to
 
 The ``months`` query parameter overrides it.
 
+The report is **read-only unless a write target is configured**. Add a ``write``
+key naming a Beancount file, relative to the ledger's directory, to let the
+report append ``custom "envelope"`` directives::
+
+    2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext" "{'write': 'beans/Envelope.bean'}"
+
+A path that escapes the ledger directory or is not a Beancount source file is
+refused. Writes go through Fava's own file API (its lock, watcher and printer),
+so Fava's editor and this report stay consistent; the directives themselves come
+from :mod:`beancount_envelope_budget.actions`, the same module the CLI uses.
+
 The extension recomputes the budget in :meth:`Envelopes.after_load_file` and
 renders a Jinja template. It is the only module that imports Fava. The view it
 renders is built by :func:`beancount_envelope_budget.report.build_view`, the
@@ -21,11 +32,16 @@ from __future__ import annotations
 
 import re
 from datetime import date
+from decimal import Decimal
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-from fava.ext import ExtensionConfigError, FavaExtensionBase
+from fava.core import file as fava_file
+from fava.ext import ExtensionConfigError, FavaExtensionBase, extension_endpoint
+from flask import redirect, request
 
-from beancount_envelope_budget.core import BudgetResult, compute
+from beancount_envelope_budget import actions, writer
+from beancount_envelope_budget.core import BudgetResult, compute, row_for
 from beancount_envelope_budget.report import (
     MAX_MONTHS,
     ActivityLine,
@@ -37,10 +53,12 @@ from beancount_envelope_budget.report import (
 )
 
 if TYPE_CHECKING:
-    from decimal import Decimal
+    from collections.abc import Mapping
 
-    from beancount.core.data import Directive
+    from beancount.core.data import Custom, Directive
+    from fava.beans.abc import Directive as FavaDirective
     from fava.core import FavaLedger
+    from flask import Response
 
 __all__ = ["Envelopes"]
 
@@ -49,7 +67,7 @@ _MONTH_PATTERN = re.compile(r"^\d{4}-\d{2}$")
 
 
 class Envelopes(FavaExtensionBase):
-    """A read-only report of envelope balances across one to three months."""
+    """A report of envelope balances that can edit the budget when configured."""
 
     report_title = "Envelopes"
 
@@ -58,20 +76,121 @@ class Envelopes(FavaExtensionBase):
 
         Args:
             ledger: The Fava ledger.
-            config: The optional extension config. A mapping with a ``months``
-                key, or a whole number, sets the default number of months shown
-                (1 to :data:`~beancount_envelope_budget.report.MAX_MONTHS`); the
-                ``months`` query parameter overrides it.
+            config: The optional extension config. A mapping may set a ``months``
+                key (1 to :data:`~beancount_envelope_budget.report.MAX_MONTHS`,
+                the default number of months shown) and a ``write`` key (the
+                Beancount file to append directives to, relative to the ledger
+                directory; writing stays off when it is absent). A whole number
+                sets the month count. The ``months`` query parameter overrides
+                the month count.
 
         Raises:
-            ExtensionConfigError: If the config is not a valid month count.
+            ExtensionConfigError: If the config is not valid, or the write target
+                escapes the ledger directory or is not a Beancount source file.
         """
         super().__init__(ledger, config)
         self.result: BudgetResult | None = None
         try:
             self.default_months = _default_months(self.config)
+            self.write_target = self._resolve_write(_write_setting(self.config))
         except (TypeError, ValueError) as error:
             raise ExtensionConfigError(SyntaxError(str(error)), config or "") from error
+
+    def _resolve_write(self, value: str | None) -> Path | None:
+        """Resolve the configured write target, refusing an unsafe path.
+
+        Args:
+            value: The configured ``write`` path, or ``None``.
+
+        Returns:
+            The absolute target path, or ``None`` when writing is not configured.
+        """
+        if value is None:
+            return None
+        base = Path(self.ledger.beancount_file_path).parent
+        return writer.resolve_target(Path(value), base)
+
+    @property
+    def writable(self) -> bool:
+        """Whether a write target is configured, so the report can edit.
+
+        Returns:
+            True when the report may append directives.
+        """
+        return self.write_target is not None
+
+    def _result(self) -> BudgetResult:
+        """Return the computed budget, computing it once on first use.
+
+        Returns:
+            The :class:`BudgetResult`.
+        """
+        if self.result is None:
+            self.result = compute(
+                self._entries(),
+                self.ledger.options,
+                collect_activity=True,
+            )
+        return self.result
+
+    def prefill(self, envelope: str, month: date) -> str:
+        """Suggest an allocation for an envelope-month, as ``fund`` would.
+
+        The suggestion is the month's net spending (the ``actuals`` mode of the
+        CLI's ``fund``), so the "add allocation" form opens with a sensible
+        amount. It is empty when the envelope has no allocation to suggest.
+
+        Args:
+            envelope: The envelope name.
+            month: The month to fill.
+
+        Returns:
+            The suggested amount, formatted, or an empty string.
+        """
+        report = self._result().envelope(envelope)
+        if report is None:
+            return ""
+        amount = -row_for(report.rows, month).activity
+        return f"{amount:.2f}" if amount != 0 else ""
+
+    def envelope_names(self) -> list[str]:
+        """Return every envelope's name, for a move form's target picker.
+
+        Returns:
+            The envelope names.
+        """
+        return [report.name for report in self._result().envelopes]
+
+    def perform(self, params: Mapping[str, str]) -> Custom:
+        """Apply a submitted edit form, appending one directive.
+
+        Args:
+            params: The submitted form fields; ``action`` selects the directive
+                and the remaining keys are its arguments.
+
+        Returns:
+            The directive that was appended.
+
+        Raises:
+            RuntimeError: If writing is not configured.
+            ValueError: If the form is missing or malforms an argument.
+        """
+        if self.write_target is None:
+            message = "writing is not configured"
+            raise RuntimeError(message)
+        entry = _action_entry(params, self._result())
+        _insert(self.ledger, self.write_target, entry)
+        return entry
+
+    @extension_endpoint("commit", ["POST"])
+    def commit(self) -> Response:
+        """Append the directive a submitted form describes, then return.
+
+        Returns:
+            A redirect back to the report.
+        """
+        self.perform(request.form.to_dict())
+        return cast("Response", redirect(request.referrer or ".."))
 
     def after_load_file(self) -> None:
         """Recompute the budget once the ledger has been loaded."""
@@ -104,16 +223,8 @@ class Envelopes(FavaExtensionBase):
         Returns:
             The :class:`BudgetView`.
         """
-        result = self.result
-        if result is None:
-            result = compute(
-                self._entries(),
-                self.ledger.options,
-                collect_activity=True,
-            )
-            self.result = result
         return build_view(
-            result,
+            self._result(),
             _parse_month(month) or self.today_month(),
             _parse_count(months, self.default_months),
         )
@@ -295,3 +406,162 @@ def _parse_count(value: object, default: int = _DEFAULT_MONTHS) -> int:
         except ValueError:
             count = default
     return max(1, min(count, MAX_MONTHS))
+
+
+def _write_setting(config: object) -> str | None:
+    """Read the optional ``write`` path from an extension config.
+
+    Args:
+        config: The parsed extension config.
+
+    Returns:
+        The configured path, or ``None``.
+
+    Raises:
+        TypeError: If ``write`` is present but not a string.
+    """
+    if not isinstance(config, dict):
+        return None
+    value = config.get("write")
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        message = "write must be a path string"
+        raise TypeError(message)
+    return value
+
+
+def _form_decimal(value: str) -> Decimal:
+    """Parse a required decimal form field.
+
+    Args:
+        value: The raw field.
+
+    Returns:
+        The parsed decimal.
+    """
+    return Decimal(value)
+
+
+def _form_optional_decimal(value: str | None) -> Decimal | None:
+    """Parse an optional decimal form field.
+
+    Args:
+        value: The raw field, or ``None``.
+
+    Returns:
+        The parsed decimal, or ``None`` when blank.
+    """
+    return None if value is None or not value.strip() else Decimal(value)
+
+
+def _form_monthly(value: str | None) -> Decimal | str | None:
+    """Parse a ``monthly`` form field: a number or ``avgN``.
+
+    Args:
+        value: The raw field, or ``None``.
+
+    Returns:
+        The decimal or ``avgN`` string, or ``None`` when blank.
+    """
+    if value is None or not value.strip():
+        return None
+    try:
+        return Decimal(value)
+    except ArithmeticError:
+        return value
+
+
+def _form_day(value: str | None) -> date:
+    """Parse a form date, defaulting to today.
+
+    Args:
+        value: The raw field, or ``None``.
+
+    Returns:
+        The parsed date, or the local current date when blank.
+    """
+    if value:
+        return date.fromisoformat(value)
+    return date.today()  # noqa: DTZ011 - local today is intended
+
+
+def _form_optional_day(value: str | None) -> date | None:
+    """Parse an optional form date.
+
+    Args:
+        value: The raw field, or ``None``.
+
+    Returns:
+        The parsed date, or ``None`` when blank.
+    """
+    return date.fromisoformat(value) if value else None
+
+
+def _action_entry(params: Mapping[str, str], result: BudgetResult) -> Custom:
+    """Turn submitted form fields into the directive they describe.
+
+    Args:
+        params: The submitted form fields.
+        result: The computed budget, for the operating currency.
+
+    Returns:
+        The directive.
+
+    Raises:
+        ValueError: If the action is unknown or a required field is missing.
+    """
+    action = params.get("action")
+    day = _form_day(params.get("date"))
+    currency = result.operating_currency
+    if action == "allocate":
+        return actions.allocate(
+            params["envelope"], _form_decimal(params["amount"]), day, currency
+        )
+    if action == "move":
+        return actions.move(
+            params["source"],
+            params["target"],
+            _form_decimal(params["amount"]),
+            day,
+            currency,
+        )
+    if action == "plan":
+        return actions.plan(
+            params["envelope"],
+            day,
+            monthly=_form_monthly(params.get("monthly")),
+            priority=_form_optional_decimal(params.get("priority")),
+            target=_form_optional_decimal(params.get("target")),
+            target_currency=currency,
+            by=_form_optional_day(params.get("by")),
+        )
+    if action == "unplan":
+        return actions.unplan(params["envelope"], day)
+    message = f"unknown action: {action!r}"
+    raise ValueError(message)
+
+
+def _insert(ledger: FavaLedger, path: Path, entry: Custom) -> None:
+    """Append a directive through Fava's own file API.
+
+    Reuses Fava's lock, watcher and printer, so its editor and this report stay
+    consistent. The target is the configured file, not Fava's default.
+
+    Args:
+        ledger: The Fava ledger.
+        path: The file to append to.
+        entry: The directive.
+    """
+    options = ledger.fava_options
+    with ledger.file._lock:  # noqa: SLF001 - Fava's own lock is the point
+        fava_entry = cast("FavaDirective", entry)
+        written, _ = fava_file.insert_entry(
+            fava_entry,
+            str(path),
+            [],
+            options.currency_column,
+            options.indent,
+        )
+        ledger.watcher.notify(written)
+        ledger.extensions.after_insert_entry(fava_entry)

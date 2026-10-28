@@ -34,9 +34,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   group scrolls, and a single "Collapse all" control folds every parent.
 - The Fava report labels the current month's header `(current)` and adds a
   "this month" link that jumps to it.
-- Fava balances are colour-coded: a closing balance is red when overspent, green
-  when funded to its plan, and amber when underfunded; an opening balance turns
-  red when negative. The colours follow Fava's light/dark scheme.
+- The Fava report balances are colour-coded: a closing balance is red when
+  overspent, green when funded to its plan, and amber when underfunded; an
+  opening balance turns red when negative. The colours follow Fava's light/dark
+  scheme.
+- The CLI `allocate`, `move`, `plan` and `unplan` commands print one directive,
+  and `fund` and those commands take `--write FILE` to append it to a ledger file
+  (relative to the ledger's directory) and then reload the ledger and report any
+  diagnostics.
+- The Fava report can edit the budget when a `write` target is configured on the
+  `fava-extension` line: an **Edit budget** panel adds an allocation (prefilled
+  with the month's spending, as `fund` would), moves money between envelopes, and
+  sets or clears a plan. Writing is off by default and refuses a target that
+  escapes the ledger directory.
 
 ### Changed
 

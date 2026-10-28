@@ -369,8 +369,10 @@ See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget
 - `check` exits non-zero on any error.
 - `report` prints opening, allocated, activity and closing for one to three
   months, plus the pool and cash rows.
-- `fund` prints `allocate` directives (redirect them into a file you include); it
-  never edits your ledger.
+- `fund` prints `allocate` directives (redirect them into a file you include), or
+  appends them with `--write FILE`; plain `fund` never edits your ledger.
+- `allocate`, `move`, `plan` and `unplan` print one directive, or append it with
+  `--write FILE`, so the CLI can make the same ledger edits the Fava report can.
 - `pin` freezes an account's current envelope onto its existing postings so you
   can change the account's metadata without reclassifying history.
 
@@ -382,8 +384,8 @@ Add the extension line and an **Envelopes** report appears in the sidebar:
 2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext"
 ```
 
-It is read-only, shows one to three months, and offers hover text for envelope
-targets. Hovering or focusing an activity figure reveals a popover listing the
+It is read-only unless you configure a write target; by default it shows one to
+three months and offers hover text for envelope targets. Hovering or focusing an activity figure reveals a popover listing the
 postings behind it; each line links to that transaction in Fava's entry popup.
 The line reads `payee - narration`: the transaction's payee, then the posting's
 `narration` metadata — the `autobean.narration` convention — falling back to the
@@ -417,6 +419,28 @@ still overrides it:
 ```beancount
 2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext" "{'months': 2}"
 ```
+
+### Editing from the report
+
+Add a `write` key naming a Beancount file, relative to the ledger's directory, to
+let the report append `custom "envelope"` directives:
+
+```beancount
+2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext" "{'write': 'beans/Envelope.bean'}"
+```
+
+A target that escapes the ledger directory or is not a `.bean`/`.beancount` file
+is refused, and writing stays off when the key is absent. With it set, the report
+gains an **Edit budget** panel whose forms add an allocation (prefilled with the
+month's spending, as `fund` would), move money between envelopes, set or clear a
+plan. Each form appends exactly one directive, printed by Beancount's own printer
+via `actions.py` — the same generators the CLI's `allocate`, `move`, `plan` and
+`unplan` commands print or write. Writes go through Fava's own file API, so its
+lock, watcher and editor stay consistent. This makes a write-enabled Fava a
+remote ledger mutation if Fava is exposed beyond localhost; keep it local.
+
+The invariant is unchanged: pure code still never touches disk. Writing is an
+explicit, opt-in surface, here and in the CLI.
 
 ## BQL recipes
 

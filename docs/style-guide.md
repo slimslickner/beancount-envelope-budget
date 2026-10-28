@@ -26,9 +26,11 @@ uv run ruff format --check && uv run ruff check && uv run ty check && uv run pyt
 - **Records are frozen dataclasses with `slots=True`.**
 - **Dependency boundaries**: `core.py` imports only `beancount` (plus our
   `schema` and the standard library); `report.py` is pure; only `fava_ext.py`
-  imports Fava; only
-  `pin --write` ever edits a ledger file. The plugin, CLI and Fava extension are
-  thin adapters over `core` and `report`.
+  imports Fava. Pure code never touches disk. Ledger writes happen only through
+  explicit, opt-in surfaces — `pin --write`, the CLI's `--write`, and the Fava
+  report's `write` config — and each is a thin writer over the same
+  `actions.py` generators. The plugin, CLI and Fava extension are thin adapters
+  over `core` and `report`.
 - **Coverage floor**: `pytest` fails under 85% on `core.py`.
 
 ## Documentation

@@ -13,7 +13,7 @@ import pytest
 from beancount import loader
 from fava.ext import ExtensionConfigError, find_extensions
 
-from beancount_envelope_budget import fava_ext
+from beancount_envelope_budget import actions, fava_ext
 from beancount_envelope_budget.fava_ext import Envelopes
 from beancount_envelope_budget.report import ActivityLine
 
@@ -33,6 +33,7 @@ def _extension(
     *,
     load: bool = True,
     config: str | None = None,
+    ledger_path: Path | None = None,
 ) -> Envelopes:
     """Build an extension over a fixture ledger.
 
@@ -40,12 +41,17 @@ def _extension(
         name: The fixture file name.
         load: Whether to run ``after_load_file``.
         config: An optional extension config string.
+        ledger_path: An optional path to hang off the fake ledger as
+            ``beancount_file_path``, so a ``write`` config can resolve against
+            it.
 
     Returns:
         The extension.
     """
     entries, _errors, options = loader.load_file(_LEDGERS / name)
     ledger = cast("FavaLedger", SimpleNamespace(all_entries=entries, options=options))
+    if ledger_path is not None:
+        ledger.beancount_file_path = str(ledger_path)
     extension = Envelopes(ledger, config)
     if load:
         extension.after_load_file()
@@ -645,3 +651,177 @@ def test_template_freezes_parent_headings() -> None:
     )
     assert "tbody.envelope-group-body > tr.envelope-group > *" in html
     assert "top: calc(2 * var(--envelope-header-row-height))" in html
+
+
+# --- Writing (opt-in) ----------------------------------------------------------
+
+
+def test_write_is_off_by_default() -> None:
+    """Without a write target the report stays read-only."""
+    extension = _extension("basic.bean")
+    assert extension.writable is False
+    assert extension.write_target is None
+
+
+def test_config_parses_a_write_target(tmp_path: Path) -> None:
+    """A write config resolves against the ledger directory."""
+    extension = _extension(
+        "basic.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    assert extension.writable is True
+    assert extension.write_target == (tmp_path / "Envelope.bean").resolve()
+
+
+def test_config_refuses_a_write_escape(tmp_path: Path) -> None:
+    """A write target outside the ledger directory is an extension error."""
+    with pytest.raises(ExtensionConfigError):
+        _extension(
+            "basic.bean",
+            config="{'write': '../evil.bean'}",
+            ledger_path=tmp_path / "main.bean",
+        )
+
+
+def test_config_refuses_a_non_source_write(tmp_path: Path) -> None:
+    """A write target that is not Beancount is an extension error."""
+    with pytest.raises(ExtensionConfigError):
+        _extension(
+            "basic.bean",
+            config="{'write': 'notes.txt'}",
+            ledger_path=tmp_path / "main.bean",
+        )
+
+
+def test_commit_endpoint_is_registered() -> None:
+    """The commit endpoint is a POST handler."""
+    extension = _extension("basic.bean")
+    assert ("commit", "POST") in extension.endpoints
+
+
+def test_perform_appends_through_the_writer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A submitted allocate form is appended to the configured file."""
+    recorded: list[tuple[Path, object]] = []
+    monkeypatch.setattr(
+        fava_ext, "_insert", lambda _ledger, path, entry: recorded.append((path, entry))
+    )
+    extension = _extension(
+        "basic.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    entry = extension.perform(
+        {
+            "action": "allocate",
+            "envelope": "Groceries",
+            "amount": "250",
+            "date": "2024-02-10",
+        }
+    )
+    assert actions.render(entry) == (
+        '2024-02-10 custom "envelope" "allocate" "Groceries" 250.00 USD'
+    )
+    assert recorded == [(extension.write_target, entry)]
+
+
+def test_perform_requires_a_write_target() -> None:
+    """Applying an edit without a write target is refused."""
+    extension = _extension("basic.bean")
+    with pytest.raises(RuntimeError, match="not configured"):
+        extension.perform(
+            {"action": "allocate", "envelope": "Groceries", "amount": "1"}
+        )
+
+
+def test_perform_unknown_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unknown action is a value error."""
+    monkeypatch.setattr(fava_ext, "_insert", lambda *_args: None)
+    extension = _extension(
+        "basic.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    with pytest.raises(ValueError, match="unknown action"):
+        extension.perform({"action": "bogus"})
+
+
+def test_action_entry_covers_every_verb() -> None:
+    """Each action builds the directive it names."""
+    extension = _extension("basic.bean")
+    result = extension._result()
+    allocate = fava_ext._action_entry(
+        {
+            "action": "allocate",
+            "envelope": "Groceries",
+            "amount": "10",
+            "date": "2024-02-01",
+        },
+        result,
+    )
+    move = fava_ext._action_entry(
+        {
+            "action": "move",
+            "source": "Groceries",
+            "target": "Gifts",
+            "amount": "5",
+            "date": "2024-02-01",
+        },
+        result,
+    )
+    plan = fava_ext._action_entry(
+        {
+            "action": "plan",
+            "envelope": "Groceries",
+            "monthly": "avg3",
+            "priority": "2",
+            "date": "2024-02-01",
+        },
+        result,
+    )
+    unplan = fava_ext._action_entry(
+        {"action": "unplan", "envelope": "Groceries", "date": "2024-02-01"}, result
+    )
+    assert actions.render(allocate).endswith('"Groceries" 10.00 USD')
+    assert actions.render(move).endswith('"Groceries" "Gifts" 5.00 USD')
+    assert actions.render(plan) == (
+        '2024-02-01 custom "envelope" "plan" "Groceries"\n'
+        '  monthly: "avg3"\n'
+        "  priority: 2"
+    )
+    assert actions.render(unplan).endswith('"unplan" "Groceries"')
+
+
+def test_prefill_suggests_the_months_spending() -> None:
+    """The add-allocation form is prefilled from the month's spending."""
+    extension = _extension("fund_backfill.bean")
+    assert extension.prefill("Groceries", date(2024, 1, 1)) == "100.00"
+    assert extension.prefill("Groceries", date(2024, 5, 1)) == ""
+    assert extension.prefill("Nope", date(2024, 1, 1)) == ""
+
+
+def test_template_hides_the_manage_panel_when_read_only() -> None:
+    """A read-only report shows no edit panel."""
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
+    assert "Edit budget" not in html
+    assert 'name="action"' not in html
+
+
+def test_template_shows_the_manage_panel_when_writable(tmp_path: Path) -> None:
+    """A writable report shows the edit forms."""
+    extension = _extension(
+        "basic.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    html = _render(extension, {"month": "2024-01", "months": "1"})
+    assert "Edit budget" in html
+    assert 'action="commit"' in html
+    assert 'name="action" value="allocate"' in html
+    assert 'name="action" value="move"' in html
+    assert 'name="action" value="plan"' in html
+    assert 'name="action" value="unplan"' in html
