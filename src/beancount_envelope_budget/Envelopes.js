@@ -65,7 +65,8 @@ async function create(form, api) {
     window.alert(`Could not save:\n\n${result.error}`);
     return;
   }
-  window.location.reload();
+  // The write notified Fava's watcher, so its change detection offers or performs
+  // an in-place reload — no full page load, which would lose the current place.
 }
 
 /**
