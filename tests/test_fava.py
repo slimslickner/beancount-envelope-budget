@@ -890,8 +890,14 @@ def test_prefill_suggests_the_months_spending() -> None:
     """The add-allocation form is prefilled from the month's spending."""
     extension = _extension("fund_backfill.bean")
     assert extension.prefill("Groceries", date(2024, 1, 1)) == "100.00"
-    assert extension.prefill("Groceries", date(2024, 5, 1)) == ""
-    assert extension.prefill("Nope", date(2024, 1, 1)) == ""
+    assert extension.prefill("Groceries", date(2024, 5, 1)) == "0.00"
+    assert extension.prefill("Nope", date(2024, 1, 1)) == "0.00"
+
+
+def test_prefill_falls_back_to_the_plan_level() -> None:
+    """An unspent planned envelope is prefilled with its funding level."""
+    extension = _extension("topup_plan.bean")
+    assert extension.prefill("Mortgage", date(2024, 1, 1)) == "2500.00"
 
 
 def test_report_exposes_allocations() -> None:

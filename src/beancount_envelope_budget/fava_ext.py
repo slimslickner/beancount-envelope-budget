@@ -51,6 +51,7 @@ from beancount_envelope_budget.report import (
     Cell,
     PlanLine,
     build_view,
+    plan_level,
     today_month,
 )
 
@@ -140,22 +141,27 @@ class Envelopes(FavaExtensionBase):
     def prefill(self, envelope: str, month: date) -> str:
         """Suggest an allocation for an envelope-month, as ``fund`` would.
 
-        The suggestion is the month's net spending (the ``actuals`` mode of the
-        CLI's ``fund``), so the "add allocation" form opens with a sensible
-        amount. It is empty when the envelope has no allocation to suggest.
+        The suggestion is the month's net spending; an envelope with none falls
+        back to its funding level less what it already holds, and to zero when it
+        has no plan. It is used to prefill the "add allocation" form and modal.
 
         Args:
             envelope: The envelope name.
             month: The month to fill.
 
         Returns:
-            The suggested amount, formatted, or an empty string.
+            The suggested amount, formatted.
         """
         report = self._result().envelope(envelope)
         if report is None:
-            return ""
+            return "0.00"
         amount = -row_for(report.rows, month).activity
-        return f"{amount:.2f}" if amount != 0 else ""
+        if amount == 0:
+            day = _fill_day(month)
+            level = plan_level(report, day)
+            if level is not None:
+                amount = max(Decimal(0), level - report.funded_at(day))
+        return f"{amount:.2f}"
 
     def envelope_names(self) -> list[str]:
         """Return every envelope's name, for a move form's target picker.
@@ -655,7 +661,10 @@ def _action_entry(params: Mapping[str, str], result: BudgetResult) -> Custom:
     currency = result.operating_currency
     if action == "allocate":
         return actions.allocate(
-            params["envelope"], _form_decimal(params["amount"]), day, currency
+            params["envelope"],
+            _form_decimal(params.get("amount") or "0"),
+            day,
+            currency,
         )
     if action == "move":
         return actions.move(
