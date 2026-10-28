@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 __all__ = [
     "POOL",
     "ActivityEvent",
+    "AllocationEvent",
     "BudgetResult",
     "CashRow",
     "Diagnostic",
@@ -41,6 +42,7 @@ __all__ = [
     "PlanChange",
     "Source",
     "compute",
+    "existing_allocations",
     "format_amount",
     "iter_months",
     "month_of",
@@ -59,6 +61,7 @@ _INCOME_OR_EQUITY = frozenset({_ROOT_INCOME, _ROOT_EQUITY})
 _CASH_ROOTS = frozenset({"Assets", "Liabilities"})
 _MONTHS_PER_YEAR = 12
 _MOVE_ARGS = 3
+_ALLOCATE_ARGS = 3
 
 #: The shape of an average-of-N-months monthly amount, e.g. ``"avg3"``.
 _AVG_PATTERN = re.compile(r"^avg(\d+)$")
@@ -127,6 +130,28 @@ class ActivityEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class AllocationEvent:
+    """One ``allocate`` directive.
+
+    The report lists these per envelope-month so the Fava report can link each
+    allocation back to its source directive.
+
+    Attributes:
+        date: The directive's date.
+        envelope: The envelope that was funded.
+        amount: The amount allocated; negative moves money back to the pool.
+        entry_hash: The Beancount hash of the source directive, for linking back
+            to it in Fava. It is the same value Beancount's
+            ``compare.hash_entry`` yields.
+    """
+
+    date: date
+    envelope: str
+    amount: Decimal
+    entry_hash: str
+
+
+@dataclass(frozen=True, slots=True)
 class Plan:
     """An envelope's funding parameters at one point in time.
 
@@ -168,6 +193,8 @@ class PlanChange:
         target_currency: The currency of the new target, or ``None``.
         by: The new deadline, or ``None`` when unchanged.
         clears: Whether applying the change resets the plan to defaults.
+        entry_hash: The Beancount hash of the source directive, for linking back
+            to it in Fava (empty when the change has no source, as in a doctest).
     """
 
     date: date
@@ -177,6 +204,7 @@ class PlanChange:
     target_currency: str | None = None
     by: date | None = None
     clears: bool = False
+    entry_hash: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +218,8 @@ class Envelope:
         plan: The base plan, from the ``open`` metadata.
         plans: Dated overrides, sorted by date.
         parent: A grouping label set on ``open``, or ``None``.
+        source_hash: The Beancount hash of the ``open`` directive, for linking
+            back to it in Fava (empty when there is no source).
     """
 
     name: str
@@ -198,6 +228,7 @@ class Envelope:
     plan: Plan
     plans: tuple[PlanChange, ...]
     parent: str | None = None
+    source_hash: str = ""
 
     def effective(self, on: date) -> Plan:
         """Return the plan in force on a date.
@@ -462,6 +493,8 @@ class BudgetResult:
             when requested by ``collect_resolved``.
         activity: Per-posting activity detail, when requested by
             ``collect_activity``.
+        allocations: Every ``allocate`` directive, for linking each allocation
+            back to its source.
         pre_start_cash: The cash held on the day before the start date; the
             pool's opening balance and the cash carried into the first month.
     """
@@ -475,6 +508,7 @@ class BudgetResult:
     diagnostics: tuple[Diagnostic, ...]
     resolved: tuple[tuple[int, str], ...] = ()
     activity: tuple[ActivityEvent, ...] = ()
+    allocations: tuple[AllocationEvent, ...] = ()
     pre_start_cash: Decimal = Decimal(0)
 
     def envelope(self, name: str) -> EnvelopeReport | None:
@@ -539,6 +573,7 @@ class _Draft:
     plans: list[PlanChange] = field(default_factory=list)
     closed: date | None = None
     parent: str | None = None
+    source_hash: str = ""
 
     def freeze(self) -> Envelope:
         """Return the immutable envelope.
@@ -553,6 +588,7 @@ class _Draft:
             plan=self.plan,
             plans=tuple(sorted(self.plans, key=lambda change: change.date)),
             parent=self.parent,
+            source_hash=self.source_hash,
         )
 
     def effective(self, on: date) -> Plan:
@@ -716,6 +752,46 @@ def month_of(value: date) -> date:
         datetime.date(2024, 2, 1)
     """
     return value.replace(day=1)
+
+
+def existing_allocations(
+    entries: list[Directive],
+) -> dict[tuple[str, date], Decimal]:
+    r"""Sum existing ``allocate`` directives by envelope and month.
+
+    ``Custom`` directives have no natural key, so "does this envelope-month
+    already have an allocation?" is a semantic, summed question over the
+    ledger, not a lookup. The CLI's ``fund`` and the Fava report both ask it.
+
+    Args:
+        entries: The ledger entries.
+
+    Returns:
+        A mapping from ``(envelope, month)`` to the summed allocation.
+
+    Examples:
+        A pool allocation is keyed by the month of its date:
+
+        >>> from beancount.parser import parser
+        >>> entries, _errors, _options = parser.parse_string(
+        ...     '2024-01-31 custom "envelope" "allocate" "Groceries" 600.00 USD\n'
+        ... )
+        >>> existing_allocations(entries)
+        {('Groceries', datetime.date(2024, 1, 1)): Decimal('600.00')}
+    """
+    totals: dict[tuple[str, date], Decimal] = {}
+    for entry in entries:
+        if not isinstance(entry, Custom) or entry.type != "envelope":
+            continue
+        values = [_unwrap(value) for value in entry.values]
+        if len(values) < _ALLOCATE_ARGS or values[0] != "allocate":
+            continue
+        name, amount = values[1], values[2]
+        if not isinstance(name, str) or not isinstance(amount, Amount):
+            continue
+        key = (name, month_of(entry.date))
+        totals[key] = totals.get(key, Decimal(0)) + (amount.number or Decimal(0))
+    return totals
 
 
 def iter_months(start: date, end: date) -> list[date]:
@@ -1092,12 +1168,12 @@ class _Declarations:
 
     Attributes:
         envelopes: Declared envelopes, in declaration order.
-        allocate: ``(date, name, amount)`` allocation events.
+        allocate: The ``allocate`` directives.
         move: ``(date, source, target, amount)`` move events.
     """
 
     envelopes: tuple[Envelope, ...]
-    allocate: tuple[tuple[date, str, Decimal], ...]
+    allocate: tuple[AllocationEvent, ...]
     move: tuple[tuple[date, str, str, Decimal], ...]
 
 
@@ -1180,6 +1256,7 @@ def _handle_open(
         opened=raw.date,
         plan=plan,
         parent=parent,
+        source_hash=compare.hash_entry(raw.entry),
     )
     order.append(name)
 
@@ -1213,6 +1290,7 @@ def _handle_plan(
             target=target[0] if target is not None else None,
             target_currency=target[1] if target is not None else None,
             by=_parse_by(raw.meta.get("by"), name, raw.entry, diagnostics),
+            entry_hash=compare.hash_entry(raw.entry),
         )
     )
     _validate_plan(drafts[name].effective(raw.date), name, raw.entry, diagnostics)
@@ -1237,7 +1315,9 @@ def _handle_unplan(
     if not isinstance(name, str) or name not in drafts:
         diagnostics.append(_diag("E001", entry=raw.entry, name=name))
         return
-    drafts[name].plans.append(PlanChange(date=raw.date, clears=True))
+    drafts[name].plans.append(
+        PlanChange(date=raw.date, clears=True, entry_hash=compare.hash_entry(raw.entry))
+    )
 
 
 def _parse_amount(
@@ -1311,7 +1391,7 @@ def _process_declarations(
     """
     drafts: dict[str, _Draft] = {}
     order: list[str] = []
-    allocate: list[tuple[date, str, Decimal]] = []
+    allocate: list[AllocationEvent] = []
     move: list[tuple[date, str, str, Decimal]] = []
     for raw in raw_directives:
         if raw.date < start and raw.verb in {"open", "allocate", "move"}:
@@ -1422,7 +1502,7 @@ def _label(raw: _RawDirective) -> str:
 def _handle_allocate(
     raw: _RawDirective,
     drafts: dict[str, _Draft],
-    allocate: list[tuple[date, str, Decimal]],
+    allocate: list[AllocationEvent],
     diagnostics: list[Diagnostic],
 ) -> None:
     """Handle an ``allocate`` directive.
@@ -1441,7 +1521,14 @@ def _handle_allocate(
     number = _amount_number(amount)
     if target is None or number is None:
         return
-    allocate.append((raw.date, target, number))
+    allocate.append(
+        AllocationEvent(
+            date=raw.date,
+            envelope=target,
+            amount=number,
+            entry_hash=compare.hash_entry(raw.entry),
+        )
+    )
 
 
 def _handle_move(
@@ -2092,12 +2179,12 @@ def _build_result(
     activity = effects.activity
     cash = effects.cash
     allocation_events: list[tuple[date, Decimal]] = [
-        (when, amount) for when, _name, amount in declarations.allocate
+        (event.date, event.amount) for event in declarations.allocate
     ]
     pool_alloc: list[tuple[date, Decimal]] = list(allocation_events)
     env_alloc: dict[str, list[tuple[date, Decimal]]] = defaultdict(list)
-    for when, name, amount in declarations.allocate:
-        env_alloc[name].append((when, amount))
+    for event in declarations.allocate:
+        env_alloc[event.envelope].append((event.date, event.amount))
     for when, source, dest, amount in declarations.move:
         env_alloc[source].append((when, -amount))
         env_alloc[dest].append((when, amount))
@@ -2154,6 +2241,7 @@ def _build_result(
         diagnostics=tuple(_sorted(diagnostics)),
         resolved=effects.resolved,
         activity=effects.details,
+        allocations=declarations.allocate,
         pre_start_cash=pre_start_cash,
     )
 
@@ -2177,7 +2265,7 @@ def _month_range(
     """
     dates = [start]
     dates.extend(when for _dest, when, _amount in activity)
-    dates.extend(when for when, _name, _amount in declarations.allocate)
+    dates.extend(event.date for event in declarations.allocate)
     dates.extend(when for when, _source, _dest, _amount in declarations.move)
     dates.extend(when for when, _amount in cash)
     dates.extend(

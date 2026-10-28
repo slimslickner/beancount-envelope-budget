@@ -13,9 +13,9 @@ import pytest
 from beancount import loader
 from fava.ext import ExtensionConfigError, find_extensions
 
-from beancount_envelope_budget import fava_ext
+from beancount_envelope_budget import actions, fava_ext
 from beancount_envelope_budget.fava_ext import Envelopes
-from beancount_envelope_budget.report import ActivityLine
+from beancount_envelope_budget.report import ActivityLine, to_jsonable
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -33,6 +33,7 @@ def _extension(
     *,
     load: bool = True,
     config: str | None = None,
+    ledger_path: Path | None = None,
 ) -> Envelopes:
     """Build an extension over a fixture ledger.
 
@@ -40,12 +41,17 @@ def _extension(
         name: The fixture file name.
         load: Whether to run ``after_load_file``.
         config: An optional extension config string.
+        ledger_path: An optional path to hang off the fake ledger as
+            ``beancount_file_path``, so a ``write`` config can resolve against
+            it.
 
     Returns:
         The extension.
     """
     entries, _errors, options = loader.load_file(_LEDGERS / name)
     ledger = cast("FavaLedger", SimpleNamespace(all_entries=entries, options=options))
+    if ledger_path is not None:
+        ledger.beancount_file_path = str(ledger_path)
     extension = Envelopes(ledger, config)
     if load:
         extension.after_load_file()
@@ -67,7 +73,7 @@ def _render(extension: Envelopes, args: Mapping[str, str]) -> str:
         autoescape=True,
     )
     template = env.get_template("Envelopes.html")
-    request = SimpleNamespace(args=dict(args))
+    request = SimpleNamespace(args=dict(args), path="/ledger/extension/Envelopes/")
     return template.render(
         ledger=extension.ledger, extension=extension, request=request
     )
@@ -221,13 +227,14 @@ def test_activity_tooltip() -> None:
 
 
 def test_template_activity_popover_links_to_entry() -> None:
-    """An activity figure reveals links to Fava's entry popup."""
+    """An activity figure reveals links to Fava's entry popup on click."""
     extension = _extension("fund_backfill.bean")
     view = extension.report("2024-01", "1")
     groceries = next(e for e in view.envelopes if e.name == "Groceries")
     entry_hash = groceries.cells[0].detail[0].entry_hash
     html = _render(extension, {"month": "2024-01", "months": "1"})
-    assert 'class="num envelope-activity" tabindex="0"' in html
+    assert "envelope-activity envelope-pop-host" in html
+    assert 'class="envelope-pop-toggle"' in html
     assert f'href="#context-{entry_hash}"' in html
     assert "January groceries" in html
 
@@ -312,15 +319,6 @@ def test_activity_title_narration() -> None:
     housing = next(e for e in view.envelopes if e.name == "Housing")
     title = extension.activity_title(housing.cells[0])
     assert "Bank - Escrow" in title
-
-
-def test_envelope_target_tooltip() -> None:
-    """The envelope tooltip shows the target and deadline."""
-    view = _extension("savings_goal.bean").report("2024-02", "1")
-    car = next(e for e in view.envelopes if e.name == "Car")
-    title = _extension("savings_goal.bean").envelope_title(car)
-    assert "15000.00" in title
-    assert "2028-06-01" in title
 
 
 def test_report_goal_fill() -> None:
@@ -499,7 +497,6 @@ def test_template_renders() -> None:
     assert "380.00" in html
     assert "2024-03" in html
     assert "(projected)" in html
-    assert 'title="' in html
 
 
 def test_template_renders_target_tooltip() -> None:
@@ -645,3 +642,329 @@ def test_template_freezes_parent_headings() -> None:
     )
     assert "tbody.envelope-group-body > tr.envelope-group > *" in html
     assert "top: calc(2 * var(--envelope-header-row-height))" in html
+
+
+# --- Writing (opt-in) ----------------------------------------------------------
+
+
+def test_write_is_off_by_default() -> None:
+    """Without a write target the report stays read-only."""
+    extension = _extension("basic.bean")
+    assert extension.writable is False
+    assert extension.write_target is None
+
+
+def test_config_parses_a_write_target(tmp_path: Path) -> None:
+    """A write config resolves against the ledger directory."""
+    extension = _extension(
+        "basic.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    assert extension.writable is True
+    assert extension.write_target == (tmp_path / "Envelope.bean").resolve()
+
+
+def test_config_refuses_a_write_escape(tmp_path: Path) -> None:
+    """A write target outside the ledger directory is an extension error."""
+    with pytest.raises(ExtensionConfigError):
+        _extension(
+            "basic.bean",
+            config="{'write': '../evil.bean'}",
+            ledger_path=tmp_path / "main.bean",
+        )
+
+
+def test_config_refuses_a_non_source_write(tmp_path: Path) -> None:
+    """A write target that is not Beancount is an extension error."""
+    with pytest.raises(ExtensionConfigError):
+        _extension(
+            "basic.bean",
+            config="{'write': 'notes.txt'}",
+            ledger_path=tmp_path / "main.bean",
+        )
+
+
+def test_commit_endpoint_is_registered() -> None:
+    """The commit and source endpoints are POST handlers."""
+    extension = _extension("basic.bean")
+    assert ("commit", "POST") in extension.endpoints
+    assert ("source", "POST") in extension.endpoints
+
+
+def test_perform_appends_through_the_writer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A submitted allocate form is appended to the configured file."""
+    recorded: list[tuple[Path, object]] = []
+    monkeypatch.setattr(
+        fava_ext, "_insert", lambda _ledger, path, entry: recorded.append((path, entry))
+    )
+    extension = _extension(
+        "basic.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    entries = extension.perform(
+        {
+            "action": "allocate",
+            "envelope": "Groceries",
+            "amount": "250",
+            "date": "2024-02-10",
+        }
+    )
+    assert len(entries) == 1
+    assert actions.render(entries[0]) == (
+        '2024-02-10 custom "envelope" "allocate" "Groceries" 250.00 USD'
+    )
+    assert recorded == [(extension.write_target, entries[0])]
+
+
+def test_perform_from_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A `source` post is parsed and appended, the JS modal's path."""
+    recorded: list[tuple[Path, object]] = []
+    monkeypatch.setattr(
+        fava_ext, "_insert", lambda _ledger, path, entry: recorded.append((path, entry))
+    )
+    extension = _extension(
+        "basic.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    entries = extension.perform(
+        {"source": ('2024-02-10 custom "envelope" "allocate" "Groceries" 250.00 USD\n')}
+    )
+    assert actions.render(entries[0]) == (
+        '2024-02-10 custom "envelope" "allocate" "Groceries" 250.00 USD'
+    )
+    assert recorded == [(extension.write_target, entries[0])]
+
+
+def test_perform_rejects_bad_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A source that does not parse is refused."""
+    monkeypatch.setattr(fava_ext, "_insert", lambda *_args: None)
+    extension = _extension(
+        "basic.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    with pytest.raises(ValueError, match="Invalid token"):
+        extension.perform({"source": "this is not beancount\n"})
+
+
+def test_perform_rejects_non_envelope_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A source with no envelope directive is refused."""
+    monkeypatch.setattr(fava_ext, "_insert", lambda *_args: None)
+    extension = _extension(
+        "basic.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    with pytest.raises(ValueError, match="custom"):
+        extension.perform({"source": "2024-01-01 open Assets:Checking USD\n"})
+
+
+def test_render_source_from_fields() -> None:
+    """The source endpoint renders the directive the form's fields describe."""
+    extension = _extension("basic.bean")
+    allocate = extension.render_source(
+        {
+            "action": "allocate",
+            "envelope": "Groceries",
+            "amount": "120",
+            "date": "2024-01-31",
+        }
+    )
+    assert allocate == (
+        '2024-01-31 custom "envelope" "allocate" "Groceries" 120.00 USD'
+    )
+    unplan = extension.render_source(
+        {"action": "unplan", "envelope": "Groceries", "date": "2024-02-01"}
+    )
+    assert unplan == '2024-02-01 custom "envelope" "unplan" "Groceries"'
+
+
+def test_fill_date_is_the_month_end_or_today() -> None:
+    """A new directive is dated the month end, or today when earlier."""
+    extension = _extension("basic.bean")
+    assert extension.fill_date(date(2024, 1, 1)) == "2024-01-31"
+
+
+def test_plan_fields_open_on_the_current_plan() -> None:
+    """The plan form opens on the plan in force."""
+    extension = _extension("topup_plan.bean")
+    fields = extension.plan_fields("Mortgage", date(2024, 1, 1))
+    assert fields["monthly"] == "2500.00"
+    assert fields["priority"] == "1"
+    empty = _extension("basic.bean").plan_fields("Groceries", date(2024, 1, 1))
+    assert empty == {"monthly": "", "priority": "", "target": "", "by": ""}
+
+
+def test_js_module_is_shipped() -> None:
+    """The extension advertises and ships its JavaScript module."""
+    assert Envelopes.has_js_module is True
+    assert (Path(fava_ext.__file__).parent / "Envelopes.js").exists()
+
+
+def test_perform_requires_a_write_target() -> None:
+    """Applying an edit without a write target is refused."""
+    extension = _extension("basic.bean")
+    with pytest.raises(RuntimeError, match="not configured"):
+        extension.perform(
+            {"action": "allocate", "envelope": "Groceries", "amount": "1"}
+        )
+
+
+def test_perform_unknown_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unknown action is a value error."""
+    monkeypatch.setattr(fava_ext, "_insert", lambda *_args: None)
+    extension = _extension(
+        "basic.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    with pytest.raises(ValueError, match="unknown action"):
+        extension.perform({"action": "bogus"})
+
+
+def test_action_entry_covers_every_verb() -> None:
+    """Each action builds the directive it names."""
+    extension = _extension("basic.bean")
+    result = extension._result()
+    allocate = fava_ext._action_entry(
+        {
+            "action": "allocate",
+            "envelope": "Groceries",
+            "amount": "10",
+            "date": "2024-02-01",
+        },
+        result,
+    )
+    move = fava_ext._action_entry(
+        {
+            "action": "move",
+            "source": "Groceries",
+            "target": "Gifts",
+            "amount": "5",
+            "date": "2024-02-01",
+        },
+        result,
+    )
+    plan = fava_ext._action_entry(
+        {
+            "action": "plan",
+            "envelope": "Groceries",
+            "monthly": "avg3",
+            "priority": "2",
+            "date": "2024-02-01",
+        },
+        result,
+    )
+    unplan = fava_ext._action_entry(
+        {"action": "unplan", "envelope": "Groceries", "date": "2024-02-01"}, result
+    )
+    assert actions.render(allocate).endswith('"Groceries" 10.00 USD')
+    assert actions.render(move).endswith('"Groceries" "Gifts" 5.00 USD')
+    assert actions.render(plan) == (
+        '2024-02-01 custom "envelope" "plan" "Groceries"\n'
+        '  monthly: "avg3"\n'
+        "  priority: 2"
+    )
+    assert actions.render(unplan).endswith('"unplan" "Groceries"')
+
+
+def test_prefill_suggests_the_months_spending() -> None:
+    """The add-allocation form is prefilled from the month's spending."""
+    extension = _extension("fund_backfill.bean")
+    assert extension.prefill("Groceries", date(2024, 1, 1)) == "100.00"
+    assert extension.prefill("Groceries", date(2024, 5, 1)) == "0.00"
+    assert extension.prefill("Nope", date(2024, 1, 1)) == "0.00"
+
+
+def test_prefill_falls_back_to_the_plan_level() -> None:
+    """An unspent planned envelope is prefilled with its funding level."""
+    extension = _extension("topup_plan.bean")
+    assert extension.prefill("Mortgage", date(2024, 1, 1)) == "2500.00"
+
+
+def test_report_exposes_allocations() -> None:
+    """Each allocation figure carries the directives behind it and their hash."""
+    view = _extension("basic.bean").report("2024-01", "1")
+    groceries = next(e for e in view.envelopes if e.name == "Groceries")
+    allocations = groceries.cells[0].allocations
+    assert len(allocations) == 1
+    line = allocations[0]
+    assert line.amount == D("500")
+    assert line.date == date(2024, 1, 1)
+    assert len(line.entry_hash) == 32
+
+
+def test_report_exposes_plan_history() -> None:
+    """Every plan directive, the open base first, is on the envelope view."""
+    view = _extension("topup_plan.bean").report("2024-01", "1")
+    mortgage = next(e for e in view.envelopes if e.name == "Mortgage")
+    assert mortgage.plans[0].base is True
+    assert mortgage.plans[0].monthly == D("2500")
+    changes = mortgage.plans[1:]
+    assert changes
+    assert all(line.entry_hash for line in mortgage.plans)
+
+
+def test_report_plan_history_marks_clears() -> None:
+    """An unplan change is recorded as a clearing plan line."""
+    view = _extension("unplan.bean").report("2024-01", "1")
+    groceries = next(e for e in view.envelopes if e.name == "Groceries")
+    assert any(line.clears for line in groceries.plans)
+
+
+def test_json_includes_allocations_and_plans() -> None:
+    """The JSON view carries the new linkage data too."""
+    view = _extension("basic.bean").report("2024-01", "1")
+    data = to_jsonable(view)
+    envelopes = cast("list[dict[str, object]]", data["envelopes"])
+    groceries = next(e for e in envelopes if e["name"] == "Groceries")
+    assert groceries["plans"]
+    cells = cast("list[dict[str, object]]", groceries["cells"])
+    allocations = cast("list[dict[str, object]]", cells[0]["allocations"])
+    assert allocations[0]["entry_hash"]
+
+
+def test_template_read_only_shows_no_forms() -> None:
+    """A read-only report shows the figures but no create forms."""
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
+    assert 'name="action"' not in html
+    assert "<form" not in html
+
+
+def test_template_shows_edit_popovers_when_writable(tmp_path: Path) -> None:
+    """A writable report shows the in-table edit popovers."""
+    extension = _extension(
+        "basic.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    html = _render(extension, {"month": "2024-01", "months": "1"})
+    assert "envelope-alloc-pop" in html
+    assert "envelope-plan-pop" in html
+    assert '<div class="envelope-pop' in html
+    assert "data-create" in html
+    assert 'action="/ledger/extension/Envelopes/commit"' in html
+    assert 'name="action" value="allocate"' in html
+    assert 'name="action" value="plan"' in html
+    assert 'name="action" value="unplan"' in html
+    assert "title=" not in html
+
+
+def test_template_plan_popover_shows_read_only_info() -> None:
+    """A planned envelope shows its plan on click even without write access."""
+    html = _render(_extension("savings_goal.bean"), {"month": "2024-02", "months": "1"})
+    assert "envelope-plan-pop" in html
+    assert "15000.00" in html
+    assert "2028-06-01" in html
+    assert "<form" not in html

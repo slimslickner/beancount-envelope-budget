@@ -34,9 +34,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   group scrolls, and a single "Collapse all" control folds every parent.
 - The Fava report labels the current month's header `(current)` and adds a
   "this month" link that jumps to it.
-- Fava balances are colour-coded: a closing balance is red when overspent, green
-  when funded to its plan, and amber when underfunded; an opening balance turns
-  red when negative. The colours follow Fava's light/dark scheme.
+- The Fava report balances are colour-coded: a closing balance is red when
+  overspent, green when funded to its plan, and amber when underfunded; an
+  opening balance turns red when negative. The colours follow Fava's light/dark
+  scheme.
+- The CLI `allocate`, `move`, `plan` and `unplan` commands print one directive,
+  and `fund` and those commands take `--write FILE` to append it to a ledger file
+  (relative to the ledger's directory) and then reload the ledger and report any
+  diagnostics.
+- The Fava report can edit the budget when a `write` target is configured on the
+  `fava-extension` line. Clicking an allocation figure opens a popover listing
+  that month's `allocate` directives, and clicking an envelope name opens one
+  listing its whole plan history; each directive links to Fava's own editor to be
+  changed or deleted, and a click anywhere else closes the popover. A
+  `custom "envelope"` directive can be added from the same popover — a plan's
+  editor opens on the plan in force — shown as editable Beancount, rendered by
+  Beancount's printer, in a small modal (vanilla JS, no build), with the form's
+  fields as the no-JS fallback. Writing is off by default and refuses a target
+  that escapes the ledger directory.
 
 ### Changed
 

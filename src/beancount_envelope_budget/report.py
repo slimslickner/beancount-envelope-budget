@@ -17,8 +17,10 @@ from typing import TYPE_CHECKING
 from beancount_envelope_budget.core import (
     POOL,
     ActivityEvent,
+    AllocationEvent,
     BudgetResult,
     Diagnostic,
+    Envelope,
     EnvelopeReport,
     MonthRow,
     Plan,
@@ -32,10 +34,12 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ActivityLine",
+    "AllocationLine",
     "BudgetView",
     "Cell",
     "EnvelopeGroup",
     "EnvelopeView",
+    "PlanLine",
     "build_view",
     "plan_level",
     "to_jsonable",
@@ -91,6 +95,54 @@ class ActivityLine:
 
 
 @dataclass(frozen=True, slots=True)
+class AllocationLine:
+    """One ``allocate`` directive behind a cell's allocated figure.
+
+    Attributes:
+        date: The directive's date.
+        amount: The amount allocated.
+        entry_hash: The Beancount hash of the directive, for linking back to it
+            in Fava.
+    """
+
+    date: date
+    amount: Decimal
+    entry_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class PlanLine:
+    """One plan directive for an envelope.
+
+    An envelope's plan is a base, set on its ``open`` directive, plus dated
+    overrides from ``plan`` (and clearing ``unplan``) directives. This records
+    each so the Fava report can list them all and link back to their source.
+
+    Attributes:
+        date: The directive's date.
+        entry_hash: The Beancount hash of the directive, for linking back to it
+            in Fava.
+        monthly: The planned monthly amount, a number or ``"avgN"``, or ``None``.
+        priority: The funding priority, lower first, or ``None``.
+        target: A goal balance, or ``None``.
+        target_currency: The currency of the goal, or ``None``.
+        by: The date the goal should be reached by, or ``None``.
+        clears: Whether this is an ``unplan`` that resets the plan to defaults.
+        base: Whether this is the envelope's ``open`` directive.
+    """
+
+    date: date
+    entry_hash: str
+    monthly: Decimal | str | None = None
+    priority: Decimal | None = None
+    target: Decimal | None = None
+    target_currency: str | None = None
+    by: date | None = None
+    clears: bool = False
+    base: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class Cell:
     """One envelope's or the pool's figures for one month.
 
@@ -117,6 +169,8 @@ class Cell:
             :meth:`~beancount_envelope_budget.core.EnvelopeReport.funded_at`)
             divided by its ``target``, or by its ``level`` when it has no target.
             ``None`` when it has neither.
+        allocations: The ``allocate`` directives dated in this month, each
+            linking back to its source directive.
     """
 
     month: date
@@ -132,6 +186,7 @@ class Cell:
     funding: str | None = None
     target: Decimal | None = None
     fill: Decimal | None = None
+    allocations: tuple[AllocationLine, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,12 +198,16 @@ class EnvelopeView:
         plan: The envelope's effective plan as of the view's first month.
         cells: One :class:`Cell` per month, aligned with the view's months.
         parent: The envelope's grouping label, or ``None``.
+        plans: Every plan directive for the envelope — its ``open`` base first,
+            then each dated ``plan``/``unplan`` change in order — for the Fava
+            plan popover.
     """
 
     name: str
     plan: Plan
     cells: tuple[Cell, ...]
     parent: str | None = None
+    plans: tuple[PlanLine, ...] = ()
 
     @property
     def visible(self) -> bool:
@@ -479,9 +538,10 @@ def build_view(
     available = set(result.months)
     projected = tuple(month not in available for month in months)
     details = _detail_index(result.activity)
+    allocations = _allocation_index(result.allocations)
 
     envelopes = tuple(
-        _envelope_view(report, months, available, details)
+        _envelope_view(report, months, available, details, allocations)
         for report in sorted(
             result.envelopes, key=lambda report: _sort_key(report.name)
         )
@@ -537,7 +597,66 @@ def _detail_index(
     return index
 
 
-def _cell(
+def _allocation_index(
+    events: tuple[AllocationEvent, ...],
+) -> dict[tuple[str, date], list[AllocationLine]]:
+    """Group ``allocate`` directives by envelope and month.
+
+    Args:
+        events: The allocation events.
+
+    Returns:
+        A mapping from ``(envelope, month)`` to its allocation lines.
+    """
+    index: dict[tuple[str, date], list[AllocationLine]] = {}
+    for event in events:
+        key = (event.envelope, month_of(event.date))
+        index.setdefault(key, []).append(
+            AllocationLine(
+                date=event.date,
+                amount=event.amount,
+                entry_hash=event.entry_hash,
+            )
+        )
+    return index
+
+
+def _plan_lines(envelope: Envelope) -> tuple[PlanLine, ...]:
+    """List every plan directive for an envelope, in order.
+
+    Args:
+        envelope: The declared envelope.
+
+    Returns:
+        The ``open`` base plan first, then each dated ``plan``/``unplan`` change.
+    """
+    base = PlanLine(
+        date=envelope.opened,
+        entry_hash=envelope.source_hash,
+        monthly=envelope.plan.monthly,
+        priority=envelope.plan.priority,
+        target=envelope.plan.target,
+        target_currency=envelope.plan.target_currency,
+        by=envelope.plan.by,
+        base=True,
+    )
+    history = tuple(
+        PlanLine(
+            date=change.date,
+            entry_hash=change.entry_hash,
+            monthly=change.monthly,
+            priority=change.priority,
+            target=change.target,
+            target_currency=change.target_currency,
+            by=change.by,
+            clears=change.clears,
+        )
+        for change in envelope.plans
+    )
+    return (base, *history)
+
+
+def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
     row: MonthRow,
     detail: list[ActivityLine],
     *,
@@ -547,6 +666,7 @@ def _cell(
     funding: str | None = None,
     target: Decimal | None = None,
     fill: Decimal | None = None,
+    allocations: tuple[AllocationLine, ...] = (),
 ) -> Cell:
     """Build a cell from a monthly row and its detail.
 
@@ -559,6 +679,7 @@ def _cell(
         funding: The month's funding status, or ``None``.
         target: The month's goal balance, or ``None``.
         fill: How full the envelope is toward its goal, or ``None``.
+        allocations: The month's ``allocate`` directives.
 
     Returns:
         The :class:`Cell`.
@@ -577,6 +698,7 @@ def _cell(
         funding=funding,
         target=target,
         fill=fill,
+        allocations=allocations,
     )
 
 
@@ -585,6 +707,7 @@ def _envelope_view(
     months: tuple[date, ...],
     available: set[date],
     details: dict[tuple[str, date], list[ActivityLine]],
+    allocations: dict[tuple[str, date], list[AllocationLine]],
 ) -> EnvelopeView:
     """Build an envelope view.
 
@@ -593,6 +716,7 @@ def _envelope_view(
         months: The months shown.
         available: The computed months.
         details: The activity detail index.
+        allocations: The allocation index.
 
     Returns:
         The :class:`EnvelopeView`.
@@ -619,6 +743,7 @@ def _envelope_view(
                 funding=_funding(level, funded),
                 target=plan.target,
                 fill=_fill(reference, funded),
+                allocations=tuple(allocations.get((report.name, month), [])),
             )
         )
     return EnvelopeView(
@@ -626,6 +751,7 @@ def _envelope_view(
         plan=envelope.effective(_last_day(months[0])),
         cells=tuple(cells),
         parent=envelope.parent,
+        plans=_plan_lines(envelope),
     )
 
 
@@ -767,6 +893,7 @@ def to_jsonable(view: BudgetView) -> dict[str, object]:
                 "name": envelope.name,
                 "parent": envelope.parent,
                 "plan": _plan_json(envelope.plan),
+                "plans": [_plan_line_json(line) for line in envelope.plans],
                 "cells": [_cell_json(cell) for cell in envelope.cells],
             }
             for envelope in view.envelopes
@@ -867,6 +994,41 @@ def _cell_json(cell: Cell) -> dict[str, object]:
             for line in cell.detail
         ],
         "detail_total": cell.detail_total,
+        "allocations": [
+            {
+                "date": line.date.isoformat(),
+                "amount": f"{line.amount:.2f}",
+                "entry_hash": line.entry_hash,
+            }
+            for line in cell.allocations
+        ],
+    }
+
+
+def _plan_line_json(line: PlanLine) -> dict[str, object]:
+    """Serialise one plan directive.
+
+    Args:
+        line: The plan line.
+
+    Returns:
+        A JSON-compatible dictionary.
+    """
+    monthly: str | None = None
+    if isinstance(line.monthly, Decimal):
+        monthly = f"{line.monthly:.2f}"
+    elif isinstance(line.monthly, str):
+        monthly = line.monthly
+    return {
+        "date": line.date.isoformat(),
+        "entry_hash": line.entry_hash,
+        "monthly": monthly,
+        "priority": _money_json(line.priority),
+        "target": _money_json(line.target),
+        "target_currency": line.target_currency,
+        "by": line.by.isoformat() if line.by is not None else None,
+        "clears": line.clears,
+        "base": line.base,
     }
 
 

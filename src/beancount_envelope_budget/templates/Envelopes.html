@@ -6,18 +6,23 @@
 {% macro closing_class(cell) -%}
 {%- if cell.visible and cell.closing < 0 %} envelope-neg{% elif cell.visible and cell.funding in ('on', 'over') %} envelope-funded{% elif cell.visible and cell.funding == 'under' %} envelope-partial{% endif -%}
 {%- endmacro %}
-{% macro amounts(cell, sep=false, blank=false) -%}
-  <td class="num{{ ' envelope-sep' if sep else '' }}">{% if cell.visible and not (blank and cell.allocated == 0) %}{{ extension.money(cell.allocated) }}{% endif %}</td>
-  <td class="num envelope-activity"{% if cell.detail %} tabindex="0"{% endif %}>
-    {%- if cell.visible and not (blank and cell.activity == 0) %}{{ extension.money(cell.activity) }}{% endif -%}
-    {%- if cell.detail %}
-    <div class="envelope-detail">
-      {% for line in cell.detail %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ extension.detail_text(line) }} &middot; {{ extension.money(line.amount) }}</a>{% endfor %}
-      {%- if cell.detail_total > cell.detail | length %}<span class="envelope-detail-more">and {{ cell.detail_total - cell.detail | length }} more</span>{% endif %}
-    </div>
-    {%- endif %}
-  </td>
+{% macro amounts(cell, sep=false, blank=false, name=none) -%}
+  {%- set editable = name is not none and extension.writable and cell.visible -%}
+  {%- set shows = name is not none and (cell.allocations or editable) -%}
+  {%- set ident = ((name or 'pool') | replace(' ', '_')) ~ '-' ~ cell.month.strftime('%Y%m') -%}
+  {%- set base = request.path if request.path.endswith('/') else request.path ~ '/' -%}
+  <td class="num{{ ' envelope-sep' if sep else '' }}{{ ' envelope-pop-host envelope-alloc-host' if shows else '' }}">{% if shows %}<input type="checkbox" class="envelope-pop-toggle" id="alloc-{{ ident }}"><label class="envelope-pop-label" for="alloc-{{ ident }}">{% if editable and (blank and cell.allocated == 0) %}+{% elif cell.visible and not (blank and cell.allocated == 0) %}{{ extension.money(cell.allocated) }}{% endif %}</label><label class="envelope-pop-backdrop" for="alloc-{{ ident }}"></label><div class="envelope-pop envelope-alloc-pop">{% for line in cell.allocations %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ extension.money(line.amount) }}</a>{% endfor %}{% if editable %}<form method="post" action="{{ base ~ 'commit' }}" data-create><input type="hidden" name="action" value="allocate"><input type="hidden" name="envelope" value="{{ name }}"><label>Amount <input name="amount" size="8" value="{{ extension.prefill(name, cell.month) }}"></label><input type="date" name="date" value="{{ extension.fill_date(cell.month) }}"><button type="submit">Add allocation</button></form>{% endif %}</div>{% else %}{% if cell.visible and not (blank and cell.allocated == 0) %}{{ extension.money(cell.allocated) }}{% endif %}{% endif %}</td>
+  <td class="num envelope-activity{{ ' envelope-pop-host' if cell.detail else '' }}">{% if cell.detail %}<input type="checkbox" class="envelope-pop-toggle" id="act-{{ ident }}"><label class="envelope-pop-label" for="act-{{ ident }}">{% if cell.visible and not (blank and cell.activity == 0) %}{{ extension.money(cell.activity) }}{% endif %}</label><label class="envelope-pop-backdrop" for="act-{{ ident }}"></label><div class="envelope-detail">{% for line in cell.detail %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ extension.detail_text(line) }} &middot; {{ extension.money(line.amount) }}</a>{% endfor %}{% if cell.detail_total > cell.detail | length %}<span class="envelope-detail-more">and {{ cell.detail_total - cell.detail | length }} more</span>{% endif %}</div>{% else %}{% if cell.visible and not (blank and cell.activity == 0) %}{{ extension.money(cell.activity) }}{% endif %}{% endif %}</td>
   <td class="num{{ closing_class(cell) }}">{% if cell.visible and cell.fill is not none %}<span class="envelope-ring" style="--envelope-fill: {{ extension.fill_percent(cell) }}"></span>{% endif %}{% if cell.visible and not (blank and cell.closing == 0) %}{{ extension.money(cell.closing) }}{% endif %}</td>
+{%- endmacro %}
+{% macro name_cell(envelope, month) -%}
+  {%- set has_plan = envelope.plan.monthly is not none or envelope.plan.target is not none or envelope.plan.priority is not none -%}
+  {%- set shows = extension.writable or has_plan -%}
+  {%- set ident = envelope.name | replace(' ', '_') -%}
+  {%- set base = request.path if request.path.endswith('/') else request.path ~ '/' -%}
+  {%- set action = base ~ 'commit' if extension.writable else '' -%}
+  {%- set plan = extension.plan_fields(envelope.name, month) if extension.writable else none -%}
+  <td class="envelope-name{{ ' envelope-pop-host envelope-plan-host' if shows else '' }}">{% if shows %}<input type="checkbox" class="envelope-pop-toggle" id="plan-{{ ident }}"><label class="envelope-pop-label" for="plan-{{ ident }}">{{ envelope.name }}</label><label class="envelope-pop-backdrop" for="plan-{{ ident }}"></label><div class="envelope-pop envelope-plan-pop">{% for line in envelope.plans %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ extension.plan_text(line) }}</a>{% endfor %}{% if extension.writable %}<form method="post" action="{{ action }}" data-create><input type="hidden" name="action" value="plan"><input type="hidden" name="envelope" value="{{ envelope.name }}"><label>Monthly <input name="monthly" size="8" placeholder="500 or avg3" value="{{ plan.monthly }}"></label><label>Priority <input name="priority" size="4" value="{{ plan.priority }}"></label><label>Target <input name="target" size="8" value="{{ plan.target }}"></label><label>By <input type="date" name="by" value="{{ plan.by }}"></label><input type="date" name="date" value="{{ extension.fill_date(month) }}"><button type="submit">Set plan</button></form><form method="post" action="{{ action }}" data-create><input type="hidden" name="action" value="unplan"><input type="hidden" name="envelope" value="{{ envelope.name }}"><input type="date" name="date" value="{{ extension.fill_date(month) }}"><button type="submit">Clear plan</button></form>{% endif %}</div>{% else %}{{ envelope.name }}{% endif %}</td>
 {%- endmacro %}
 {% if not view.has_start %}
   <p>There is no <code>custom "envelope" "start"</code> directive, so there is nothing to show.</p>
@@ -169,8 +174,8 @@
       .envelope-table .envelope-partial {
         color: var(--warning, #edd431);
       }
-      /* Activity drill-down: hovering or focusing the activity figure reveals
-         the contributing postings, each linking to Fava's entry context popup.
+      /* Activity drill-down: clicking the activity figure reveals the
+         contributing postings, each linking to Fava's entry context popup.
          The popover hangs below the figure, anchored to its right edge so it
          grows leftward over the table rather than off the right. It scrolls
          with the table; the scroll box grows to reveal it. */
@@ -179,10 +184,6 @@
       }
       .envelope-detail {
         display: none;
-      }
-      .envelope-activity:hover .envelope-detail,
-      .envelope-activity:focus-within .envelope-detail {
-        display: block;
         position: absolute;
         top: 100%;
         right: 0;
@@ -265,6 +266,92 @@
       .envelope-report:has(.envelope-collapse-all:checked) .envelope-group label::before {
         content: "\25B8";
       }
+      /* Editing in the table: a cell with a popover that opens on a click on its
+         figure and closes on a click outside, holding the directives behind the
+         figure and the forms to change it. No JavaScript. */
+      .envelope-report .envelope-pop-host {
+        position: relative;
+        cursor: pointer;
+      }
+      /* The checkbox is the state; the label around the figure toggles it and
+         the full-screen backdrop label closes it on a click anywhere else. */
+      .envelope-pop-toggle {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: 0;
+        padding: 0;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .envelope-pop-label {
+        display: inline-block;
+        min-height: 1em;
+      }
+      .envelope-activity .envelope-pop-label,
+      .envelope-alloc-host .envelope-pop-label {
+        min-width: 1.5rem;
+      }
+      .envelope-pop-backdrop {
+        display: none;
+      }
+      .envelope-pop-host:has(.envelope-pop-toggle:checked) .envelope-pop-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 9;
+      }
+      .envelope-pop-host:has(.envelope-pop-toggle:checked) .envelope-pop,
+      .envelope-pop-host:has(.envelope-pop-toggle:checked) .envelope-detail {
+        display: block;
+      }
+      .envelope-pop {
+        display: none;
+        position: absolute;
+        top: 100%;
+        z-index: 10;
+        min-width: 16rem;
+        max-width: min(28rem, 70vw);
+        max-height: 60vh;
+        overflow: auto;
+        padding: 0.4rem 0.6rem;
+        background: var(--background, #fff);
+        border: 1px solid rgba(128, 128, 128, 0.6);
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+        text-align: left;
+        white-space: normal;
+        font-weight: 400;
+      }
+      /* The allocated popover hangs from its right edge so it grows leftward. */
+      .envelope-alloc-pop {
+        right: 0;
+      }
+      .envelope-plan-pop {
+        left: 0;
+      }
+      .envelope-pop a {
+        display: block;
+        color: inherit;
+        text-decoration: none;
+      }
+      .envelope-pop a:hover,
+      .envelope-pop a:focus {
+        text-decoration: underline;
+      }
+      .envelope-pop form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+        align-items: center;
+        margin: 0.35rem 0 0;
+        padding-top: 0.35rem;
+        border-top: 1px solid rgba(128, 128, 128, 0.35);
+      }
+      .envelope-pop input,
+      .envelope-pop select {
+        font: inherit;
+      }
     </style>
 
     <h2>Envelope report <small>in {{ view.currency }}</small></h2>
@@ -328,9 +415,9 @@
                 {% for envelope in group.envelopes %}
                   {% if envelope.visible %}
                     <tr>
-                      <td title="{{ extension.envelope_title(envelope) }}">{{ envelope.name }}</td>
+                      {{ name_cell(envelope, view.months[0]) }}
                       {{ opening(envelope.cells[0], blank=true) }}
-                      {% for cell in envelope.cells %}{{ amounts(cell, not loop.first, blank=true) }}{% endfor %}
+                      {% for cell in envelope.cells %}{{ amounts(cell, not loop.first, blank=true, name=envelope.name) }}{% endfor %}
                     </tr>
                   {% endif %}
                 {% endfor %}
@@ -349,9 +436,9 @@
               {% for envelope in group.envelopes %}
                 {% if envelope.visible %}
                   <tr class="envelope-child">
-                    <td title="{{ extension.envelope_title(envelope) }}">{{ envelope.name }}</td>
+                    {{ name_cell(envelope, view.months[0]) }}
                     {{ opening(envelope.cells[0], blank=true) }}
-                    {% for cell in envelope.cells %}{{ amounts(cell, not loop.first, blank=true) }}{% endfor %}
+                    {% for cell in envelope.cells %}{{ amounts(cell, not loop.first, blank=true, name=envelope.name) }}{% endfor %}
                   </tr>
                 {% endif %}
               {% endfor %}
