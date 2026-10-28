@@ -15,7 +15,7 @@ from fava.ext import ExtensionConfigError, find_extensions
 
 from beancount_envelope_budget import actions, fava_ext
 from beancount_envelope_budget.fava_ext import Envelopes
-from beancount_envelope_budget.report import ActivityLine
+from beancount_envelope_budget.report import ActivityLine, to_jsonable
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -802,6 +802,48 @@ def test_prefill_suggests_the_months_spending() -> None:
     assert extension.prefill("Groceries", date(2024, 1, 1)) == "100.00"
     assert extension.prefill("Groceries", date(2024, 5, 1)) == ""
     assert extension.prefill("Nope", date(2024, 1, 1)) == ""
+
+
+def test_report_exposes_allocations() -> None:
+    """Each allocation figure carries the directives behind it and their hash."""
+    view = _extension("basic.bean").report("2024-01", "1")
+    groceries = next(e for e in view.envelopes if e.name == "Groceries")
+    allocations = groceries.cells[0].allocations
+    assert len(allocations) == 1
+    line = allocations[0]
+    assert line.amount == D("500")
+    assert line.date == date(2024, 1, 1)
+    assert len(line.entry_hash) == 32
+
+
+def test_report_exposes_plan_history() -> None:
+    """Every plan directive, the open base first, is on the envelope view."""
+    view = _extension("topup_plan.bean").report("2024-01", "1")
+    mortgage = next(e for e in view.envelopes if e.name == "Mortgage")
+    assert mortgage.plans[0].base is True
+    assert mortgage.plans[0].monthly == D("2500")
+    changes = mortgage.plans[1:]
+    assert changes
+    assert all(line.entry_hash for line in mortgage.plans)
+
+
+def test_report_plan_history_marks_clears() -> None:
+    """An unplan change is recorded as a clearing plan line."""
+    view = _extension("unplan.bean").report("2024-01", "1")
+    groceries = next(e for e in view.envelopes if e.name == "Groceries")
+    assert any(line.clears for line in groceries.plans)
+
+
+def test_json_includes_allocations_and_plans() -> None:
+    """The JSON view carries the new linkage data too."""
+    view = _extension("basic.bean").report("2024-01", "1")
+    data = to_jsonable(view)
+    envelopes = cast("list[dict[str, object]]", data["envelopes"])
+    groceries = next(e for e in envelopes if e["name"] == "Groceries")
+    assert groceries["plans"]
+    cells = cast("list[dict[str, object]]", groceries["cells"])
+    allocations = cast("list[dict[str, object]]", cells[0]["allocations"])
+    assert allocations[0]["entry_hash"]
 
 
 def test_template_hides_the_manage_panel_when_read_only() -> None:
