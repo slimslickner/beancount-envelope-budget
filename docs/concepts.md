@@ -431,13 +431,30 @@ let the report append `custom "envelope"` directives:
 
 A target that escapes the ledger directory or is not a `.bean`/`.beancount` file
 is refused, and writing stays off when the key is absent. With it set, the report
-gains an **Edit budget** panel whose forms add an allocation (prefilled with the
-month's spending, as `fund` would), move money between envelopes, set or clear a
-plan. Each form appends exactly one directive, printed by Beancount's own printer
-via `actions.py` — the same generators the CLI's `allocate`, `move`, `plan` and
-`unplan` commands print or write. Writes go through Fava's own file API, so its
-lock, watcher and editor stay consistent. This makes a write-enabled Fava a
-remote ledger mutation if Fava is exposed beyond localhost; keep it local.
+grows two popovers, both revealed on hover or focus and neither needing
+JavaScript:
+
+- **Every allocation figure** lists that month's `allocate` directives. Each one
+  links to Fava's own editor, where it can be changed or deleted through Fava's
+  conflict-guarded source-slice machinery; the popover also has a form to add a
+  new allocation, prefilled with the month's spending (as `fund` would).
+- **Every envelope name** lists the envelope's whole plan history — its `open`
+  base plan and each dated `plan`/`unplan` after it — with the same links, plus
+  forms to add a plan (opening on the plan in force, with a fresh date) and to
+  clear the plan.
+
+Adding a directive opens a small modal showing the Beancount text, prefilled by
+`actions.py` — the same generators the CLI's `allocate`, `plan` and `unplan`
+commands print or write — which can be edited before it is saved. The modal is a
+single vanilla-JS module (no build step); without JavaScript the forms submit
+their fields directly, so the report still works. Writes go through Fava's own
+file API, so its lock, watcher and editor stay consistent. This makes a
+write-enabled Fava a remote ledger mutation if Fava is exposed beyond localhost;
+keep it local.
+
+Moving money between envelopes is not a separate action: a `move` is two
+allocations, one back to the pool and one out of it, so the report expresses it
+as two entries. The `move` verb still works in the ledger and the CLI.
 
 The invariant is unchanged: pure code still never touches disk. Writing is an
 explicit, opt-in surface, here and in the CLI.

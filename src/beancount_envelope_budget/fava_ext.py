@@ -31,23 +31,26 @@ same function the CLI uses, so the two cannot disagree.
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from beancount.core.data import Custom
+from beancount.parser import parser
 from fava.core import file as fava_file
 from fava.ext import ExtensionConfigError, FavaExtensionBase, extension_endpoint
 from flask import redirect, request
 
 from beancount_envelope_budget import actions, writer
-from beancount_envelope_budget.core import BudgetResult, compute, row_for
+from beancount_envelope_budget.core import BudgetResult, Plan, compute, row_for
 from beancount_envelope_budget.report import (
     MAX_MONTHS,
     ActivityLine,
     BudgetView,
     Cell,
     EnvelopeView,
+    PlanLine,
     build_view,
     today_month,
 )
@@ -55,7 +58,7 @@ from beancount_envelope_budget.report import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from beancount.core.data import Custom, Directive
+    from beancount.core.data import Directive
     from fava.beans.abc import Directive as FavaDirective
     from fava.core import FavaLedger
     from flask import Response
@@ -70,6 +73,8 @@ class Envelopes(FavaExtensionBase):
     """A report of envelope balances that can edit the budget when configured."""
 
     report_title = "Envelopes"
+
+    has_js_module = True
 
     def __init__(self, ledger: FavaLedger, config: str | None = None) -> None:
         """Initialise the extension.
@@ -161,26 +166,124 @@ class Envelopes(FavaExtensionBase):
         """
         return [report.name for report in self._result().envelopes]
 
-    def perform(self, params: Mapping[str, str]) -> Custom:
-        """Apply a submitted edit form, appending one directive.
+    def plan_text(self, line: PlanLine) -> str:
+        """Describe one plan directive for the plan popover.
 
         Args:
-            params: The submitted form fields; ``action`` selects the directive
-                and the remaining keys are its arguments.
+            line: The plan line.
 
         Returns:
-            The directive that was appended.
+            A short description, such as ``target 15000.00 USD · by 2028-06-01``.
+        """
+        if line.clears:
+            return "clear plan"
+        parts: list[str] = []
+        if line.monthly is not None:
+            parts.append(f"monthly {line.monthly}")
+        if line.priority is not None:
+            parts.append(f"priority {line.priority}")
+        if line.target is not None:
+            currency = f" {line.target_currency}" if line.target_currency else ""
+            parts.append(f"target {line.target:.2f}{currency}")
+        if line.by is not None:
+            parts.append(f"by {line.by.isoformat()}")
+        label = " · ".join(parts) if parts else "no plan"
+        return f"open: {label}" if line.base else label
+
+    def perform(self, params: Mapping[str, str]) -> list[Custom]:
+        """Apply a submitted edit form, appending its directive(s).
+
+        With a ``source`` field — what the JavaScript modal posts — the
+        Beancount text is parsed and every ``custom "envelope"`` directive it
+        holds is appended. Otherwise the individual form fields are turned into
+        one directive, the no-JS fallback.
+
+        Args:
+            params: The submitted fields. ``source`` holds Beancount text; any
+                other shape is the ``action``/arguments of the plain forms.
+
+        Returns:
+            The directives that were appended.
 
         Raises:
             RuntimeError: If writing is not configured.
-            ValueError: If the form is missing or malforms an argument.
+            ValueError: If the source does not parse or the form is malformed.
         """
         if self.write_target is None:
             message = "writing is not configured"
             raise RuntimeError(message)
-        entry = _action_entry(params, self._result())
-        _insert(self.ledger, self.write_target, entry)
-        return entry
+        source = params.get("source")
+        entries = (
+            _parse_source(source)
+            if source is not None and source.strip()
+            else [_action_entry(params, self._result())]
+        )
+        for entry in entries:
+            _insert(self.ledger, self.write_target, entry)
+        return entries
+
+    def allocate_source(self, envelope: str, month: date) -> str:
+        """Render the allocation an "add allocation" form would create.
+
+        Prefilled with the month's spending (as ``fund`` would), dated the month
+        end or today, whichever is earlier. The JavaScript modal shows this text
+        for editing.
+
+        Args:
+            envelope: The envelope name.
+            month: The month being funded.
+
+        Returns:
+            The directive text.
+        """
+        result = self._result()
+        report = result.envelope(envelope)
+        amount = Decimal(0) if report is None else -row_for(report.rows, month).activity
+        return actions.render(
+            actions.allocate(
+                envelope, amount, _fill_day(month), result.operating_currency
+            )
+        )
+
+    def plan_source(self, envelope: str, month: date) -> str:
+        """Render the plan a "set plan" form would create from the current one.
+
+        Prefilled with the envelope's effective plan, dated the fill day, so the
+        modal opens on the plan in force with a fresh date.
+
+        Args:
+            envelope: The envelope name.
+            month: The month the plan is being set in.
+
+        Returns:
+            The directive text.
+        """
+        result = self._result()
+        report = result.envelope(envelope)
+        plan = report.envelope.effective(_fill_day(month)) if report else Plan()
+        return actions.render(
+            actions.plan(
+                envelope,
+                _fill_day(month),
+                monthly=plan.monthly,
+                priority=plan.priority,
+                target=plan.target,
+                target_currency=plan.target_currency,
+                by=plan.by,
+            )
+        )
+
+    def unplan_source(self, envelope: str, month: date) -> str:
+        """Render the ``unplan`` a "clear plan" form would create.
+
+        Args:
+            envelope: The envelope name.
+            month: The month being cleared.
+
+        Returns:
+            The directive text.
+        """
+        return actions.render(actions.unplan(envelope, _fill_day(month)))
 
     @extension_endpoint("commit", ["POST"])
     def commit(self) -> Response:
@@ -496,6 +599,47 @@ def _form_optional_day(value: str | None) -> date | None:
         The parsed date, or ``None`` when blank.
     """
     return date.fromisoformat(value) if value else None
+
+
+def _fill_day(month: date) -> date:
+    """Return the date a new directive in a month is dated.
+
+    Args:
+        month: Any date within the month.
+
+    Returns:
+        The last day of the month, or today when today is earlier.
+    """
+    first = month.replace(day=1)
+    last = (first + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    return min(last, date.today())  # noqa: DTZ011 - local today is intended
+
+
+def _parse_source(source: str) -> list[Custom]:
+    """Parse submitted Beancount source into envelope directives.
+
+    Args:
+        source: The Beancount text from the JavaScript modal.
+
+    Returns:
+        The ``custom "envelope"`` directives it holds.
+
+    Raises:
+        ValueError: If the source does not parse, or holds no envelope directive.
+    """
+    entries, errors, _options = parser.parse_string(source)
+    if errors:
+        message = "; ".join(str(getattr(error, "message", error)) for error in errors)
+        raise ValueError(message)
+    directives = [
+        entry
+        for entry in entries
+        if isinstance(entry, Custom) and entry.type == actions.TYPE
+    ]
+    if not directives:
+        message = 'the source has no custom "envelope" directive'
+        raise ValueError(message)
+    return directives
 
 
 def _action_entry(params: Mapping[str, str], result: BudgetResult) -> Custom:

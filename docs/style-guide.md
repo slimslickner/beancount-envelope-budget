@@ -31,6 +31,10 @@ uv run ruff format --check && uv run ruff check && uv run ty check && uv run pyt
   report's `write` config — and each is a thin writer over the same
   `actions.py` generators. The plugin, CLI and Fava extension are thin adapters
   over `core` and `report`.
+- **JavaScript** is one vanilla ESM file (`Envelopes.js`), served directly by
+  Fava with no build step, `package.json` or Node in CI. It is presentation only:
+  the server still generates and writes every directive, so the report degrades
+  to plain forms without it.
 - **Coverage floor**: `pytest` fails under 85% on `core.py`.
 
 ## Documentation

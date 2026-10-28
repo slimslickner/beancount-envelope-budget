@@ -713,7 +713,7 @@ def test_perform_appends_through_the_writer(
         config="{'write': 'Envelope.bean'}",
         ledger_path=tmp_path / "main.bean",
     )
-    entry = extension.perform(
+    entries = extension.perform(
         {
             "action": "allocate",
             "envelope": "Groceries",
@@ -721,10 +721,77 @@ def test_perform_appends_through_the_writer(
             "date": "2024-02-10",
         }
     )
-    assert actions.render(entry) == (
+    assert len(entries) == 1
+    assert actions.render(entries[0]) == (
         '2024-02-10 custom "envelope" "allocate" "Groceries" 250.00 USD'
     )
-    assert recorded == [(extension.write_target, entry)]
+    assert recorded == [(extension.write_target, entries[0])]
+
+
+def test_perform_from_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A `source` post is parsed and appended, the JS modal's path."""
+    recorded: list[tuple[Path, object]] = []
+    monkeypatch.setattr(
+        fava_ext, "_insert", lambda _ledger, path, entry: recorded.append((path, entry))
+    )
+    extension = _extension(
+        "basic.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    entries = extension.perform(
+        {"source": ('2024-02-10 custom "envelope" "allocate" "Groceries" 250.00 USD\n')}
+    )
+    assert actions.render(entries[0]) == (
+        '2024-02-10 custom "envelope" "allocate" "Groceries" 250.00 USD'
+    )
+    assert recorded == [(extension.write_target, entries[0])]
+
+
+def test_perform_rejects_bad_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A source that does not parse is refused."""
+    monkeypatch.setattr(fava_ext, "_insert", lambda *_args: None)
+    extension = _extension(
+        "basic.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    with pytest.raises(ValueError, match="Invalid token"):
+        extension.perform({"source": "this is not beancount\n"})
+
+
+def test_perform_rejects_non_envelope_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A source with no envelope directive is refused."""
+    monkeypatch.setattr(fava_ext, "_insert", lambda *_args: None)
+    extension = _extension(
+        "basic.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    with pytest.raises(ValueError, match="custom"):
+        extension.perform({"source": "2024-01-01 open Assets:Checking USD\n"})
+
+
+def test_source_helpers_prefill_the_modal() -> None:
+    """The create modals open on sensible Beancount text."""
+    extension = _extension("basic.bean")
+    allocate = extension.allocate_source("Groceries", date(2024, 1, 1))
+    assert 'custom "envelope" "allocate" "Groceries" 120.00 USD' in allocate
+    # The plan modal opens on the envelope's current (here empty) plan.
+    plan = extension.plan_source("Groceries", date(2024, 1, 1))
+    assert 'custom "envelope" "plan" "Groceries"' in plan
+    unplan = extension.unplan_source("Groceries", date(2024, 1, 1))
+    assert 'custom "envelope" "unplan" "Groceries"' in unplan
+
+
+def test_js_module_is_shipped() -> None:
+    """The extension advertises and ships its JavaScript module."""
+    assert Envelopes.has_js_module is True
+    assert (Path(fava_ext.__file__).parent / "Envelopes.js").exists()
 
 
 def test_perform_requires_a_write_target() -> None:
@@ -847,23 +914,25 @@ def test_json_includes_allocations_and_plans() -> None:
 
 
 def test_template_hides_the_manage_panel_when_read_only() -> None:
-    """A read-only report shows no edit panel."""
+    """A read-only report shows no edit controls."""
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
-    assert "Edit budget" not in html
     assert 'name="action"' not in html
+    assert '<div class="envelope-pop' not in html
 
 
-def test_template_shows_the_manage_panel_when_writable(tmp_path: Path) -> None:
-    """A writable report shows the edit forms."""
+def test_template_shows_edit_popovers_when_writable(tmp_path: Path) -> None:
+    """A writable report shows the in-table edit popovers."""
     extension = _extension(
         "basic.bean",
         config="{'write': 'Envelope.bean'}",
         ledger_path=tmp_path / "main.bean",
     )
     html = _render(extension, {"month": "2024-01", "months": "1"})
-    assert "Edit budget" in html
+    assert "envelope-alloc-pop" in html
+    assert "envelope-plan-pop" in html
+    assert '<div class="envelope-pop' in html
     assert 'action="commit"' in html
     assert 'name="action" value="allocate"' in html
-    assert 'name="action" value="move"' in html
     assert 'name="action" value="plan"' in html
     assert 'name="action" value="unplan"' in html
+    assert "Edit budget" not in html
