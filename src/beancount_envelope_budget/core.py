@@ -41,6 +41,7 @@ __all__ = [
     "PlanChange",
     "Source",
     "compute",
+    "existing_allocations",
     "format_amount",
     "iter_months",
     "month_of",
@@ -59,6 +60,7 @@ _INCOME_OR_EQUITY = frozenset({_ROOT_INCOME, _ROOT_EQUITY})
 _CASH_ROOTS = frozenset({"Assets", "Liabilities"})
 _MONTHS_PER_YEAR = 12
 _MOVE_ARGS = 3
+_ALLOCATE_ARGS = 3
 
 #: The shape of an average-of-N-months monthly amount, e.g. ``"avg3"``.
 _AVG_PATTERN = re.compile(r"^avg(\d+)$")
@@ -716,6 +718,46 @@ def month_of(value: date) -> date:
         datetime.date(2024, 2, 1)
     """
     return value.replace(day=1)
+
+
+def existing_allocations(
+    entries: list[Directive],
+) -> dict[tuple[str, date], Decimal]:
+    r"""Sum existing ``allocate`` directives by envelope and month.
+
+    ``Custom`` directives have no natural key, so "does this envelope-month
+    already have an allocation?" is a semantic, summed question over the
+    ledger, not a lookup. The CLI's ``fund`` and the Fava report both ask it.
+
+    Args:
+        entries: The ledger entries.
+
+    Returns:
+        A mapping from ``(envelope, month)`` to the summed allocation.
+
+    Examples:
+        A pool allocation is keyed by the month of its date:
+
+        >>> from beancount.parser import parser
+        >>> entries, _errors, _options = parser.parse_string(
+        ...     '2024-01-31 custom "envelope" "allocate" "Groceries" 600.00 USD\n'
+        ... )
+        >>> existing_allocations(entries)
+        {('Groceries', datetime.date(2024, 1, 1)): Decimal('600.00')}
+    """
+    totals: dict[tuple[str, date], Decimal] = {}
+    for entry in entries:
+        if not isinstance(entry, Custom) or entry.type != "envelope":
+            continue
+        values = [_unwrap(value) for value in entry.values]
+        if len(values) < _ALLOCATE_ARGS or values[0] != "allocate":
+            continue
+        name, amount = values[1], values[2]
+        if not isinstance(name, str) or not isinstance(amount, Amount):
+            continue
+        key = (name, month_of(entry.date))
+        totals[key] = totals.get(key, Decimal(0)) + (amount.number or Decimal(0))
+    return totals
 
 
 def iter_months(start: date, end: date) -> list[date]:

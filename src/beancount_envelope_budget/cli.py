@@ -24,16 +24,16 @@ from typing import TYPE_CHECKING
 import argcomplete
 from argcomplete.completers import FilesCompleter
 from beancount import loader
-from beancount.core.amount import Amount
-from beancount.core.data import Custom, Open, Transaction
+from beancount.core.data import Open, Transaction
 
-from beancount_envelope_budget import __version__
+from beancount_envelope_budget import __version__, actions
 from beancount_envelope_budget.core import (
     BudgetResult,
     Diagnostic,
     EnvelopeReport,
     MonthRow,
     compute,
+    existing_allocations,
     iter_months,
     month_of,
     row_for,
@@ -54,7 +54,7 @@ from beancount_envelope_budget.schema import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from beancount.core.data import Directive
+    from beancount.core.data import Custom, Directive
 
     from beancount_envelope_budget.report import BudgetView, Cell
 
@@ -73,7 +73,6 @@ _MONTH_PATTERN = re.compile(r"^\d{4}-\d{2}$")
 _CENT = Decimal("0.01")
 _MONTHS_PER_YEAR = 12
 _DECEMBER = 12
-_ALLOCATE_ARGS = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -393,8 +392,8 @@ def _fund_topup(
         return 2
     on = args.date or date.today()  # noqa: DTZ011 - local today is intended
     lines, unfunded, overfunded = _plan_topup(result, on, args.reserve, pattern)
-    for line in lines:
-        print(line)
+    for entry in lines:
+        print(actions.render(entry))
     for name, amount in unfunded:
         print(f"; UNFUNDED {name}: needs {_money(amount)} {result.operating_currency}")
     for name, amount in overfunded:
@@ -438,8 +437,8 @@ def _fund_range(
         pattern,
         force=args.force,
     )
-    for line in lines:
-        print(line)
+    for entry in lines:
+        print(actions.render(entry))
     return 0
 
 
@@ -461,32 +460,6 @@ def _compile_pattern(value: str | None, option: str) -> re.Pattern[str] | None:
     except re.error as error:
         print(f"invalid {option} pattern: {error}", file=sys.stderr)
         return _INVALID_PATTERN
-
-
-def _existing_allocations(
-    entries: list[Directive],
-) -> dict[tuple[str, date], Decimal]:
-    """Sum existing ``allocate`` directives by envelope and month.
-
-    Args:
-        entries: The ledger entries.
-
-    Returns:
-        A mapping from ``(envelope, month)`` to the summed allocation.
-    """
-    totals: dict[tuple[str, date], Decimal] = {}
-    for entry in entries:
-        if not isinstance(entry, Custom) or entry.type != "envelope":
-            continue
-        values = [getattr(value, "value", value) for value in entry.values]
-        if len(values) < _ALLOCATE_ARGS or values[0] != "allocate":
-            continue
-        name, amount = values[1], values[2]
-        if not isinstance(name, str) or not isinstance(amount, Amount):
-            continue
-        key = (name, month_of(entry.date))
-        totals[key] = totals.get(key, Decimal(0)) + (amount.number or Decimal(0))
-    return totals
 
 
 def _last_day_of(month: date) -> date:
@@ -518,24 +491,6 @@ def _shift_month(month: date, delta: int) -> date:
     return date(index // 12, index % 12 + 1, 1)
 
 
-def _allocate_line(day: date, name: str, amount: Decimal, currency: str) -> str:
-    """Render an ``allocate`` directive.
-
-    Args:
-        day: The directive date.
-        name: The envelope name.
-        amount: The amount to allocate.
-        currency: The operating currency.
-
-    Returns:
-        The directive as a line of Beancount.
-    """
-    return (
-        f'{day.isoformat()} custom "envelope" "allocate" '
-        f'"{name}" {amount:.2f} {currency}'
-    )
-
-
 def _maybe_row(rows: Sequence[MonthRow], month: date) -> MonthRow | None:
     """Return a monthly row, or ``None`` when the month is out of range.
 
@@ -557,7 +512,7 @@ def _plan_fund(
     pattern: re.Pattern[str] | None,
     *,
     force: bool,
-) -> list[str]:
+) -> list[Custom]:
     """Build the ``allocate`` directives for a range.
 
     Args:
@@ -570,13 +525,13 @@ def _plan_fund(
             allocation directive.
 
     Returns:
-        The directive lines.
+        The directives, built through :mod:`beancount_envelope_budget.actions`.
     """
     currency = result.operating_currency
-    existing = _existing_allocations(entries)
+    existing = existing_allocations(entries)
     generated: dict[tuple[str, date], Decimal] = {}
     cumulative: dict[str, Decimal] = {}
-    lines: list[str] = []
+    generated_entries: list[Custom] = []
     for month in requested:
         for report in result.envelopes:
             name = report.name
@@ -591,10 +546,10 @@ def _plan_fund(
                 continue
             generated[key] = amount
             if amount != 0:
-                lines.append(
-                    _allocate_line(_last_day_of(month), name, amount, currency)
+                generated_entries.append(
+                    actions.allocate(name, amount, _last_day_of(month), currency)
                 )
-    return lines
+    return generated_entries
 
 
 def _fund_amount(
@@ -640,7 +595,7 @@ def _plan_topup(
     reserve: Decimal,
     pattern: re.Pattern[str] | None,
 ) -> tuple[
-    list[str],
+    list[Custom],
     list[tuple[str, Decimal]],
     list[tuple[str, Decimal]],
 ]:
@@ -653,8 +608,8 @@ def _plan_topup(
         pattern: An optional envelope-name filter.
 
     Returns:
-        The directive lines, the unfunded shortfalls, and the amounts by which
-        goal envelopes already exceed their level.
+        The directives, the unfunded shortfalls, and the amounts by which goal
+        envelopes already exceed their level.
     """
     currency = result.operating_currency
     remaining = row_for(result.pool, month_of(on)).closing - reserve
@@ -678,7 +633,7 @@ def _plan_topup(
         candidates.append((plan.priority is None, rank, index, envelope.name, need))
     candidates.sort(key=lambda item: (item[0], item[1], item[2]))
 
-    lines: list[str] = []
+    lines: list[Custom] = []
     unfunded: list[tuple[str, Decimal]] = []
     for _unset, _rank, _index, name, need in candidates:
         if remaining <= 0:
@@ -686,7 +641,7 @@ def _plan_topup(
             continue
         amount = min(need, remaining)
         remaining -= amount
-        lines.append(_allocate_line(on, name, amount, currency))
+        lines.append(actions.allocate(name, amount, on, currency))
         if amount < need:
             unfunded.append((name, need - amount))
     return lines, unfunded, overfunded
