@@ -58,10 +58,6 @@ def _extension(
     return extension
 
 
-def _stub_url_for(_endpoint: str, **values: str) -> str:
-    return f"/ledger/{values.get('extension_name', '')}/{values.get('endpoint', '')}"
-
-
 def _render(extension: Envelopes, args: Mapping[str, str]) -> str:
     """Render the extension template standalone.
 
@@ -77,12 +73,9 @@ def _render(extension: Envelopes, args: Mapping[str, str]) -> str:
         autoescape=True,
     )
     template = env.get_template("Envelopes.html")
-    request = SimpleNamespace(args=dict(args))
+    request = SimpleNamespace(args=dict(args), path="/ledger/extension/Envelopes/")
     return template.render(
-        ledger=extension.ledger,
-        extension=extension,
-        request=request,
-        url_for=_stub_url_for,
+        ledger=extension.ledger, extension=extension, request=request
     )
 
 
@@ -961,7 +954,7 @@ def test_template_shows_edit_popovers_when_writable(tmp_path: Path) -> None:
     assert "envelope-plan-pop" in html
     assert '<div class="envelope-pop' in html
     assert "data-create" in html
-    assert 'action="/ledger/Envelopes/commit"' in html
+    assert 'action="/ledger/extension/Envelopes/commit"' in html
     assert 'name="action" value="allocate"' in html
     assert 'name="action" value="plan"' in html
     assert 'name="action" value="unplan"' in html

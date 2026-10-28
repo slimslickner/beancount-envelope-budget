@@ -312,7 +312,8 @@ class Envelopes(FavaExtensionBase):
             raise
         if as_json:
             return make_response(jsonify({"status": "ok"}))
-        return cast("Response", redirect(request.referrer or ".."))
+        report = request.path.rpartition("/")[0] + "/"
+        return cast("Response", redirect(request.referrer or report))
 
     def after_load_file(self) -> None:
         """Recompute the budget once the ledger has been loaded."""
