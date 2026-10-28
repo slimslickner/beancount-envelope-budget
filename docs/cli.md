@@ -84,6 +84,66 @@ Print allocate directives, dated the last day of each month. The actuals, oversp
 | `--date` | the run date for topup; defaults to today |
 | `--reserve` | cash to keep unallocated in the pool (topup) |
 | `--strict` | exit non-zero when topup leaves anything unfunded |
+| `--write` | append the directive(s) to this file (relative to the ledger's directory) instead of printing them; the ledger is reloaded after |
+
+## `beancount-envelope-budget allocate`
+
+Print a single allocate directive, dated --date (today by default), or append it to --write so the ledger itself is changed.
+
+
+| Option | Help |
+| --- | --- |
+| `-h, --help` | show this help message and exit |
+| `ledger` | path to the Beancount ledger (.bean or .beancount) |
+| `envelope` | the envelope to fund |
+| `amount` | the amount to allocate; negative moves it back to the pool |
+| `--date` | the directive's date; defaults to today |
+| `--write` | append the directive(s) to this file (relative to the ledger's directory) instead of printing them; the ledger is reloaded after |
+
+## `beancount-envelope-budget move`
+
+Print a single move directive, dated --date (today by default), or append it to --write so the ledger itself is changed.
+
+
+| Option | Help |
+| --- | --- |
+| `-h, --help` | show this help message and exit |
+| `ledger` | path to the Beancount ledger (.bean or .beancount) |
+| `source` | the envelope to take money from |
+| `target` | the envelope to give money to |
+| `amount` | the amount to move between the envelopes |
+| `--date` | the directive's date; defaults to today |
+| `--write` | append the directive(s) to this file (relative to the ledger's directory) instead of printing them; the ledger is reloaded after |
+
+## `beancount-envelope-budget plan`
+
+Print a single plan directive, dated --date (today by default), or append it to --write so the ledger itself is changed. Give at least one of the metadata options.
+
+
+| Option | Help |
+| --- | --- |
+| `-h, --help` | show this help message and exit |
+| `ledger` | path to the Beancount ledger (.bean or .beancount) |
+| `envelope` | the envelope the plan applies to |
+| `--monthly` | the planned monthly amount, a number or "avgN" |
+| `--priority` | the funding priority, lower first |
+| `--target` | a goal balance, in the ledger's operating currency |
+| `--by` | the date the goal should be reached by |
+| `--date` | the directive's date; defaults to today |
+| `--write` | append the directive(s) to this file (relative to the ledger's directory) instead of printing them; the ledger is reloaded after |
+
+## `beancount-envelope-budget unplan`
+
+Print a single unplan directive, dated --date (today by default), or append it to --write so the ledger itself is changed.
+
+
+| Option | Help |
+| --- | --- |
+| `-h, --help` | show this help message and exit |
+| `ledger` | path to the Beancount ledger (.bean or .beancount) |
+| `envelope` | the envelope to clear the plan from |
+| `--date` | the directive's date; defaults to today |
+| `--write` | append the directive(s) to this file (relative to the ledger's directory) instead of printing them; the ledger is reloaded after |
 
 ## `beancount-envelope-budget pin`
 

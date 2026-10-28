@@ -26,7 +26,7 @@ from argcomplete.completers import FilesCompleter
 from beancount import loader
 from beancount.core.data import Open, Transaction
 
-from beancount_envelope_budget import __version__, actions
+from beancount_envelope_budget import __version__, actions, writer
 from beancount_envelope_budget.core import (
     BudgetResult,
     Diagnostic,
@@ -392,8 +392,7 @@ def _fund_topup(
         return 2
     on = args.date or date.today()  # noqa: DTZ011 - local today is intended
     lines, unfunded, overfunded = _plan_topup(result, on, args.reserve, pattern)
-    for entry in lines:
-        print(actions.render(entry))
+    status = _emit(lines, args)
     for name, amount in unfunded:
         print(f"; UNFUNDED {name}: needs {_money(amount)} {result.operating_currency}")
     for name, amount in overfunded:
@@ -401,7 +400,7 @@ def _fund_topup(
             f"; OVERFUNDED {name}: {_money(amount)} "
             f"{result.operating_currency} above plan"
         )
-    return 1 if args.strict and unfunded else 0
+    return 1 if args.strict and unfunded else status
 
 
 def _fund_range(
@@ -429,7 +428,7 @@ def _fund_range(
         print("--from must not be after --to", file=sys.stderr)
         return 2
     requested = iter_months(args.from_month, args.to_month)
-    lines = _plan_fund(
+    entries = _plan_fund(
         loaded.result,
         loaded.entries,
         args.mode,
@@ -437,9 +436,160 @@ def _fund_range(
         pattern,
         force=args.force,
     )
-    for entry in lines:
-        print(actions.render(entry))
-    return 0
+    return _emit(entries, args)
+
+
+def _emit(entries: list[Custom], args: argparse.Namespace) -> int:
+    """Print generated directives, or append them to ``--write`` and recheck.
+
+    Args:
+        entries: The generated directives.
+        args: Parsed arguments; ``args.ledger`` and the optional ``args.write``.
+
+    Returns:
+        The process exit status.
+    """
+    if args.write is None:
+        for entry in entries:
+            print(actions.render(entry))
+        return 0
+    try:
+        target = writer.resolve_target(args.write, args.ledger.parent)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 2
+    for entry in entries:
+        writer.append(target, entry)
+    print(f"appended {len(entries)} directive(s) to {target}")
+    return _recheck(args.ledger)
+
+
+def _recheck(path: Path) -> int:
+    """Reload a ledger after a write and report any diagnostics.
+
+    Args:
+        path: The ledger path.
+
+    Returns:
+        The process exit status: non-zero when the reload produces an error.
+    """
+    loaded = _load(path)
+    errors = [
+        diagnostic
+        for diagnostic in loaded.result.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    ]
+    warnings = [
+        diagnostic
+        for diagnostic in loaded.result.diagnostics
+        if diagnostic.severity is Severity.WARNING
+    ]
+    for diagnostic in [*errors, *warnings]:
+        print(f"{diagnostic.code}: {diagnostic.message}")
+    return 1 if errors else 0
+
+
+def _currency_of(path: Path) -> str | None:
+    """Load a ledger and return its operating currency.
+
+    Args:
+        path: The ledger path.
+
+    Returns:
+        The operating currency, or ``None``.
+    """
+    return _load(path).result.operating_currency
+
+
+def _cmd_allocate(args: argparse.Namespace) -> int:
+    """Print or write one ``allocate`` directive.
+
+    Args:
+        args: Parsed arguments.
+
+    Returns:
+        The process exit status.
+    """
+    if not args.ledger.exists():
+        print(f"no such ledger: {args.ledger}", file=sys.stderr)
+        return 2
+    currency = _currency_of(args.ledger)
+    if currency is None:
+        print("the ledger has no operating currency", file=sys.stderr)
+        return 2
+    day = args.date or date.today()  # noqa: DTZ011 - local today is intended
+    entry = actions.allocate(args.envelope, args.amount, day, currency)
+    return _emit([entry], args)
+
+
+def _cmd_move(args: argparse.Namespace) -> int:
+    """Print or write one ``move`` directive.
+
+    Args:
+        args: Parsed arguments.
+
+    Returns:
+        The process exit status.
+    """
+    if not args.ledger.exists():
+        print(f"no such ledger: {args.ledger}", file=sys.stderr)
+        return 2
+    currency = _currency_of(args.ledger)
+    if currency is None:
+        print("the ledger has no operating currency", file=sys.stderr)
+        return 2
+    day = args.date or date.today()  # noqa: DTZ011 - local today is intended
+    entry = actions.move(args.source, args.target, args.amount, day, currency)
+    return _emit([entry], args)
+
+
+def _cmd_plan(args: argparse.Namespace) -> int:
+    """Print or write one ``plan`` directive.
+
+    Args:
+        args: Parsed arguments.
+
+    Returns:
+        The process exit status.
+    """
+    if not args.ledger.exists():
+        print(f"no such ledger: {args.ledger}", file=sys.stderr)
+        return 2
+    if (
+        args.monthly is None
+        and args.priority is None
+        and args.target is None
+        and args.by is None
+    ):
+        print("a plan needs at least one of --monthly/--priority/--target/--by")
+        return 2
+    day = args.date or date.today()  # noqa: DTZ011 - local today is intended
+    entry = actions.plan(
+        args.envelope,
+        day,
+        monthly=args.monthly,
+        priority=args.priority,
+        target=args.target,
+        target_currency=_currency_of(args.ledger),
+        by=args.by,
+    )
+    return _emit([entry], args)
+
+
+def _cmd_unplan(args: argparse.Namespace) -> int:
+    """Print or write one ``unplan`` directive.
+
+    Args:
+        args: Parsed arguments.
+
+    Returns:
+        The process exit status.
+    """
+    if not args.ledger.exists():
+        print(f"no such ledger: {args.ledger}", file=sys.stderr)
+        return 2
+    day = args.date or date.today()  # noqa: DTZ011 - local today is intended
+    return _emit([actions.unplan(args.envelope, day)], args)
 
 
 def _compile_pattern(value: str | None, option: str) -> re.Pattern[str] | None:
@@ -664,6 +814,27 @@ def _parse_decimal(value: str) -> Decimal:
     except ArithmeticError as error:
         message = f"expected a number, got {value!r}"
         raise argparse.ArgumentTypeError(message) from error
+
+
+def _parse_monthly(value: str) -> Decimal | str:
+    """Parse a ``--monthly`` argument: a number or ``avgN``.
+
+    Args:
+        value: The raw argument.
+
+    Returns:
+        The parsed decimal, or the ``avgN`` string.
+
+    Raises:
+        argparse.ArgumentTypeError: If the value is not a number or ``avgN``.
+    """
+    try:
+        return Decimal(value)
+    except ArithmeticError:
+        if re.fullmatch(r"avg\d+", value):
+            return value
+        message = f"expected a number or avgN, got {value!r}"
+        raise argparse.ArgumentTypeError(message) from None
 
 
 def _parse_day(value: str) -> date:
@@ -1270,6 +1441,24 @@ def _ledger_argument(parser: argparse.ArgumentParser) -> None:
     setattr(action, "completer", FilesCompleter(_LEDGER_EXTENSIONS))  # noqa: B010
 
 
+def _write_argument(parser: argparse.ArgumentParser) -> None:
+    """Add the shared ``--write FILE`` opt-in to a command.
+
+    Args:
+        parser: The subcommand parser.
+    """
+    action = parser.add_argument(
+        "--write",
+        type=Path,
+        metavar="FILE",
+        help=(
+            "append the directive(s) to this file (relative to the ledger's "
+            "directory) instead of printing them; the ledger is reloaded after"
+        ),
+    )
+    setattr(action, "completer", FilesCompleter(_LEDGER_EXTENSIONS))  # noqa: B010
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the full argument parser.
 
@@ -1407,7 +1596,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="exit non-zero when topup leaves anything unfunded",
     )
+    _write_argument(fund)
     fund.set_defaults(func=_cmd_fund)
+
+    _add_action_parsers(subparsers)
 
     pin = subparsers.add_parser(
         "pin",
@@ -1453,6 +1645,127 @@ def build_parser() -> argparse.ArgumentParser:
     completion.set_defaults(func=_cmd_completion)
 
     return parser
+
+
+def _add_action_parsers(subparsers: argparse._SubParsersAction) -> None:
+    """Register the write commands that emit a single directive.
+
+    Args:
+        subparsers: The subparsers action to extend.
+    """
+    allocate = subparsers.add_parser(
+        "allocate",
+        help="print or write one allocate directive",
+        description=(
+            "Print a single allocate directive, dated --date (today by default), "
+            "or append it to --write so the ledger itself is changed."
+        ),
+    )
+    _ledger_argument(allocate)
+    allocate.add_argument("envelope", help="the envelope to fund")
+    allocate.add_argument(
+        "amount",
+        type=_parse_decimal,
+        metavar="AMOUNT",
+        help="the amount to allocate; negative moves it back to the pool",
+    )
+    allocate.add_argument(
+        "--date",
+        type=_parse_day,
+        metavar="YYYY-MM-DD",
+        help="the directive's date; defaults to today",
+    )
+    _write_argument(allocate)
+    allocate.set_defaults(func=_cmd_allocate)
+
+    move = subparsers.add_parser(
+        "move",
+        help="print or write one move directive",
+        description=(
+            "Print a single move directive, dated --date (today by default), or "
+            "append it to --write so the ledger itself is changed."
+        ),
+    )
+    _ledger_argument(move)
+    move.add_argument("source", help="the envelope to take money from")
+    move.add_argument("target", help="the envelope to give money to")
+    move.add_argument(
+        "amount",
+        type=_parse_decimal,
+        metavar="AMOUNT",
+        help="the amount to move between the envelopes",
+    )
+    move.add_argument(
+        "--date",
+        type=_parse_day,
+        metavar="YYYY-MM-DD",
+        help="the directive's date; defaults to today",
+    )
+    _write_argument(move)
+    move.set_defaults(func=_cmd_move)
+
+    plan = subparsers.add_parser(
+        "plan",
+        help="print or write one plan directive",
+        description=(
+            "Print a single plan directive, dated --date (today by default), or "
+            "append it to --write so the ledger itself is changed. Give at least "
+            "one of the metadata options."
+        ),
+    )
+    _ledger_argument(plan)
+    plan.add_argument("envelope", help="the envelope the plan applies to")
+    plan.add_argument(
+        "--monthly",
+        type=_parse_monthly,
+        metavar="AMOUNT",
+        help='the planned monthly amount, a number or "avgN"',
+    )
+    plan.add_argument(
+        "--priority",
+        type=_parse_decimal,
+        metavar="N",
+        help="the funding priority, lower first",
+    )
+    plan.add_argument(
+        "--target",
+        type=_parse_decimal,
+        metavar="AMOUNT",
+        help="a goal balance, in the ledger's operating currency",
+    )
+    plan.add_argument(
+        "--by",
+        type=_parse_day,
+        metavar="YYYY-MM-DD",
+        help="the date the goal should be reached by",
+    )
+    plan.add_argument(
+        "--date",
+        type=_parse_day,
+        metavar="YYYY-MM-DD",
+        help="the directive's date; defaults to today",
+    )
+    _write_argument(plan)
+    plan.set_defaults(func=_cmd_plan)
+
+    unplan = subparsers.add_parser(
+        "unplan",
+        help="print or write one unplan directive",
+        description=(
+            "Print a single unplan directive, dated --date (today by default), "
+            "or append it to --write so the ledger itself is changed."
+        ),
+    )
+    _ledger_argument(unplan)
+    unplan.add_argument("envelope", help="the envelope to clear the plan from")
+    unplan.add_argument(
+        "--date",
+        type=_parse_day,
+        metavar="YYYY-MM-DD",
+        help="the directive's date; defaults to today",
+    )
+    _write_argument(unplan)
+    unplan.set_defaults(func=_cmd_unplan)
 
 
 def _add_schema_parser(subparsers: argparse._SubParsersAction) -> None:
