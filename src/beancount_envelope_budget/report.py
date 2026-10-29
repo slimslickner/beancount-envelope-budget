@@ -41,7 +41,11 @@ __all__ = [
     "EnvelopeView",
     "PlanLine",
     "build_view",
+    "envelope_need",
+    "month_funding",
+    "overspend_cover",
     "plan_level",
+    "plan_top_up",
     "to_jsonable",
     "today_month",
 ]
@@ -447,6 +451,184 @@ def plan_level(report: EnvelopeReport, on: date) -> Decimal | None:
         return None if average is None else _round_to_cent(average)
     level = report.envelope.funding_level(on)
     return None if level is None else _round_to_cent(level)
+
+
+def plan_top_up(report: EnvelopeReport, on: date) -> Decimal:
+    """Amount to allocate to fund an envelope to its plan level.
+
+    This is the "set the month's allocation to the plan" intent: the gap between
+    the envelope's funding level and the money already credited this month (see
+    :meth:`~beancount_envelope_budget.core.EnvelopeReport.funded_at`). An
+    envelope with no plan has no level, so it needs nothing here; use
+    :func:`overspend_cover` for its spending.
+
+    Args:
+        report: The envelope's report.
+        on: A date in the month to evaluate.
+
+    Returns:
+        The amount to allocate, never negative; zero when the plan is met.
+
+    Examples:
+        >>> row = MonthRow(date(2026, 10, 1), Decimal(0), Decimal(0), Decimal(0))
+        >>> report = EnvelopeReport(
+        ...     Envelope(
+        ...         "Groceries",
+        ...         date(2026, 10, 1),
+        ...         None,
+        ...         Plan(monthly=Decimal("550")),
+        ...         (),
+        ...     ),
+        ...     (row,),
+        ... )
+        >>> plan_top_up(report, date(2026, 10, 31))
+        Decimal('550.00')
+    """
+    level = plan_level(report, on)
+    if level is None:
+        return Decimal(0)
+    return max(Decimal(0), level - report.funded_at(on))
+
+
+def overspend_cover(report: EnvelopeReport, on: date) -> Decimal:
+    """Amount to allocate to bring a negative closing balance to zero.
+
+    This is the "cover overspending on the balance" intent: how far the month
+    closed below zero. An envelope that ends the month positive — or that has no
+    spending — needs nothing.
+
+    Args:
+        report: The envelope's report.
+        on: A date in the month to evaluate.
+
+    Returns:
+        The amount to allocate, never negative.
+
+    Examples:
+        >>> row = MonthRow(
+        ...     date(2026, 10, 1), Decimal("0.00"), Decimal("50.00"), Decimal("-100.00")
+        ... )
+        >>> report = EnvelopeReport(
+        ...     Envelope("Groceries", date(2026, 10, 1), None, Plan(), ()),
+        ...     (row,),
+        ... )
+        >>> overspend_cover(report, date(2026, 10, 31))
+        Decimal('50.00')
+    """
+    return max(Decimal(0), -row_for(report.rows, on).closing)
+
+
+def envelope_need(report: EnvelopeReport, on: date) -> Decimal:
+    """Amount to allocate to fully fund one envelope for a month.
+
+    The greater of its plan top-up (:func:`plan_top_up`) and its overspend cover
+    (:func:`overspend_cover`), so funding it satisfies both the plan and a
+    negative balance. This backs the "fully fund" month action; the per-envelope
+    "add allocation" form offers the two intents separately instead.
+
+    Args:
+        report: The envelope's report.
+        on: A date in the month to evaluate.
+
+    Returns:
+        The amount to allocate, never negative.
+
+    Examples:
+        >>> row = MonthRow(date(2026, 10, 1), Decimal(0), Decimal(0), Decimal(-100))
+        >>> report = EnvelopeReport(
+        ...     Envelope(
+        ...         "Groceries",
+        ...         date(2026, 10, 1),
+        ...         None,
+        ...         Plan(monthly=Decimal("550")),
+        ...         (),
+        ...     ),
+        ...     (row,),
+        ... )
+        >>> envelope_need(report, date(2026, 10, 31))
+        Decimal('550.00')
+    """
+    return max(plan_top_up(report, on), overspend_cover(report, on))
+
+
+def month_funding(
+    result: BudgetResult,
+    on: date,
+    *,
+    available: bool = False,
+    reserve: Decimal = Decimal(0),
+) -> tuple[list[tuple[str, Decimal]], list[tuple[str, Decimal]]]:
+    """Plan a month's funding across every envelope.
+
+    Backs the month-level "fully fund" and "fund with available" actions. Each
+    envelope's amount is its :func:`envelope_need`, so a planned envelope is
+    funded to its plan and an overspent one is covered. Envelopes are ordered by
+    plan ``priority`` (lower first, unplanned last), which matters when the pool
+    caps the run.
+
+    Args:
+        result: The computed budget.
+        on: A date in the month to fund.
+        available: Whether to cap the run by the pool, leaving it no lower than
+            ``reserve``. When ``False``, every envelope is funded in full.
+        reserve: Cash to keep unallocated in the pool, for ``available``.
+
+    Returns:
+        The allocations ``(name, amount)``, and — only when ``available`` — the
+        shortfalls ``(name, amount)`` that the pool could not cover.
+
+    Examples:
+        >>> pool = (MonthRow(date(2026, 1, 1), Decimal(0), Decimal(0), Decimal("250.00")),)
+        >>> groceries = EnvelopeReport(
+        ...     Envelope(
+        ...         "Groceries",
+        ...         date(2026, 1, 1),
+        ...         None,
+        ...         Plan(monthly=Decimal("300")),
+        ...         (),
+        ...     ),
+        ...     (MonthRow(date(2026, 1, 1), Decimal(0), Decimal(0), Decimal(0)),),
+        ... )
+        >>> result = BudgetResult(
+        ...     date(2026, 1, 1),
+        ...     "USD",
+        ...     (date(2026, 1, 1),),
+        ...     (groceries,),
+        ...     pool,
+        ...     (),
+        ...     (),
+        ... )
+        >>> month_funding(result, date(2026, 1, 31))
+        ([('Groceries', Decimal('300.00'))], [])
+        >>> month_funding(result, date(2026, 1, 31), available=True)
+        ([('Groceries', Decimal('250.00'))], [('Groceries', Decimal('50.00'))])
+    """
+    remaining = row_for(result.pool, month_of(on)).closing - reserve
+    candidates: list[tuple[bool, Decimal, int, str, Decimal]] = []
+    for index, report in enumerate(result.envelopes):
+        need = envelope_need(report, on)
+        if need <= 0:
+            continue
+        plan = report.envelope.effective(on)
+        rank = plan.priority if plan.priority is not None else Decimal(0)
+        candidates.append((plan.priority is None, rank, index, report.name, need))
+    candidates.sort(key=lambda item: (item[0], item[1], item[2]))
+
+    allocations: list[tuple[str, Decimal]] = []
+    unfunded: list[tuple[str, Decimal]] = []
+    for _unset, _rank, _index, name, need in candidates:
+        if not available:
+            allocations.append((name, need))
+            continue
+        if remaining <= 0:
+            unfunded.append((name, need))
+            continue
+        amount = min(need, remaining)
+        remaining -= amount
+        allocations.append((name, amount))
+        if amount < need:
+            unfunded.append((name, need - amount))
+    return allocations, unfunded
 
 
 def _funding(level: Decimal | None, funded: Decimal) -> str | None:

@@ -856,6 +856,51 @@ def test_perform_unknown_action(
         extension.perform({"action": "bogus"})
 
 
+def test_perform_fully_funds_a_month(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fully-fund action appends one allocation per envelope that needs it."""
+    recorded: list[object] = []
+    monkeypatch.setattr(
+        fava_ext, "_insert", lambda _ledger, _path, entry: recorded.append(entry)
+    )
+    extension = _extension(
+        "prefill.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    entries = extension.perform({"action": "fully_fund", "month": "2024-01"})
+    rendered = [actions.render(entry) for entry in entries]
+    assert any(line.endswith('"Groceries" 50.00 USD') for line in rendered)
+    assert any(line.endswith('"Rent" 2200.00 USD') for line in rendered)
+    assert any(line.endswith('"Car" 823.08 USD') for line in rendered)
+    assert any(line.endswith('"Utilities" 200.00 USD') for line in rendered)
+    assert len(recorded) == len(entries)
+
+
+def test_render_source_expands_a_month_action() -> None:
+    """A month action renders one allocate directive per envelope."""
+    extension = _extension("prefill.bean")
+    source = extension.render_source({"action": "fund_available", "month": "2024-01"})
+    lines = source.splitlines()
+    assert any('"Rent"' in line and "2200.00 USD" in line for line in lines)
+    assert any('"Groceries"' in line and "50.00 USD" in line for line in lines)
+
+
+def test_perform_rejects_an_empty_month_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A month with nothing to fund is refused."""
+    monkeypatch.setattr(fava_ext, "_insert", lambda *_args: None)
+    extension = _extension(
+        "basic.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    with pytest.raises(ValueError, match="nothing to fund"):
+        extension.perform({"action": "fully_fund", "month": "2024-01"})
+
+
 def test_action_entry_covers_every_verb() -> None:
     """Each action builds the directive it names."""
     extension = _extension("basic.bean")
@@ -902,18 +947,43 @@ def test_action_entry_covers_every_verb() -> None:
     assert actions.render(unplan).endswith('"unplan" "Groceries"')
 
 
-def test_prefill_suggests_the_months_spending() -> None:
-    """The add-allocation form is prefilled from the month's spending."""
+def test_prefill_covers_uncovered_spending() -> None:
+    """An unplanned envelope prefills only the spending it has not covered."""
     extension = _extension("fund_backfill.bean")
     assert extension.prefill("Groceries", date(2024, 1, 1)) == "100.00"
-    assert extension.prefill("Groceries", date(2024, 5, 1)) == "0.00"
+    # The March refund still leaves a -50 balance, which May carries forward.
+    assert extension.prefill("Groceries", date(2024, 5, 1)) == "50.00"
     assert extension.prefill("Nope", date(2024, 1, 1)) == "0.00"
 
 
-def test_prefill_falls_back_to_the_plan_level() -> None:
-    """An unspent planned envelope is prefilled with its funding level."""
+def test_prefill_funds_the_plan_level() -> None:
+    """A planned envelope is prefilled with its plan top-up, not its spending."""
     extension = _extension("topup_plan.bean")
     assert extension.prefill("Mortgage", date(2024, 1, 1)) == "2500.00"
+
+
+def test_prefill_accounts_for_existing_allocations() -> None:
+    """A partly funded envelope prefills only the remaining gap (#35)."""
+    extension = _extension("prefill.bean")
+    assert extension.prefill("Groceries", date(2024, 1, 1)) == "50.00"
+    assert extension.prefill("Rent", date(2024, 1, 1)) == "2200.00"
+    assert extension.prefill("Car", date(2024, 1, 1)) == "823.08"
+
+
+def test_cover_prefill_suggests_overspending() -> None:
+    """The cover quick-fill is the amount that brings the month back to zero."""
+    extension = _extension("prefill.bean")
+    assert extension.cover_prefill("Groceries", date(2024, 1, 1)) == "50.00"
+    assert extension.cover_prefill("Rent", date(2024, 1, 1)) == "400.00"
+    assert extension.cover_prefill("Car", date(2024, 1, 1)) == "0.00"
+    assert extension.cover_prefill("Nope", date(2024, 1, 1)) == "0.00"
+
+
+def test_prefill_leads_with_cover_when_plan_is_met() -> None:
+    """An already-funded but overspent envelope leads with the cover (#35)."""
+    extension = _extension("prefill.bean")
+    assert extension.prefill("Utilities", date(2024, 1, 1)) == "200.00"
+    assert extension.cover_prefill("Utilities", date(2024, 1, 1)) == "200.00"
 
 
 def test_report_exposes_allocations() -> None:
@@ -988,6 +1058,9 @@ def test_template_shows_edit_popovers_when_writable(tmp_path: Path) -> None:
     assert 'name="action" value="allocate"' in html
     assert 'name="action" value="plan"' in html
     assert 'name="action" value="unplan"' in html
+    assert 'name="action" value="fully_fund"' in html
+    assert 'name="action" value="fund_available"' in html
+    assert "envelope-month-pop" in html
     assert "title=" not in html
 
 

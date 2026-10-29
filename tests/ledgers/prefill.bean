@@ -1,0 +1,46 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Equity:Opening-Balances USD
+2020-01-01 open Expenses:Groceries USD
+  envelope: "Groceries"
+2020-01-01 open Expenses:Rent USD
+  envelope: "Rent"
+2020-01-01 open Expenses:Car USD
+  envelope: "Car"
+2020-01-01 open Expenses:Utilities USD
+  envelope: "Utilities"
+
+2023-12-31 * "Opening balance"
+  Assets:Checking           50000.00 USD
+  Equity:Opening-Balances  -50000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Groceries"
+2024-01-01 custom "envelope" "open" "Rent"
+  monthly: 3000.00
+  priority: 1
+2024-01-01 custom "envelope" "open" "Car"
+  target: 12000.00 USD
+  by: 2025-01-01
+2024-01-01 custom "envelope" "open" "Utilities"
+  monthly: 1000.00
+  priority: 2
+
+2024-01-10 custom "envelope" "allocate" "Groceries" 50.00 USD
+2024-01-16 custom "envelope" "allocate" "Rent" 800.00 USD
+2024-01-18 custom "envelope" "allocate" "Car" 100.00 USD
+2024-01-19 custom "envelope" "allocate" "Utilities" 1000.00 USD
+
+2024-01-15 * "January groceries"
+  Expenses:Groceries         100.00 USD
+  Assets:Checking           -100.00 USD
+
+2024-01-17 * "January rent"
+  Expenses:Rent             1200.00 USD
+  Assets:Checking          -1200.00 USD
+
+2024-01-20 * "January utilities"
+  Expenses:Utilities        1200.00 USD
+  Assets:Checking          -1200.00 USD

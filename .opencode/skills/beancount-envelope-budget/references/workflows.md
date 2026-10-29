@@ -71,6 +71,23 @@ beancount-envelope-budget fund main.bean --from 2027-03 --to 2027-03 --mode over
 month. Use `--envelopes REGEX` to restrict it, and `actuals` over a range if you
 want each month to close flat.
 
+To fund a whole month in one pass — meeting each plan *and* covering any
+overspend — use the month actions. `fully-fund` funds every envelope to its plan
+level or its overspend, whichever is greater, and `fund-available` does the same
+in priority order while keeping the pool non-negative:
+
+```sh
+# meet every plan and cover every overspend for the current month
+beancount-envelope-budget fund main.bean --mode fully-fund --date 2027-03-31
+
+# the same, but stop before the pool would go negative
+beancount-envelope-budget fund main.bean --mode fund-available --reserve 500
+```
+
+Both take `--date` (defaulting to today) and print one `allocate` per envelope
+that needs funding; `fund-available` prints `; UNFUNDED` for anything the pool
+could not cover, and `--strict` makes that a non-zero exit.
+
 ## Backfill history
 
 If you already have transactions, generate allocations that match what you

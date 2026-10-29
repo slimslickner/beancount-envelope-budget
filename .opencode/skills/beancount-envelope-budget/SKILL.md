@@ -37,6 +37,7 @@ When working inside this repository, prefix commands with `uv run`.
 | `suggest LEDGER` | The monthly amount each goal envelope (`target` + `by`) needs. |
 | `fund LEDGER --from YYYY-MM --to YYYY-MM [--mode actuals\|overspend\|copy] [--envelopes REGEX] [--force]` | Print `allocate` directives to backfill or roll a range forward. |
 | `fund LEDGER --mode topup [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]` | Print `allocate` directives funding envelopes up to their level, in priority order. |
+| `fund LEDGER --mode fully-fund\|fund-available [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]` | Print `allocate` directives funding every envelope to its plan or its overspend, whichever is greater; `fund-available` caps the run by the pool. |
 | `pin LEDGER --account REGEX [--through YYYY-MM-DD] [--write]` | Freeze the resolved envelope onto existing postings so an account can be remapped without changing history. |
 | `schema [--json]` | The directive, metadata and reserved-value schema. |
 | `completion SHELL` | Tab-completion snippet for bash or zsh. |
@@ -50,10 +51,16 @@ When working inside this repository, prefix commands with `uv run`.
 - `topup` — fund each envelope up to its level, in priority order, from the
   pool. A `monthly` envelope's level is that amount; a goal envelope's is the
   on-track balance for the run month.
+- `fully-fund` — the month-level action: fund every envelope to its plan level or
+  its overspend, whichever is greater, in priority order. Unlike `topup`,
+  envelopes with no plan are still funded their overspend.
+- `fund-available` — the same as `fully-fund`, but stop before the pool would go
+  negative; anything left unfunded prints as `; UNFUNDED`.
 
 The three range modes skip any envelope-month that already has an allocation;
-`--force` overrides. `topup` never skips, because it measures from current
-balances — rerun it after each paycheck and append the new output.
+`--force` overrides. `topup`, `fully-fund` and `fund-available` never skip,
+because they measure from current balances — rerun them after each paycheck and
+append the new output.
 
 An envelope's plan is its `monthly`, `priority`, `target` and `by` metadata, set
 on `open` or changed from a date with `plan` (`custom "envelope" "plan" "<name>"`
@@ -61,11 +68,13 @@ plus the same metadata), and cleared with `unplan`. `monthly` may be a number or
 `"avgN"`, the average of the last N completed months of spending.
 
 **`topup` needs a plan.** With no `monthly` (and no `target` + `by`) it has no
-level to fund to and prints nothing. To top spent envelopes back up without any
-plan directives, use `overspend` over a range instead — e.g. the current month:
-`fund LEDGER --from YYYY-MM --to YYYY-MM --mode overspend` brings negative
-envelopes back to zero. `actuals` funds each month's net spending, so months
-close flat.
+level to fund to and prints nothing. Use `fully-fund` for a whole month instead:
+it funds every envelope to its plan or its overspend, whichever is greater, and
+`fund-available` does the same while keeping the pool non-negative. To top spent
+envelopes back up without any plan directives over a range, use `overspend` —
+e.g. the current month: `fund LEDGER --from YYYY-MM --to YYYY-MM --mode
+overspend` brings negative envelopes back to zero. `actuals` funds each month's
+net spending, so months close flat.
 
 ## Which workflow?
 

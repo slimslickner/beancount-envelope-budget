@@ -52,6 +52,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Beancount's printer, in a small modal (vanilla JS, no build), with the form's
   fields as the no-JS fallback. Writing is off by default and refuses a target
   that escapes the ledger directory.
+- Month-level funding actions. The Fava month heading offers *fully fund*, which
+  funds every envelope to its plan or its overspend, whichever is greater, and
+  *fund with available*, the same in priority order from the pool, stopping
+  before it would go negative. Their CLI equivalents are `fund --mode
+  fully-fund` and `fund --mode fund-available`; both expand to one `allocate`
+  per envelope that needs funding (#7).
 
 ### Changed
 
@@ -85,6 +91,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The Fava "add allocation" form no longer prefills the month's total spending.
+  It prefills the envelope's plan top-up — the gap to its funding level, so money
+  already allocated is not asked for twice — and, when the plan is already met
+  or there is none, the amount that covers the month's overspending (#35). A
+  labelled quick-fill covers that overspending directly when it differs.
 - A goal envelope's funding level is rounded to the cent before it is compared
   with a balance, so re-running `fund --mode topup` on a goal whose prorated
   target is not a whole cent no longer prints a spurious

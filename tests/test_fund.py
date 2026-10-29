@@ -477,7 +477,7 @@ def test_topup_rejects_range(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_fund_rejects_date_for_range(capsys: pytest.CaptureFixture[str]) -> None:
-    """--date is only for topup."""
+    """--date is only for the date-based modes."""
     code = cli.main(
         [
             "fund",
@@ -492,6 +492,87 @@ def test_fund_rejects_date_for_range(capsys: pytest.CaptureFixture[str]) -> None
     )
     assert code == 2
     assert "--date is only valid with --mode topup" in capsys.readouterr().err
+
+
+def test_fund_fully(capsys: pytest.CaptureFixture[str]) -> None:
+    """fully-fund allocates each envelope's need in priority order."""
+    code = cli.main(
+        [
+            "fund",
+            _ledger("prefill.bean"),
+            "--mode",
+            "fully-fund",
+            "--date",
+            "2024-01-31",
+        ]
+    )
+    assert code == 0
+    assert _lines(capsys) == [
+        '2024-01-31 custom "envelope" "allocate" "Rent" 2200.00 USD',
+        '2024-01-31 custom "envelope" "allocate" "Utilities" 200.00 USD',
+        '2024-01-31 custom "envelope" "allocate" "Groceries" 50.00 USD',
+        '2024-01-31 custom "envelope" "allocate" "Car" 823.08 USD',
+    ]
+
+
+def test_fund_available_caps_by_the_pool(capsys: pytest.CaptureFixture[str]) -> None:
+    """fund-available funds in priority order until the pool runs out."""
+    code = cli.main(
+        [
+            "fund",
+            _ledger("prefill.bean"),
+            "--mode",
+            "fund-available",
+            "--date",
+            "2024-01-31",
+            "--reserve",
+            "47000",
+            "--strict",
+        ]
+    )
+    assert code == 1
+    lines = _lines(capsys)
+    assert '2024-01-31 custom "envelope" "allocate" "Rent" 1050.00 USD' in lines
+    assert "; UNFUNDED Rent: needs 1150.00 USD" in lines
+    assert "; UNFUNDED Utilities: needs 200.00 USD" in lines
+    assert "; UNFUNDED Groceries: needs 50.00 USD" in lines
+    assert "; UNFUNDED Car: needs 823.08 USD" in lines
+
+
+def test_fund_month_rejects_range(capsys: pytest.CaptureFixture[str]) -> None:
+    """fully-fund and fund-available take --date, not --from/--to."""
+    code = cli.main(
+        [
+            "fund",
+            _ledger("prefill.bean"),
+            "--mode",
+            "fully-fund",
+            "--from",
+            "2024-01",
+        ]
+    )
+    assert code == 2
+    assert "--mode fully-fund takes --date" in capsys.readouterr().err
+
+
+def test_fund_month_envelopes_filter(capsys: pytest.CaptureFixture[str]) -> None:
+    """--envelopes restricts a month action to matching names."""
+    code = cli.main(
+        [
+            "fund",
+            _ledger("prefill.bean"),
+            "--mode",
+            "fully-fund",
+            "--date",
+            "2024-01-31",
+            "--envelopes",
+            "^Car$",
+        ]
+    )
+    assert code == 0
+    assert _lines(capsys) == [
+        '2024-01-31 custom "envelope" "allocate" "Car" 823.08 USD',
+    ]
 
 
 def test_fund_rejects_unknown_mode() -> None:

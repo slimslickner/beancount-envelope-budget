@@ -69,21 +69,21 @@ For envelopes with a `target` and a `by` date, print the monthly amount needed t
 
 ## `beancount-envelope-budget fund`
 
-Print allocate directives, dated the last day of each month. The actuals, overspend and copy modes take --from/--to and skip any envelope-month that already has an allocation; topup takes --date.
+Print allocate directives, dated the last day of each month. The actuals, overspend and copy modes take --from/--to and skip any envelope-month that already has an allocation; topup, fully-fund and fund-available take --date.
 
 
 | Option | Help |
 | --- | --- |
 | `-h, --help` | show this help message and exit |
 | `ledger` | path to the Beancount ledger (.bean or .beancount) |
-| `--from` | first month to fund (required unless --mode topup) |
-| `--to` | last month to fund (required unless --mode topup) |
-| `--mode` | the funding strategy: actuals, overspend, copy or topup |
+| `--from` | first month to fund (required for actuals, overspend and copy) |
+| `--to` | last month to fund (required for actuals, overspend and copy) |
+| `--mode` | the funding strategy: actuals, overspend, copy, topup, fully-fund or fund-available |
 | `--envelopes` | only fund envelopes whose name matches this regular expression |
 | `--force` | print allocations even for months that already have one |
-| `--date` | the run date for topup; defaults to today |
-| `--reserve` | cash to keep unallocated in the pool (topup) |
-| `--strict` | exit non-zero when topup leaves anything unfunded |
+| `--date` | the date to fund for topup, fully-fund and fund-available |
+| `--reserve` | cash to keep unallocated in the pool (topup, fund-available) |
+| `--strict` | exit non-zero when a funding run leaves anything unfunded |
 | `--write` | append the directive(s) to this file (relative to the ledger's directory) instead of printing them; the ledger is reloaded after |
 
 ## `beancount-envelope-budget allocate`

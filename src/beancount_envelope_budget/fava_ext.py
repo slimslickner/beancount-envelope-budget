@@ -43,7 +43,7 @@ from fava.ext import ExtensionConfigError, FavaExtensionBase, extension_endpoint
 from flask import jsonify, make_response, redirect, request
 
 from beancount_envelope_budget import actions, writer
-from beancount_envelope_budget.core import BudgetResult, Plan, compute, row_for
+from beancount_envelope_budget.core import BudgetResult, Plan, compute
 from beancount_envelope_budget.report import (
     MAX_MONTHS,
     ActivityLine,
@@ -51,7 +51,9 @@ from beancount_envelope_budget.report import (
     Cell,
     PlanLine,
     build_view,
-    plan_level,
+    month_funding,
+    overspend_cover,
+    plan_top_up,
     today_month,
 )
 
@@ -141,9 +143,10 @@ class Envelopes(FavaExtensionBase):
     def prefill(self, envelope: str, month: date) -> str:
         """Suggest an allocation for an envelope-month, as ``fund`` would.
 
-        The suggestion is the month's net spending; an envelope with none falls
-        back to its funding level less what it already holds, and to zero when it
-        has no plan. It is used to prefill the "add allocation" form and modal.
+        The suggestion leads with the envelope's plan top-up; when there is
+        nothing left to fund, it falls back to covering the month's overspend,
+        and to zero when the month is neither underfunded nor overspent. It is
+        used to prefill the "add allocation" form and modal.
 
         Args:
             envelope: The envelope name.
@@ -155,13 +158,30 @@ class Envelopes(FavaExtensionBase):
         report = self._result().envelope(envelope)
         if report is None:
             return "0.00"
-        amount = -row_for(report.rows, month).activity
-        if amount == 0:
-            day = _fill_day(month)
-            level = plan_level(report, day)
-            if level is not None:
-                amount = max(Decimal(0), level - report.funded_at(day))
-        return f"{amount:.2f}"
+        on = _fill_day(month)
+        top_up = plan_top_up(report, on)
+        if top_up > 0:
+            return f"{top_up:.2f}"
+        return f"{overspend_cover(report, on):.2f}"
+
+    def cover_prefill(self, envelope: str, month: date) -> str:
+        """Suggest the amount that covers an envelope-month's overspending.
+
+        Offered beside the prefill as a labelled quick-fill, so a partly funded
+        envelope can be topped up to plan or brought back to zero directly.
+
+        Args:
+            envelope: The envelope name.
+            month: The month to fill.
+
+        Returns:
+            The overspend cover, formatted; ``0.00`` when the month is not
+            overspent.
+        """
+        report = self._result().envelope(envelope)
+        if report is None:
+            return "0.00"
+        return f"{overspend_cover(report, _fill_day(month)):.2f}"
 
     def envelope_names(self) -> list[str]:
         """Return every envelope's name, for a move form's target picker.
@@ -217,15 +237,31 @@ class Envelopes(FavaExtensionBase):
         if self.write_target is None:
             message = "writing is not configured"
             raise RuntimeError(message)
-        source = params.get("source")
-        entries = (
-            _parse_source(source)
-            if source is not None and source.strip()
-            else [_action_entry(params, self._result())]
-        )
+        entries = self._entries_for(params)
         for entry in entries:
             _insert(self.ledger, self.write_target, entry)
         return entries
+
+    def _entries_for(self, params: Mapping[str, str]) -> list[Custom]:
+        """Turn submitted fields into the directives they describe.
+
+        A ``source`` field — what the JavaScript modal posts — is parsed; any
+        other shape is the individual form fields, the no-JS fallback. A
+        month-level action expands to one allocation per envelope.
+
+        Args:
+            params: The submitted fields.
+
+        Returns:
+            The directives.
+
+        Raises:
+            ValueError: If the source does not parse or the fields are malformed.
+        """
+        source = params.get("source")
+        if source is not None and source.strip():
+            return _parse_source(source)
+        return _action_entries(params, self._result())
 
     def fill_date(self, month: date) -> str:
         """Return the date a new directive in a month is dated, as text.
@@ -276,7 +312,7 @@ class Envelopes(FavaExtensionBase):
         Raises:
             ValueError: If the fields do not describe a valid directive.
         """
-        return actions.render(_action_entry(params, self._result()))
+        return "\n".join(actions.render(entry) for entry in self._entries_for(params))
 
     @extension_endpoint("source", ["POST"])
     def source(self) -> Response:
@@ -642,6 +678,65 @@ def _parse_source(source: str) -> list[Custom]:
         message = 'the source has no custom "envelope" directive'
         raise ValueError(message)
     return directives
+
+
+def _action_entries(params: Mapping[str, str], result: BudgetResult) -> list[Custom]:
+    """Turn submitted form fields into the directive(s) they describe.
+
+    A month-level action expands to one ``allocate`` per envelope; every other
+    action describes exactly one directive.
+
+    Args:
+        params: The submitted form fields.
+        result: The computed budget.
+
+    Returns:
+        The directives.
+
+    Raises:
+        ValueError: If the action is unknown or a required field is missing.
+    """
+    action = params.get("action")
+    if action in ("fully_fund", "fund_available"):
+        return _month_entries(action, params, result)
+    return [_action_entry(params, result)]
+
+
+def _month_entries(
+    action: str,
+    params: Mapping[str, str],
+    result: BudgetResult,
+) -> list[Custom]:
+    """Build the allocations a month-level action funds.
+
+    Args:
+        action: ``fully_fund`` or ``fund_available``.
+        params: The submitted form fields; ``month`` selects the month.
+        result: The computed budget.
+
+    Returns:
+        One ``allocate`` directive per envelope that needs funding.
+
+    Raises:
+        ValueError: If the month is missing, or nothing needs funding.
+    """
+    month = _parse_month(params.get("month"))
+    if month is None:
+        message = "a month is required, as YYYY-MM"
+        raise ValueError(message)
+    on = _fill_day(month)
+    allocations, _unfunded = month_funding(
+        result,
+        on,
+        available=action == "fund_available",
+    )
+    if not allocations:
+        message = "nothing to fund for this month"
+        raise ValueError(message)
+    currency = result.operating_currency
+    return [
+        actions.allocate(name, amount, on, currency) for name, amount in allocations
+    ]
 
 
 def _action_entry(params: Mapping[str, str], result: BudgetResult) -> Custom:
