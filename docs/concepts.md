@@ -379,7 +379,12 @@ See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget
 - `report` prints opening, allocated, activity and closing for one to three
   months, plus the pool and cash rows.
 - `fund` prints `allocate` directives (redirect them into a file you include), or
-  appends them with `--write FILE`; plain `fund` never edits your ledger.
+  appends them with `--write FILE`; plain `fund` never edits your ledger. Besides
+  the backfill modes it has `topup`, which funds planned envelopes to their level
+  in priority order, and `fully-fund`/`fund-available`, which fund every
+  envelope to its plan or its overspend, whichever is greater — the latter
+  stopping before the pool would go negative. The month actions in the Fava
+  report generate the same directives.
 - `allocate`, `move`, `plan` and `unplan` print one directive, or append it with
   `--write FILE`, so the CLI can make the same ledger edits the Fava report can.
 - `pin` freezes an account's current envelope onto its existing postings so you
@@ -440,17 +445,27 @@ let the report append `custom "envelope"` directives:
 
 A target that escapes the ledger directory or is not a `.bean`/`.beancount` file
 is refused, and writing stays off when the key is absent. With it set, the report
-grows two popovers, both opened by clicking the figure or the envelope name and
-closed by clicking anywhere else, and neither needing JavaScript:
+grows popovers, opened by clicking the figure or the envelope name and closed by
+clicking anywhere else, and none needing JavaScript:
 
 - **Every allocation figure** lists that month's `allocate` directives. Each one
   links to Fava's own editor, where it can be changed or deleted through Fava's
   conflict-guarded source-slice machinery; the popover also has a form to add a
-  new allocation, prefilled with the month's spending (as `fund` would).
+  new allocation. Its amount is prefilled with the envelope's plan top-up — the
+  gap to its funding level, so money already allocated is not asked for twice —
+  falling back to covering the month's overspend when the plan is met or there
+  is none. A second, labelled quick-fill covers that overspending directly when
+  it differs from the prefill, so a partly funded envelope can be funded to plan
+  or brought back to zero either way.
 - **Every envelope name** lists the envelope's whole plan history — its `open`
   base plan and each dated `plan`/`unplan` after it — with the same links, plus
   forms to add a plan (opening on the plan in force, with a fresh date) and to
   clear the plan.
+- **The month heading** offers the month-level funding actions: *fully fund*
+  every envelope to its plan or its overspend, whichever is greater, and *fund
+  with available* the same but in priority order from the pool, stopping before
+  it would go negative. Each expands to one `allocate` per envelope that needs
+  funding, shown as a single block of Beancount in the modal.
 
 Adding a directive opens a small modal showing the Beancount text the form's
 fields describe — rendered by `actions.py`, the same generators the CLI's

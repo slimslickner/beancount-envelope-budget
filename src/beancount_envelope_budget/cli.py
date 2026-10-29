@@ -40,6 +40,7 @@ from beancount_envelope_budget.core import (
 )
 from beancount_envelope_budget.report import (
     build_view,
+    month_funding,
     plan_level,
     to_jsonable,
     today_month,
@@ -369,7 +370,51 @@ def _cmd_fund(args: argparse.Namespace) -> int:
         return 0
     if args.mode == "topup":
         return _fund_topup(args, result, pattern)
+    if args.mode in ("fully-fund", "fund-available"):
+        return _fund_month(args, result, pattern)
     return _fund_range(args, loaded, pattern)
+
+
+def _fund_month(
+    args: argparse.Namespace,
+    result: BudgetResult,
+    pattern: re.Pattern[str] | None,
+) -> int:
+    """Run the ``fully-fund`` and ``fund-available`` month actions.
+
+    Args:
+        args: Parsed arguments.
+        result: The computed budget.
+        pattern: An optional envelope-name filter.
+
+    Returns:
+        The process exit status.
+    """
+    if args.from_month is not None or args.to_month is not None:
+        print(f"--mode {args.mode} takes --date, not --from/--to", file=sys.stderr)
+        return 2
+    on = args.date or date.today()  # noqa: DTZ011 - local today is intended
+    available = args.mode == "fund-available"
+    allocations, unfunded = month_funding(
+        result,
+        on,
+        available=available,
+        reserve=args.reserve,
+    )
+    if pattern is not None:
+        allocations = [
+            (name, amount) for name, amount in allocations if pattern.search(name)
+        ]
+        unfunded = [(name, amount) for name, amount in unfunded if pattern.search(name)]
+    currency = result.operating_currency
+    day = _last_day_of(on)
+    entries = [
+        actions.allocate(name, amount, day, currency) for name, amount in allocations
+    ]
+    status = _emit(entries, args)
+    for name, amount in unfunded:
+        print(f"; UNFUNDED {name}: needs {_money(amount)} {currency}")
+    return 1 if args.strict and unfunded else status
 
 
 def _fund_topup(
@@ -419,7 +464,10 @@ def _fund_range(
         The process exit status.
     """
     if args.date is not None:
-        print("--date is only valid with --mode topup", file=sys.stderr)
+        print(
+            "--date is only valid with --mode topup, fully-fund or fund-available",
+            file=sys.stderr,
+        )
         return 2
     if args.from_month is None or args.to_month is None:
         print("--from and --to are required for this mode", file=sys.stderr)
@@ -1544,7 +1592,8 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Print allocate directives, dated the last day of each month. The "
             "actuals, overspend and copy modes take --from/--to and skip any "
-            "envelope-month that already has an allocation; topup takes --date."
+            "envelope-month that already has an allocation; topup, fully-fund "
+            "and fund-available take --date."
         ),
     )
     _ledger_argument(fund)
@@ -1553,20 +1602,30 @@ def build_parser() -> argparse.ArgumentParser:
         dest="from_month",
         type=_parse_month,
         metavar="YYYY-MM",
-        help="first month to fund (required unless --mode topup)",
+        help="first month to fund (required for actuals, overspend and copy)",
     )
     fund.add_argument(
         "--to",
         dest="to_month",
         type=_parse_month,
         metavar="YYYY-MM",
-        help="last month to fund (required unless --mode topup)",
+        help="last month to fund (required for actuals, overspend and copy)",
     )
     fund.add_argument(
         "--mode",
-        choices=("actuals", "overspend", "copy", "topup"),
+        choices=(
+            "actuals",
+            "overspend",
+            "copy",
+            "topup",
+            "fully-fund",
+            "fund-available",
+        ),
         default="actuals",
-        help="the funding strategy: actuals, overspend, copy or topup",
+        help=(
+            "the funding strategy: actuals, overspend, copy, topup, fully-fund "
+            "or fund-available"
+        ),
     )
     envelopes_action = fund.add_argument(
         "--envelopes",
@@ -1583,19 +1642,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--date",
         type=_parse_day,
         metavar="YYYY-MM-DD",
-        help="the run date for topup; defaults to today",
+        help="the date to fund for topup, fully-fund and fund-available",
     )
     fund.add_argument(
         "--reserve",
         type=_parse_decimal,
         default=Decimal(0),
         metavar="AMOUNT",
-        help="cash to keep unallocated in the pool (topup)",
+        help="cash to keep unallocated in the pool (topup, fund-available)",
     )
     fund.add_argument(
         "--strict",
         action="store_true",
-        help="exit non-zero when topup leaves anything unfunded",
+        help="exit non-zero when a funding run leaves anything unfunded",
     )
     _write_argument(fund)
     fund.set_defaults(func=_cmd_fund)
