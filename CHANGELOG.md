@@ -85,6 +85,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A goal envelope's funding level is rounded to the cent before it is compared
+  with a balance, so re-running `fund --mode topup` on a goal whose prorated
+  target is not a whole cent no longer prints a spurious
+  `; OVERFUNDED ... 0.00 USD above plan` note, and the report no longer reads
+  such a goal as over its level.
 - Amounts are valued at the precision Beancount displays the operating currency,
   so an imported investment trade whose cost basis has a sub-cent tail no longer
   leaves an envelope at a spurious `-0.00`. Previously the residue showed as a

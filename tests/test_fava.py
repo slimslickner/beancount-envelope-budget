@@ -350,6 +350,16 @@ def test_report_monthly_funding_after_spending() -> None:
     assert cell.fill == D("1")
 
 
+def test_report_subcent_goal_is_on_track() -> None:
+    """A goal funded to a rounded level reads as on track, not over."""
+    view = _extension("funding_subcent_goal.bean").report("2024-01", "1")
+    goal = next(e for e in view.envelopes if e.name == "Goal")
+    cell = goal.cells[0]
+    # 1000 / 7 = 142.857142..., which the 142.86 allocation is on track for.
+    assert cell.level == D("142.86")
+    assert cell.funding == "on"
+
+
 def test_report_no_fill_without_a_plan() -> None:
     """An envelope with no plan has nothing to fill toward."""
     view = _extension("basic.bean").report("2024-01", "1")

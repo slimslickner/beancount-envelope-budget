@@ -322,6 +322,39 @@ def test_topup_goal_rerun(tmp_path: Path, capsys: pytest.CaptureFixture[str]) ->
     ]
 
 
+def test_plan_level_rounds_a_subcent_goal() -> None:
+    """A prorated goal level is rounded to the cent, not left with a tail."""
+    entries, _errors, options = loader.load_file(_ledger("topup_goal_subcent.bean"))
+    report = compute(entries, options).envelope("Goal")
+    assert report is not None
+    # 1000 / 7 = 142.857142..., rounded to the cent the ledger holds.
+    assert plan_level(report, date(2024, 1, 15)) == D("142.86")
+
+
+def test_topup_goal_rerun_subcent(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A goal funded to a rounded level is not reported as overfunded."""
+    ledger = tmp_path / "main.bean"
+    ledger.write_text(
+        (_LEDGERS / "topup_goal_subcent.bean").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    args = ["fund", str(ledger), "--mode", "topup"]
+    assert cli.main([*args, "--date", "2024-01-15"]) == 0
+    assert _lines(capsys) == [
+        '2024-01-15 custom "envelope" "allocate" "Goal" 142.86 USD',
+    ]
+
+    ledger.write_text(
+        ledger.read_text(encoding="utf-8")
+        + '2024-01-15 custom "envelope" "allocate" "Goal" 142.86 USD\n',
+        encoding="utf-8",
+    )
+    assert cli.main([*args, "--date", "2024-01-15"]) == 0
+    assert _lines(capsys) == []
+
+
 def test_topup_goal_raise_same_month(capsys: pytest.CaptureFixture[str]) -> None:
     """Raising a goal's target mid-month tops up the difference."""
     code = cli.main(
