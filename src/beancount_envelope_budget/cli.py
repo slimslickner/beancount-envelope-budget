@@ -17,7 +17,7 @@ import re
 import sys
 from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import ROUND_CEILING, Decimal
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -776,8 +776,9 @@ def _plan_topup(
         balance = report.funded_at(on)
         need = (level - balance).quantize(_CENT, rounding=ROUND_CEILING)
         if need <= 0:
-            if plan.target is not None and balance > level:
-                overfunded.append((envelope.name, (balance - level).quantize(_CENT)))
+            excess = (balance - level).quantize(_CENT, rounding=ROUND_FLOOR)
+            if plan.target is not None and excess > 0:
+                overfunded.append((envelope.name, excess))
             continue
         rank = plan.priority if plan.priority is not None else Decimal(0)
         candidates.append((plan.priority is None, rank, index, envelope.name, need))

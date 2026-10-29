@@ -52,6 +52,28 @@ MAX_DETAIL = 20
 #: The maximum number of months a view may span.
 MAX_MONTHS = 3
 
+#: The quantum every funding level is rounded to, matching the whole cents the
+#: ledger holds and the report displays.
+_CENT = Decimal("0.01")
+
+
+def _round_to_cent(value: Decimal) -> Decimal:
+    """Round a funding level to the money the ledger displays.
+
+    A goal's level is ``target * elapsed / total``, which can carry a sub-cent
+    tail (``1000 / 7 = 142.857...``). Balances are whole cents, so comparing the
+    raw level with a balance reports a spurious over- or under-funding — the CLI
+    can even print an excess of ``0.00``. Rounding the level to the cent keeps
+    every comparison at one precision.
+
+    Args:
+        value: The resolved level.
+
+    Returns:
+        The level rounded to the cent.
+    """
+    return value.quantize(_CENT)
+
 
 def today_month() -> date:
     """Return the first day of the current month.
@@ -385,7 +407,10 @@ def plan_level(report: EnvelopeReport, on: date) -> Decimal | None:
     An envelope with a ``monthly`` plan holds that amount (a number, or the
     average of its last ``avgN`` completed months of spending). A goal envelope
     with a ``target`` holds the on-track balance from
-    :meth:`~beancount_envelope_budget.core.Envelope.funding_level`.
+    :meth:`~beancount_envelope_budget.core.Envelope.funding_level`. The resolved
+    level is rounded to the cent, because a goal's prorated target can carry a
+    sub-cent tail that a whole-cent balance would otherwise read as over- or
+    under-funded.
 
     Args:
         report: The envelope's report.
@@ -412,14 +437,16 @@ def plan_level(report: EnvelopeReport, on: date) -> Decimal | None:
         ...     (),
         ... )
         >>> plan_level(goal, date(2026, 6, 15))
-        Decimal('3000')
+        Decimal('3000.00')
     """
     plan = report.envelope.effective(on)
     if isinstance(plan.monthly, Decimal):
-        return plan.monthly
+        return _round_to_cent(plan.monthly)
     if isinstance(plan.monthly, str):
-        return _average_spend(report, on, _avg_window(plan.monthly))
-    return report.envelope.funding_level(on)
+        average = _average_spend(report, on, _avg_window(plan.monthly))
+        return None if average is None else _round_to_cent(average)
+    level = report.envelope.funding_level(on)
+    return None if level is None else _round_to_cent(level)
 
 
 def _funding(level: Decimal | None, funded: Decimal) -> str | None:
