@@ -85,6 +85,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Amounts are valued at the precision Beancount displays the operating currency,
+  so an imported investment trade whose cost basis has a sub-cent tail no longer
+  leaves an envelope at a spurious `-0.00`. Previously the residue showed as a
+  red `-0.00`, was not blanked as a zero, and could trip the pool-floor warning
+  (`W001`) when the pool dipped by a fraction of a cent.
 - The CLI `report` and the Fava Envelopes page default to the current month
   rather than the latest month in the ledger, so a future-dated `custom
   "envelope"` directive no longer opens the report on a month in the future.

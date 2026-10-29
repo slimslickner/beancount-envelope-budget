@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 from beancount.core import compare, convert, interpolate
 from beancount.core.amount import Amount
 from beancount.core.data import Custom, Directive, Open, Posting, Transaction
+from beancount.core.display_context import DisplayContext
 
 from beancount_envelope_budget.schema import Severity, get_diagnostic, render_message
 
@@ -1677,11 +1678,47 @@ class _Valuation:
 
     Attributes:
         currency: The single operating currency, or ``""`` when none.
-        options: The ledger options map, for the inferred rounding tolerance.
+        options: The ledger options map, for the display context and the
+            inferred rounding tolerance.
     """
 
     currency: str
     options: Mapping[str, object]
+
+    def quantize(self, value: Decimal) -> Decimal:
+        """Return an amount at the ledger's Beancount display precision.
+
+        Beancount records the precision it renders each currency at in the
+        ``dcontext`` option. An amount carrying more digits than the ledger
+        displays — the cost-basis weight of an imported trade, say — has a
+        sub-cent tail that would otherwise linger in a balance and show up as
+        ``-0.00``. Rounding to that precision keeps every operating amount the
+        same figure Beancount prints. When the option is absent, or the currency
+        has no recorded precision, the value is returned unchanged.
+
+        Args:
+            value: An amount in the operating currency.
+
+        Returns:
+            The amount rounded to the ledger's display precision.
+        """
+        dcontext = self.options.get("dcontext")
+        if not self.currency or not isinstance(dcontext, DisplayContext):
+            return value
+        return dcontext.quantize(value, self.currency)
+
+    def value(self, posting: Posting) -> Decimal | None:
+        """Return a posting's signed operating value, at display precision.
+
+        Args:
+            posting: The posting.
+
+        Returns:
+            The posting's value in the operating currency rounded for display,
+            or ``None`` when it has none.
+        """
+        number = _operating_value(posting, self.currency)
+        return None if number is None else self.quantize(number)
 
 
 def _process_transactions(
@@ -1725,14 +1762,14 @@ def _process_transactions(
             continue
         cash_total = Decimal(0)
         for posting in cash_postings:
-            cash_total += _operating_value(posting, operating_currency) or Decimal(0)
+            cash_total += valuation.value(posting) or Decimal(0)
         cash.append((entry.date, cash_total))
         _absorb_rounding(entry, valuation, activity)
         cash_ids = {id(posting) for posting in cash_postings}
         txn_meta = _meta(entry)
         payee, narration = _txn_parts(entry)
         for posting in entry.postings:
-            number = _operating_value(posting, operating_currency)
+            number = valuation.value(posting)
             if number is None or id(posting) in cash_ids:
                 continue
             dest = _resolve_destination(
@@ -1861,6 +1898,26 @@ def _tolerance_options(options: Mapping[str, object]) -> Mapping[str, object]:
     }
 
 
+def _display_residual(entry: Transaction, valuation: _Valuation) -> Decimal:
+    """Return the sum of a transaction's postings at display precision.
+
+    Every posting is valued at its display-precision operating amount, the same
+    figure :meth:`_Valuation.value` gives. The result is what the budget's cash
+    and envelope effects leave unaccounted for, in whole display units.
+
+    Args:
+        entry: The transaction.
+        valuation: The operating currency and display context.
+
+    Returns:
+        The signed sum of the postings' display amounts.
+    """
+    total = Decimal(0)
+    for posting in entry.postings:
+        total += valuation.value(posting) or Decimal(0)
+    return total
+
+
 def _absorb_rounding(
     entry: Transaction,
     valuation: _Valuation,
@@ -1875,6 +1932,11 @@ def _absorb_rounding(
     beyond the tolerance is left alone: Beancount reports the imbalance and the
     month-end invariant (``E007``) reflects it until it is booked.
 
+    The tolerance is judged on the raw Beancount weights, but what is folded is
+    the display-precision residual: the cash and envelope effects are themselves
+    rounded, so folding their leftover keeps ``pool + envelopes == cash`` exact to
+    the cent even when a trade's cost-basis weight carried a sub-cent tail.
+
     Args:
         entry: The transaction.
         valuation: The operating currency and tolerance options.
@@ -1883,14 +1945,15 @@ def _absorb_rounding(
     operating_currency = valuation.currency
     if not operating_currency:
         return
+    rounded = _display_residual(entry, valuation)
     residual = _transaction_residual(entry, operating_currency)
-    if residual == 0:
+    if residual == 0 and rounded == 0:
         return
     tolerance = interpolate.infer_tolerances(
         entry.postings, _tolerance_options(valuation.options)
     ).get(operating_currency, Decimal(0))
-    if abs(residual) <= tolerance:
-        activity.append((POOL, entry.date, residual))
+    if abs(residual) <= tolerance and rounded != 0:
+        activity.append((POOL, entry.date, rounded))
 
 
 def _cash_postings(
@@ -2101,17 +2164,18 @@ def compute(
 
     raw = _custom_directives(entries, diagnostics)
     declarations = _process_declarations(raw, start, operating_currency, diagnostics)
+    valuation = _Valuation(operating_currency, options)
     effects = _process_transactions(
         entries,
         accounts,
         declarations,
         start,
-        _Valuation(operating_currency, options),
+        valuation,
         diagnostics,
         collect_resolved=collect_resolved,
         collect_activity=collect_activity,
     )
-    pre_start_cash = _pre_start_cash(entries, accounts, start, operating_currency)
+    pre_start_cash = _pre_start_cash(entries, accounts, start, valuation)
     return _build_result(
         start=start,
         operating_currency=operating_currency,
@@ -2126,7 +2190,7 @@ def _pre_start_cash(
     entries: list[Directive],
     accounts: dict[str, AccountInfo],
     start: date,
-    operating_currency: str,
+    valuation: _Valuation,
 ) -> Decimal:
     """Sum the cash balance on the day before the start date.
 
@@ -2134,10 +2198,10 @@ def _pre_start_cash(
         entries: The ledger entries.
         accounts: The account metadata.
         start: The start date.
-        operating_currency: The single operating currency.
+        valuation: The operating currency and display context.
 
     Returns:
-        The cash held before the start date.
+        The cash held before the start date, at display precision.
     """
     total = Decimal(0)
     for entry in entries:
@@ -2147,7 +2211,7 @@ def _pre_start_cash(
             info = accounts.get(posting.account)
             if info is None or not info.is_cash:
                 continue
-            value = _operating_value(posting, operating_currency)
+            value = valuation.value(posting)
             if value is None:
                 continue
             total += value

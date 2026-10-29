@@ -1,0 +1,36 @@
+option "operating_currency" "USD"
+
+; An imported trade whose cost basis per share does not divide evenly into the
+; institution's cash amount: 1.68 shares at {1.0001 USD} weigh 1.680168 USD,
+; with the sub-cent tail booked to Equity:Rounding-Errors:Imports. The budget
+; values the security at Beancount's display precision, so the envelope moves by
+; 1.68 and closes at exactly 0.00 instead of a lingering -0.00.
+
+2020-01-01 open Assets:Brokerage:Cash USD
+  cash-account: TRUE
+2020-01-01 open Assets:Brokerage:VTI VTI
+  envelope: "Taxable Investments"
+2020-01-01 open Income:Gains USD
+2020-01-01 open Equity:Rounding-Errors:Imports USD
+2020-01-01 open Equity:Opening-Balances USD
+
+2025-12-31 * "Opening balance"
+  Assets:Brokerage:Cash       5000.00 USD
+  Equity:Opening-Balances    -5000.00 USD
+
+2026-01-01 custom "envelope" "start"
+2026-01-01 custom "envelope" "open" "Taxable Investments"
+
+2026-05-10 * "Buy an imported position with a sub-cent cost basis"
+  Assets:Brokerage:VTI            1.68 VTI {1.0001 USD}
+  Assets:Brokerage:Cash          -1.68 USD
+  Equity:Rounding-Errors:Imports -0.000168 USD
+
+2026-05-31 custom "envelope" "allocate" "Taxable Investments" 1.68 USD
+
+2026-06-10 * "Sell the position"
+  Assets:Brokerage:VTI           -1.68 VTI {1.0001 USD}
+  Assets:Brokerage:Cash           1.68 USD
+  Equity:Rounding-Errors:Imports  0.000168 USD
+
+2026-06-30 custom "envelope" "allocate" "Taxable Investments" -1.68 USD

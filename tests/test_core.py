@@ -270,6 +270,18 @@ def test_rounding_plug_reconciles(load_budget) -> None:
     assert result.diagnostics == ()
 
 
+def test_investment_amounts_use_the_display_precision(load_budget) -> None:
+    """A sub-cent cost basis is valued at Beancount's display precision."""
+    result = load_budget("investment_rounding.bean")
+    taxable = _envelope(result, "Taxable Investments")
+    # Without rounding, the 1.680168 USD weight would leave the envelope at
+    # -0.00 instead of a clean zero, and colour it red.
+    assert taxable.closing_at(date(2026, 5, 31)) == D("0")
+    assert taxable.closing_at(date(2026, 6, 30)) == D("0")
+    assert result.pool[-1].closing == D("5000")
+    assert result.diagnostics == ()
+
+
 def test_material_residual_fails_the_invariant() -> None:
     """A residual beyond the inferred tolerance still fails the invariant."""
     ledger = """

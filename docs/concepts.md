@@ -350,6 +350,15 @@ tolerance as rounding and folds it into the pool — the same place an
 left alone: Beancount reports the imbalance itself, and the month-end invariant
 (`E007`) reflects it until it is booked.
 
+Amounts are valued at the precision Beancount displays the operating currency
+(`options["dcontext"]`) — the same figure it prints — so a commodity posting
+whose cost-basis weight carries a sub-cent tail, such as an imported trade of
+`1.68 VTI {1.0001 USD}`, moves its envelope by `1.68`, not `1.680168`. Without
+that rounding the tail would linger as a `-0.00` closing balance, turn the cell
+red, and could trip the pool-floor warning (`W001`). The tolerance is still
+judged on the raw Beancount weights, but the folded residual is the
+display-precision leftover, so the invariant stays exact to the cent.
+
 If there is no `start` directive, the plugin does nothing and warns (`W003`).
 
 ## Command line
