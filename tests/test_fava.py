@@ -562,6 +562,19 @@ def test_template_blanks_zero_envelope_values() -> None:
     assert ">0.00<" in _row(html, ">Pool<")
 
 
+def test_template_hides_rounded_investment_zero() -> None:
+    """A sub-cent cost basis does not leak a red -0.00 into the report."""
+    html = _render(
+        _extension("investment_rounding.bean"),
+        {"month": "2026-05", "months": "2"},
+    )
+    taxable = _row(html, ">Taxable Investments<")
+    assert "-0.00" not in taxable
+    assert "0.00" not in taxable
+    assert "envelope-neg" not in taxable
+    assert "1.68" in taxable
+
+
 def test_template_parent_subtotal_keeps_zeros() -> None:
     """A parent subtotal always shows its numbers, including zeros."""
     html = _render(
