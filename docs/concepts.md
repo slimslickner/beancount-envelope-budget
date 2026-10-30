@@ -328,7 +328,7 @@ closing(e, m) = closing(e, m-1) + allocated(e, m) + activity(e, m)
 Overspending needs no special rule: a negative balance simply carries forward
 until later allocations cover it. A pool that goes negative on any day means
 more was allocated than the cash available at that point, and is reported as a
-warning (`W001`); `pool LEDGER` prints the pool's per-posting ledger around it,
+warning (`W001`); `pool LEDGER` prints the pool's per-transaction ledger around it,
 with the running balance after each line.
 
 ## Validation
@@ -389,7 +389,7 @@ See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget
 - `check` exits non-zero on any error.
 - `report` prints opening, allocated, activity and closing for one to three
   months, plus the pool and cash rows.
-- `pool` prints the pool's per-posting ledger — both directions, with the running
+- `pool` prints the pool's per-transaction ledger — both directions, with the running
   balance after each line — so a `W001` dip can be traced. A bare run opens on
   the pool's lowest month when it ever went negative, else the latest month;
   `--all` shows the whole history, and `--month`/`--date` window it.

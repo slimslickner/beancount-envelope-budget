@@ -93,7 +93,7 @@ A plan funds an envelope either by `monthly` or by a `target` with a `by` date, 
 
 **Warning:** The pool is negative on {date}, reaching a low of {balance} (it opened that day at {opening}).
 
-More was allocated than the cash available at that point. Fund the envelope after the income arrives, or move money back from another envelope. Run `beancount-envelope-budget pool LEDGER` to see the pool's per-posting ledger around the dip, with a running balance.
+More was allocated than the cash available at that point. Fund the envelope after the income arrives, or move money back from another envelope. Run `beancount-envelope-budget pool LEDGER` to see the pool's per-transaction ledger around the dip, with a running balance.
 
 
 ## W002

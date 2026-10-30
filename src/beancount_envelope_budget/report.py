@@ -144,7 +144,7 @@ class PoolEntry:
 
 @dataclass(frozen=True, slots=True)
 class PoolLedger:
-    """The pool's per-posting ledger over a window.
+    """The pool's per-transaction ledger over a window.
 
     Attributes:
         opening: The pool balance carried into the window.
@@ -792,14 +792,16 @@ def pool_ledger(
     start: date | None = None,
     end: date | None = None,
 ) -> PoolLedger:
-    """Build the pool's per-posting ledger, optionally over a date window.
+    """Build the pool's ledger of transactions and allocations, in a date window.
 
-    The pool's balance moves for two reasons, and both are included: pool
-    activity (income, spending charged to the pool, a security's gain, a folded
-    rounding residual) and allocations leaving the pool for an envelope. Lines
-    are ordered by date, with a day's activity before its allocations, so the
-    running balance walks the same path the ``W001`` pool-floor warning measures.
-    Each line carries the balance after it, so the pool's lows are visible.
+    The pool's balance moves for two reasons, and both are included: each
+    transaction's net pooled effect (income, spending charged to the pool, a
+    security's gain; a folded rounding residual is its own line) and allocations
+    leaving the pool for an envelope. A transaction is one line, so its internal
+    posting order never reads as a dip. Lines are ordered by date, with a day's
+    activity before its allocations, so the running balance walks the same path
+    the ``W001`` pool-floor warning measures. Each line carries the balance after
+    it, so the pool's lows are visible.
 
     ``result`` must have been computed with ``collect_activity=True``, or the
     pool's activity lines are absent and only allocations remain.

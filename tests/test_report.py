@@ -72,6 +72,16 @@ def test_pool_ledger_by_day() -> None:
     assert ledger.low == D("-500")
 
 
+def test_pool_ledger_nets_each_transaction() -> None:
+    """A transaction's pool postings net into one line, so payroll is not a dip."""
+    result = _compute("payroll.bean")
+    ledger = pool_ledger(result)
+    pool_lines = [e for e in ledger.entries if e.kind == POOL_ACTIVITY]
+    assert [e.amount for e in pool_lines] == [D("3500")]
+    assert ledger.low == D("3500")
+    assert "W001" not in [d.code for d in result.diagnostics]
+
+
 def test_pool_ledger_includes_rounding() -> None:
     """A folded rounding residual appears as a pool activity line."""
     result = _compute("rounding_residual.bean")

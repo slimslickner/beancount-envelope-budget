@@ -58,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before it would go negative. Their CLI equivalents are `fund --mode
   fully-fund` and `fund --mode fund-available`; both expand to one `allocate`
   per envelope that needs funding (#7).
-- A `pool` command prints the unassigned pool's per-posting ledger — income and
+- A `pool` command prints the unassigned pool's per-transaction ledger — income and
   spending charged to the pool, plus every allocation leaving it — in date order
   with the running balance after each line. A bare run opens on the pool's
   lowest month when it ever went negative, else the latest month; `--all`,
@@ -106,6 +106,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The pool ledger (`pool` and the Fava popover) now nets each transaction's
+  postings into one line, and `W001` walks the same per-transaction events, so a
+  payroll's withholding and its deposit no longer read as a pool dip and the
+  warning and the ledger agree line for line.
 - `W001` now names the day of the pool's lowest balance, and that day's opening
   balance, rather than the first day the pool went negative — which could be a
   different day, making the warning read as wrong.

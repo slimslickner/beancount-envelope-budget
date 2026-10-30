@@ -339,7 +339,7 @@ def _cmd_suggest(args: argparse.Namespace) -> int:
 
 
 def _cmd_pool(args: argparse.Namespace) -> int:
-    """Print the pool's per-posting ledger, with a running balance.
+    """Print the pool's per-transaction ledger, with a running balance.
 
     Args:
         args: Parsed arguments; ``args.ledger``, the optional ``--month`` or
@@ -1723,8 +1723,8 @@ def build_parser() -> argparse.ArgumentParser:
         "pool",
         help="print the pool's ledger with a running balance",
         description=(
-            "Print every posting and allocation that moved the unassigned pool, "
-            "in date order with the running balance after each, so a negative "
+            "Print every transaction and allocation that moved the unassigned "
+            "pool, in date order with the running balance after each, so a negative "
             "pool (W001) can be traced. A bare run shows the pool's lowest month "
             "when it ever went negative, else the latest month."
         ),

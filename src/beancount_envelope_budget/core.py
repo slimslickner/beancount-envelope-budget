@@ -1721,6 +1721,33 @@ class _Valuation:
         return None if number is None else self.quantize(number)
 
 
+@dataclass(frozen=True, slots=True)
+class _Scan:
+    """The state a transaction scan accumulates into.
+
+    Attributes:
+        valuation: The operating currency and display context.
+        accounts: The account metadata.
+        declarations: The declared envelopes.
+        diagnostics: The list to append diagnostics to.
+        activity: The ``(destination, date, amount)`` events, extended in place.
+        details: The per-posting detail events, extended in place.
+        resolved: The ``(id(posting), envelope)`` pairs, extended in place.
+        collect_resolved: Whether to record each posting's resolved envelope.
+        collect_activity: Whether to record per-posting activity detail.
+    """
+
+    valuation: _Valuation
+    accounts: dict[str, AccountInfo]
+    declarations: _Declarations
+    diagnostics: list[Diagnostic]
+    activity: list[tuple[str, date, Decimal]]
+    details: list[ActivityEvent]
+    resolved: list[tuple[int, str]]
+    collect_resolved: bool
+    collect_activity: bool
+
+
 def _process_transactions(
     entries: list[Directive],
     accounts: dict[str, AccountInfo],
@@ -1747,58 +1774,104 @@ def _process_transactions(
     Returns:
         The gathered :class:`_Effects`.
     """
-    operating_currency = valuation.currency
     activity: list[tuple[str, date, Decimal]] = []
     cash: list[tuple[date, Decimal]] = []
     resolved: list[tuple[int, str]] = []
     details: list[ActivityEvent] = []
+    scan = _Scan(
+        valuation,
+        accounts,
+        declarations,
+        diagnostics,
+        activity,
+        details,
+        resolved,
+        collect_resolved,
+        collect_activity,
+    )
     for entry in entries:
         if not isinstance(entry, Transaction) or entry.date < start:
             continue
         cash_postings = _cash_postings(entry, accounts)
         if not cash_postings:
             continue
-        if _has_foreign_currency(entry, operating_currency, diagnostics):
+        if _has_foreign_currency(entry, valuation.currency, diagnostics):
             continue
-        cash_total = Decimal(0)
-        for posting in cash_postings:
-            cash_total += valuation.value(posting) or Decimal(0)
-        cash.append((entry.date, cash_total))
-        _absorb_rounding(
-            entry, valuation, activity, details, collect_activity=collect_activity
-        )
-        cash_ids = {id(posting) for posting in cash_postings}
-        txn_meta = _meta(entry)
-        payee, narration = _txn_parts(entry)
-        for posting in entry.postings:
-            number = valuation.value(posting)
-            if number is None or id(posting) in cash_ids:
-                continue
-            dest = _resolve_destination(
-                posting, txn_meta, accounts, declarations, entry, diagnostics
-            )
-            if collect_resolved:
-                resolved.append((id(posting), dest))
-            amount = -number
-            if collect_activity:
-                details.append(
-                    ActivityEvent(
-                        dest,
-                        entry.date,
-                        amount,
-                        compare.hash_entry(entry),
-                        payee,
-                        narration,
-                        _posting_narration(posting),
-                    )
-                )
-            activity.append((dest, entry.date, amount))
+        cash.append((entry.date, _gather_transaction(entry, cash_postings, scan)))
     return _Effects(
         activity=tuple(activity),
         cash=tuple(cash),
         resolved=tuple(resolved),
         details=tuple(details),
     )
+
+
+def _gather_transaction(
+    entry: Transaction,
+    cash_postings: list[Posting],
+    scan: _Scan,
+) -> Decimal:
+    """Record one cash-moving transaction and return its cash change.
+
+    A transaction is atomic, so its pool postings are netted into one event: a
+    payroll's withholding and its deposit are not a dip between them.
+
+    Args:
+        entry: The transaction.
+        cash_postings: Its postings to cash accounts.
+        scan: The state to accumulate into.
+
+    Returns:
+        The transaction's signed cash change in the operating currency.
+    """
+    cash_total = Decimal(0)
+    for posting in cash_postings:
+        cash_total += scan.valuation.value(posting) or Decimal(0)
+    _absorb_rounding(
+        entry,
+        scan.valuation,
+        scan.activity,
+        scan.details,
+        collect_activity=scan.collect_activity,
+    )
+    cash_ids = {id(posting) for posting in cash_postings}
+    txn_meta = _meta(entry)
+    payee, narration = _txn_parts(entry)
+    entry_hash = compare.hash_entry(entry)
+    pool_net = Decimal(0)
+    for posting in entry.postings:
+        number = scan.valuation.value(posting)
+        if number is None or id(posting) in cash_ids:
+            continue
+        dest = _resolve_destination(
+            posting, txn_meta, scan.accounts, scan.declarations, entry, scan.diagnostics
+        )
+        if scan.collect_resolved:
+            scan.resolved.append((id(posting), dest))
+        amount = -number
+        if dest == POOL:
+            pool_net += amount
+            continue
+        if scan.collect_activity:
+            scan.details.append(
+                ActivityEvent(
+                    dest,
+                    entry.date,
+                    amount,
+                    entry_hash,
+                    payee,
+                    narration,
+                    _posting_narration(posting),
+                )
+            )
+        scan.activity.append((dest, entry.date, amount))
+    if pool_net != 0:
+        scan.activity.append((POOL, entry.date, pool_net))
+        if scan.collect_activity:
+            scan.details.append(
+                ActivityEvent(POOL, entry.date, pool_net, entry_hash, payee, narration)
+            )
+    return cash_total
 
 
 def _txn_parts(entry: Transaction) -> tuple[str | None, str | None]:
@@ -1948,7 +2021,7 @@ def _absorb_rounding(
         activity: The activity events, extended in place.
         details: The detail events, extended in place when ``collect_activity``.
         collect_activity: Whether to record the fold as a detail event too, so a
-            per-posting pool ledger includes the same rounding the warning sees.
+            per-transaction pool ledger includes the same rounding the warning sees.
     """
     operating_currency = valuation.currency
     if not operating_currency:
@@ -2474,24 +2547,26 @@ def _check_pool_floor(
         operating_currency: The currency, for the message.
         diagnostics: The list to append diagnostics to.
     """
-    activity_by_date: dict[date, Decimal] = defaultdict(Decimal)
-    for when, amount in pool_activity:
-        activity_by_date[when] += amount
-    alloc_by_date: dict[date, Decimal] = defaultdict(Decimal)
-    for when, amount in pool_alloc:
-        alloc_by_date[when] += amount
-
-    dates = sorted({start, *activity_by_date, *alloc_by_date})
+    # Walk the same events, in the same order, that
+    # :func:`beancount_envelope_budget.report.pool_ledger` builds its ledger
+    # from: each transaction's pooled effect, then that day's allocations. The
+    # warning and the ledger therefore agree line for line.
+    staged = sorted(
+        [(when, 0, amount) for when, amount in pool_activity]
+        + [(when, 1, amount) for when, amount in pool_alloc],
+        key=lambda item: (item[0], item[1]),
+    )
     balance = pre_start_cash
     low = balance
     low_date = start
     low_opening = balance
-    for when in dates:
-        day_opening = balance
-        balance += activity_by_date.get(when, Decimal(0))
-        if balance < low:
-            low, low_date, low_opening = balance, when, day_opening
-        balance -= alloc_by_date.get(when, Decimal(0))
+    current_date: date | None = None
+    day_opening = balance
+    for when, kind, amount in staged:
+        if when != current_date:
+            current_date = when
+            day_opening = balance
+        balance += amount if kind == 0 else -amount
         if balance < low:
             low, low_date, low_opening = balance, when, day_opening
     if low < 0:
