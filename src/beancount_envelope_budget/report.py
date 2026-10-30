@@ -42,6 +42,7 @@ __all__ = [
     "PlanLine",
     "PoolEntry",
     "PoolLedger",
+    "active_plan",
     "build_view",
     "envelope_need",
     "month_funding",
@@ -539,6 +540,44 @@ def plan_level(report: EnvelopeReport, on: date) -> Decimal | None:
         return None if average is None else _round_to_cent(average)
     level = report.envelope.funding_level(on)
     return None if level is None else _round_to_cent(level)
+
+
+def active_plan(plans: tuple[PlanLine, ...], month: date) -> PlanLine | None:
+    """Return the plan directive in force in a month.
+
+    An envelope's plan is a base, set on its ``open`` directive, plus dated
+    ``plan``/``unplan`` overrides. This picks the one that governs a month — the
+    latest dated on or before the month's last day — matching the date the rest
+    of the view evaluates an envelope's plan at, so the directive shown agrees
+    with the funding level beside it.
+
+    Args:
+        plans: The envelope's plan directives, base first.
+        month: Any date within the month.
+
+    Returns:
+        The governing :class:`PlanLine`, or ``None`` when the plan has never
+        been set.
+
+    Examples:
+        >>> from decimal import Decimal
+        >>> plans = (
+        ...     PlanLine(date(2024, 1, 1), "base", monthly=Decimal("100"), base=True),
+        ...     PlanLine(date(2024, 6, 1), "change", priority=Decimal("1")),
+        ... )
+        >>> active_plan(plans, date(2024, 1, 1)).entry_hash
+        'base'
+        >>> active_plan(plans, date(2024, 6, 15)).entry_hash
+        'change'
+        >>> active_plan(plans, date(2023, 12, 1)) is None
+        True
+    """
+    on = _last_day(month)
+    active: PlanLine | None = None
+    for line in plans:
+        if line.date <= on and (active is None or line.date >= active.date):
+            active = line
+    return active
 
 
 def plan_top_up(report: EnvelopeReport, on: date) -> Decimal:

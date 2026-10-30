@@ -7,14 +7,15 @@
 {% macro closing_class(cell) -%}
 {%- if cell.visible and cell.closing < 0 %} envelope-neg{% elif cell.visible and cell.funding in ('on', 'over') %} envelope-funded{% elif cell.visible and cell.funding == 'under' %} envelope-partial{% endif -%}
 {%- endmacro %}
-{% macro amounts(cell, sep=false, blank=false, name=none) -%}
+{% macro amounts(cell, sep=false, blank=false, name=none, plans=()) -%}
   {%- set editable = name is not none and extension.writable and cell.visible -%}
   {%- set shows = name is not none and (cell.allocations or editable) -%}
+  {%- set plan_info = cell.visible and (cell.level is not none or cell.target is not none) -%}
   {%- set ident = ((name or 'pool') | replace(' ', '_')) ~ '-' ~ cell.month.strftime('%Y%m') -%}
   {%- set base = request.path if request.path.endswith('/') else request.path ~ '/' -%}
   <td class="num{{ ' envelope-sep' if sep else '' }}{{ ' envelope-pop-host envelope-alloc-host' if shows else '' }}">{% if shows %}<input type="checkbox" class="envelope-pop-toggle" id="alloc-{{ ident }}"><label class="envelope-pop-label" for="alloc-{{ ident }}">{% if editable and (blank and cell.allocated == 0) %}+{% elif cell.visible and not (blank and cell.allocated == 0) %}{{ extension.money(cell.allocated) }}{% endif %}</label><label class="envelope-pop-backdrop" for="alloc-{{ ident }}"></label><div class="envelope-pop envelope-alloc-pop">{% for line in cell.allocations %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ extension.money(line.amount) }}</a>{% endfor %}{% if editable %}{%- set suggest = extension.prefill(name, cell.month) -%}{%- set cover = extension.cover_prefill(name, cell.month) -%}<form method="post" action="{{ base ~ 'commit' }}" data-create><input type="hidden" name="action" value="allocate"><input type="hidden" name="envelope" value="{{ name }}"><label>Amount <input name="amount" size="8" value="{{ suggest }}"></label><input type="date" name="date" value="{{ extension.fill_date(cell.month) }}"><button type="submit">Add allocation</button></form>{% if cover != '0.00' and cover != suggest %}<form method="post" action="{{ base ~ 'commit' }}" data-create><input type="hidden" name="action" value="allocate"><input type="hidden" name="envelope" value="{{ name }}"><input type="hidden" name="amount" value="{{ cover }}"><input type="hidden" name="date" value="{{ extension.fill_date(cell.month) }}"><button type="submit">Cover overspending ({{ cover }})</button></form>{% endif %}{% endif %}</div>{% else %}{% if cell.visible and not (blank and cell.allocated == 0) %}{{ extension.money(cell.allocated) }}{% endif %}{% endif %}</td>
   <td class="num envelope-activity{{ ' envelope-pop-host' if cell.detail else '' }}">{% if cell.detail %}<input type="checkbox" class="envelope-pop-toggle" id="act-{{ ident }}"><label class="envelope-pop-label" for="act-{{ ident }}">{% if cell.visible and not (blank and cell.activity == 0) %}{{ extension.money(cell.activity) }}{% endif %}</label><label class="envelope-pop-backdrop" for="act-{{ ident }}"></label><div class="envelope-detail">{% for line in cell.detail %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ extension.detail_text(line) }} &middot; {{ extension.money(line.amount) }}</a>{% endfor %}{% if cell.detail_total > cell.detail | length %}<span class="envelope-detail-more">and {{ cell.detail_total - cell.detail | length }} more</span>{% endif %}</div>{% else %}{% if cell.visible and not (blank and cell.activity == 0) %}{{ extension.money(cell.activity) }}{% endif %}{% endif %}</td>
-  <td class="num{{ closing_class(cell) }}">{% if cell.visible and cell.fill is not none %}<span class="envelope-ring" style="--envelope-fill: {{ extension.fill_percent(cell) }}"></span>{% endif %}{% if cell.visible and not (blank and cell.closing == 0) %}{{ extension.money(cell.closing) }}{% endif %}</td>
+  <td class="num{{ closing_class(cell) }}{{ ' envelope-pop-host envelope-closing-host' if plan_info else '' }}">{% if plan_info %}<input type="checkbox" class="envelope-pop-toggle" id="close-{{ ident }}"><label class="envelope-pop-label" for="close-{{ ident }}">{% if cell.fill is not none %}<span class="envelope-ring" style="--envelope-fill: {{ extension.fill_percent(cell) }}"></span>{% endif %}{% if not (blank and cell.closing == 0) %}{{ extension.money(cell.closing) }}{% endif %}</label><label class="envelope-pop-backdrop" for="close-{{ ident }}"></label><div class="envelope-pop envelope-closing-pop"><div class="envelope-closing-status">{{ extension.funding_text(cell) }}</div>{% set active = extension.active_plan(plans, cell.month) %}{% if active %}<a href="#context-{{ active.entry_hash }}">{{ active.date.isoformat() }} &middot; {{ extension.plan_text(active) }}</a>{% endif %}</div>{% else %}{% if cell.visible and cell.fill is not none %}<span class="envelope-ring" style="--envelope-fill: {{ extension.fill_percent(cell) }}"></span>{% endif %}{% if cell.visible and not (blank and cell.closing == 0) %}{{ extension.money(cell.closing) }}{% endif %}{% endif %}</td>
 {%- endmacro %}
 {% macro pool_amounts(cell, sep=false) -%}
   {%- set ident = 'pool-' ~ cell.month.strftime('%Y%m') -%}
@@ -343,6 +344,15 @@
       .envelope-plan-pop {
         left: 0;
       }
+      /* The closing popover hangs from its right edge so it grows leftward and
+         does not run off the last month's column. */
+      .envelope-closing-pop {
+        right: 0;
+      }
+      .envelope-closing-status {
+        margin-bottom: 0.35rem;
+        font-weight: 600;
+      }
       /* The month-level actions live in the header: a small "actions" label
          that opens a popover of bulk funding commands. */
       .envelope-month-label {
@@ -471,7 +481,7 @@
                     <tr>
                       {{ name_cell(envelope, view.months[0]) }}
                       {{ opening(envelope.cells[0], blank=true) }}
-                      {% for cell in envelope.cells %}{{ amounts(cell, not loop.first, blank=true, name=envelope.name) }}{% endfor %}
+                      {% for cell in envelope.cells %}{{ amounts(cell, not loop.first, blank=true, name=envelope.name, plans=envelope.plans) }}{% endfor %}
                     </tr>
                   {% endif %}
                 {% endfor %}
@@ -492,7 +502,7 @@
                   <tr class="envelope-child">
                     {{ name_cell(envelope, view.months[0]) }}
                     {{ opening(envelope.cells[0], blank=true) }}
-                    {% for cell in envelope.cells %}{{ amounts(cell, not loop.first, blank=true, name=envelope.name) }}{% endfor %}
+                    {% for cell in envelope.cells %}{{ amounts(cell, not loop.first, blank=true, name=envelope.name, plans=envelope.plans) }}{% endfor %}
                   </tr>
                 {% endif %}
               {% endfor %}

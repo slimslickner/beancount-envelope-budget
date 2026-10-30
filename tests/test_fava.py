@@ -384,6 +384,66 @@ def test_template_no_ring_without_a_plan() -> None:
     assert 'class="envelope-ring"' not in html
 
 
+def _closing_pop(html: str, marker: str) -> str:
+    """Return the closing popover fragment from the row containing a marker.
+
+    Args:
+        html: The rendered template.
+        marker: A substring unique to the row.
+
+    Returns:
+        The row's ``.envelope-closing-pop`` markup onward, so a test reads only
+        the closing popover and not the name cell's plan history.
+    """
+    row = _row(html, marker)
+    return row[row.index("envelope-closing-pop") :]
+
+
+def test_template_closing_popover_shows_plan_status() -> None:
+    """A planned envelope's closing figure opens a plan-status popover."""
+    html = _render(
+        _extension("funding_colors.bean"), {"month": "2024-01", "months": "1"}
+    )
+    under = _row(html, ">Under<")
+    assert "envelope-closing-pop" in under
+    assert "envelope-closing-host" in under
+    # The status omits the level, showing the funding fraction and label.
+    assert "50.0% funded" in under
+    assert "underfunded" in under
+    assert "level " not in under
+
+
+def test_template_closing_popover_shows_the_active_plan() -> None:
+    """The closing popover lists the plan in force for the month, not the history."""
+    extension = _extension("plan_merge.bean")
+    early = _closing_pop(
+        _render(extension, {"month": "2024-01", "months": "1"}), ">Car<"
+    )
+    assert "open: priority 2" in early
+    later = _closing_pop(
+        _render(extension, {"month": "2024-06", "months": "1"}), ">Car<"
+    )
+    assert "priority 1" in later
+    assert "open:" not in later
+
+
+def test_template_closing_popover_links_the_active_plan() -> None:
+    """A goal envelope's closing popover names its target and links its plan."""
+    html = _render(_extension("savings_goal.bean"), {"month": "2024-02", "months": "1"})
+    car = _closing_pop(html, ">Car<")
+    assert "target 15000.00" in car
+    assert "2028-06-01" in car
+    assert "#context-" in car
+
+
+def test_template_no_closing_popover_without_a_plan() -> None:
+    """An unplanned envelope's closing figure stays plain text."""
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
+    groceries = _row(html, ">Groceries<")
+    assert "envelope-closing-pop" not in groceries
+    assert "envelope-closing-host" not in groceries
+
+
 def test_report_includes_warnings() -> None:
     """Warnings surface on the view."""
     view = _extension("mid_month_dip.bean").report("2024-01", "1")
