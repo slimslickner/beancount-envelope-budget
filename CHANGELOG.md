@@ -140,3 +140,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The CLI `report` and the Fava Envelopes page default to the current month
   rather than the latest month in the ledger, so a future-dated `custom
   "envelope"` directive no longer opens the report on a month in the future.
+- The Fava report remembers the table's scroll position, so clicking a month
+  link or saving an edit no longer jumps the table back to the top (#28).
+- The Fava report refreshes itself after an edit, instead of waiting for Fava's
+  watcher to notice the change and clicking the yellow reload button (#28).

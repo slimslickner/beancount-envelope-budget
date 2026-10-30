@@ -907,6 +907,29 @@ def test_js_module_is_shipped() -> None:
     assert (Path(fava_ext.__file__).parent / "Envelopes.js").exists()
 
 
+def test_js_module_remembers_scroll() -> None:
+    """The JavaScript module restores the table's scroll position on reload.
+
+    There is no JavaScript runtime in this project, so this only pins the
+    contract: the hook restores the scroll box from sessionStorage (#28).
+    """
+    source = (Path(fava_ext.__file__).parent / "Envelopes.js").read_text()
+    assert "envelope-table-scroll" in source
+    assert "sessionStorage" in source
+    assert "track_scroll()" in source.split("onExtensionPageLoad(ctx)")[1]
+
+
+def test_js_module_refreshes_after_save() -> None:
+    """The JavaScript module refreshes the report after it saves an edit.
+
+    It clicks Fava's own reload button, so it does not wait for the watcher's
+    poll or the yellow reload indicator (#28).
+    """
+    source = (Path(fava_ext.__file__).parent / "Envelopes.js").read_text()
+    assert "button.reload-page" in source
+    assert "\n  refresh();" in source
+
+
 def test_perform_requires_a_write_target() -> None:
     """Applying an edit without a write target is refused."""
     extension = _extension("basic.bean")

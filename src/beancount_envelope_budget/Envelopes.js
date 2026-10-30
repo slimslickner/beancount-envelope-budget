@@ -13,6 +13,7 @@ export default {
   init() {},
   onPageLoad() {},
   onExtensionPageLoad(ctx) {
+    track_scroll();
     const api = ctx && ctx.api;
     if (!api) {
       return;
@@ -25,6 +26,60 @@ export default {
     }
   },
 };
+
+// Remember the table's scroll position across reloads.
+//
+// Every navigation (the month links) and every edit reload swaps the page's
+// contents in place, recreating the scroll box at the top. Its position lives
+// in sessionStorage, keyed by path so it survives a month change but not a move
+// to another report; the hook that Fava calls after each render restores it and
+// keeps saving as the box scrolls.
+const SCROLL_KEY = "beancount-envelope:scroll";
+
+/** @returns {string} The sessionStorage key for the current report page. */
+function store_key() {
+  return `${SCROLL_KEY}:${window.location.pathname}`;
+}
+
+/** Restore the scroll box, then keep its position saved as it scrolls. */
+function track_scroll() {
+  const box = document.querySelector(".envelope-table-scroll");
+  if (!box) {
+    return;
+  }
+  let saved = null;
+  try {
+    saved = JSON.parse(sessionStorage.getItem(store_key()) || "null");
+  } catch {
+    saved = null;
+  }
+  if (saved) {
+    box.scrollTop = saved.top;
+    box.scrollLeft = saved.left;
+  }
+  let queued = false;
+  box.addEventListener(
+    "scroll",
+    () => {
+      if (queued) {
+        return;
+      }
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        try {
+          sessionStorage.setItem(
+            store_key(),
+            JSON.stringify({ top: box.scrollTop, left: box.scrollLeft }),
+          );
+        } catch {
+          // Storage can be unavailable (private mode); losing the position is fine.
+        }
+      });
+    },
+    { passive: true },
+  );
+}
 
 /**
  * Render a form's fields, edit the Beancount, and save it.
@@ -65,8 +120,28 @@ async function create(form, api) {
     window.alert(`Could not save:\n\n${result.error}`);
     return;
   }
-  // The write notified Fava's watcher, so its change detection offers or performs
-  // an in-place reload — no full page load, which would lose the current place.
+  // We made the change, so refresh now rather than waiting for Fava's watcher to
+  // notice it (up to five seconds, then only the yellow reload button when
+  // auto-reload is off). The refresh's own request reloads the ledger first.
+  refresh();
+}
+
+/**
+ * Refresh the report the way Fava's yellow reload button does.
+ *
+ * The button's click handler is Fava's own `router.reload()`, which an
+ * extension cannot call directly; clicking the button reaches the same code.
+ * It is hidden until a change is detected, but a programmatic click fires its
+ * handler regardless. `window.location.reload()` is the fallback if a future
+ * Fava renames the button.
+ */
+function refresh() {
+  const button = document.querySelector("button.reload-page");
+  if (button instanceof HTMLElement) {
+    button.click();
+  } else {
+    window.location.reload();
+  }
 }
 
 /**
