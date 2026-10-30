@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The Fava report gains a **Reports** tab (`?view=reports`, renamed from
+  Dashboard; the ledger grid is now headed **Envelopes**) that spans the budget's
+  whole history as table rows of month columns: the cash and pool balances, then
+  the per-month top spending, allocated and ending-balance envelopes (#42).
+- The Reports rows scroll together in one horizontal strip, their month columns
+  a fixed shared width sized to the longest name they hold, with each row's
+  title pinned as the months scroll past (#42).
+
 - `E010` reports a plan whose metadata has no effect: `target` without `by`,
   `by` without `target`, or `monthly` with `target`.
 - The report view exposes each envelope's funding `level` and whether it is

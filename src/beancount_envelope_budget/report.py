@@ -33,16 +33,22 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 __all__ = [
+    "TOP_N",
     "ActivityLine",
     "AllocationLine",
     "BudgetView",
     "Cell",
     "EnvelopeGroup",
     "EnvelopeView",
+    "MonthReport",
     "PlanLine",
     "PoolEntry",
     "PoolLedger",
+    "ReportEntry",
+    "ReportRow",
+    "Reports",
     "active_plan",
+    "build_reports",
     "build_view",
     "envelope_need",
     "month_funding",
@@ -61,6 +67,9 @@ MAX_DETAIL = 20
 
 #: The maximum number of months a view may span.
 MAX_MONTHS = 3
+
+#: How many envelopes a report ranking lists for each month.
+TOP_N = 10
 
 #: The quantum every funding level is rounded to, matching the whole cents the
 #: ledger holds and the report displays.
@@ -413,6 +422,78 @@ class BudgetView:
     warnings: tuple[Diagnostic, ...]
     errors: tuple[Diagnostic, ...]
     nav: Mapping[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class ReportEntry:
+    """One name and amount in a month's report column.
+
+    Attributes:
+        name: The entry's label — an envelope name, or ``Cash``/``Pool``.
+        amount: The figure for the month.
+    """
+
+    name: str
+    amount: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class MonthReport:
+    """One month's column of a report row.
+
+    Attributes:
+        month: The first day of the month.
+        entries: The entries shown for the month, in display order.
+    """
+
+    month: date
+    entries: tuple[ReportEntry, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ReportRow:
+    """One row of the report: a small table per month, side by side.
+
+    Attributes:
+        title: The row's label, such as ``Top spending`` or ``Cash and pool``.
+        months: One :class:`MonthReport` per report month, ascending.
+    """
+
+    title: str
+    months: tuple[MonthReport, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class Reports:
+    """A full-history, table-only view of a budget, for the Fava report.
+
+    Where :class:`BudgetView` is a ledger-style grid over one to three months,
+    the reports view spans every computed month as rows of month columns: the
+    cash and pool balances first, then the per-month top spending, allocated and
+    ending balance. It is data only; the Fava report renders it as tables.
+
+    Attributes:
+        has_start: Whether the ledger has a start directive.
+        currency: The operating currency.
+        rows: The report rows, in display order.
+        name_chars: The length of the longest entry name across the rows, so
+            every table's name column can be the same width.
+        amount_chars: The length of the longest formatted amount across the
+            rows, so every table's amount column can fit it.
+    """
+
+    has_start: bool
+    currency: str
+    rows: tuple[ReportRow, ...]
+    name_chars: int = 0
+    amount_chars: int = 0
+
+
+#: The titles of the report's ranking rows, in display order.
+RANKING_TITLES = ("Top spending", "Top allocated", "Top ending balance")
+
+#: The title of the cash-and-pool balance row.
+BALANCE_TITLE = "Cash and pool"
 
 
 def _shift(month: date, delta: int) -> date:
@@ -1038,6 +1119,206 @@ def build_view(
         warnings=tuple(d for d in result.diagnostics if d.severity is Severity.WARNING),
         errors=tuple(d for d in result.diagnostics if d.severity is Severity.ERROR),
         nav=_nav(start, count),
+    )
+
+
+def build_reports(result: BudgetResult) -> Reports:
+    """Build a full-history, table-only reports view of a budget.
+
+    Unlike :func:`build_view`, which spans one to three months for the ledger
+    grid, this spans every computed month as report rows of month columns: the
+    cash and pool balances, then the per-month top spending, allocated and
+    ending-balance envelopes. It is pure and data only, so the Fava report and
+    any future caller share the same numbers.
+
+    Args:
+        result: The computed budget.
+
+    Returns:
+        The :class:`Reports`. When tracking is not configured, it has
+        ``has_start = False`` and no rows.
+
+    Examples:
+        >>> from beancount_envelope_budget.core import BudgetResult
+        >>> empty = BudgetResult(None, "USD", (), (), (), (), ())
+        >>> build_reports(empty).has_start
+        False
+    """
+    if result.start is None or not result.months:
+        return Reports(
+            has_start=False,
+            currency=result.operating_currency,
+            rows=(),
+        )
+    months = result.months
+    rows = (_balance_row(result, months), *_ranking_rows(result, months))
+    return Reports(
+        has_start=True,
+        currency=result.operating_currency,
+        rows=rows,
+        name_chars=_report_name_chars(rows),
+        amount_chars=_report_amount_chars(rows),
+    )
+
+
+def _balance_row(result: BudgetResult, months: tuple[date, ...]) -> ReportRow:
+    """Build the cash-and-pool balance row.
+
+    Each month's column carries the cash balance and the pool balance.
+
+    Args:
+        result: The computed budget.
+        months: The months to show.
+
+    Returns:
+        The :class:`ReportRow`.
+    """
+    return ReportRow(
+        BALANCE_TITLE,
+        tuple(
+            MonthReport(
+                month,
+                (
+                    ReportEntry("Cash", _cash_balance(result, month)),
+                    ReportEntry("Pool", row_for(result.pool, month).closing),
+                ),
+            )
+            for month in months
+        ),
+    )
+
+
+def _ranking_rows(
+    result: BudgetResult,
+    months: tuple[date, ...],
+) -> tuple[ReportRow, ...]:
+    """Rank envelopes by spending, allocation and ending balance each month.
+
+    Only envelopes open in a month are ranked, and only positive figures — an
+    envelope that did not spend, was not allocated to, or closed non-positive is
+    omitted.
+
+    Args:
+        result: The computed budget.
+        months: The months to rank.
+
+    Returns:
+        The spending, allocation and ending-balance :class:`ReportRow`s.
+    """
+    spend: list[MonthReport] = []
+    allocated: list[MonthReport] = []
+    closing: list[MonthReport] = []
+    for index, month in enumerate(months):
+        spend_entries: list[ReportEntry] = []
+        allocated_entries: list[ReportEntry] = []
+        closing_entries: list[ReportEntry] = []
+        for report in result.envelopes:
+            if not _open_in(report.envelope, month):
+                continue
+            row = report.rows[index]
+            if -row.activity > 0:
+                spend_entries.append(ReportEntry(report.name, -row.activity))
+            if row.allocated > 0:
+                allocated_entries.append(ReportEntry(report.name, row.allocated))
+            if row.closing > 0:
+                closing_entries.append(ReportEntry(report.name, row.closing))
+        spend.append(MonthReport(month, _top_entries(spend_entries)))
+        allocated.append(MonthReport(month, _top_entries(allocated_entries)))
+        closing.append(MonthReport(month, _top_entries(closing_entries)))
+    return (
+        ReportRow(RANKING_TITLES[0], tuple(spend)),
+        ReportRow(RANKING_TITLES[1], tuple(allocated)),
+        ReportRow(RANKING_TITLES[2], tuple(closing)),
+    )
+
+
+def _top_entries(entries: list[ReportEntry]) -> tuple[ReportEntry, ...]:
+    """Sort ranked entries by amount, largest first, and cap them at ``TOP_N``.
+
+    Args:
+        entries: The ranked entries.
+
+    Returns:
+        The top entries, ties broken by name.
+    """
+    ordered = sorted(entries, key=lambda entry: (-entry.amount, _sort_key(entry.name)))
+    return tuple(ordered[:TOP_N])
+
+
+def _report_name_chars(rows: tuple[ReportRow, ...]) -> int:
+    """Return the longest entry name across every report row.
+
+    The Fava report uses it to give every column the same width.
+
+    Args:
+        rows: The report rows.
+
+    Returns:
+        The length of the longest name, or ``0`` when there is none.
+
+    Examples:
+        >>> row = ReportRow(
+        ...     "Top",
+        ...     (MonthReport(date(2024, 1, 1), (ReportEntry("Rent", Decimal(1)),)),),
+        ... )
+        >>> _report_name_chars((row,))
+        4
+    """
+    return max(
+        (
+            len(entry.name)
+            for row in rows
+            for month in row.months
+            for entry in month.entries
+        ),
+        default=0,
+    )
+
+
+def _report_amount_chars(rows: tuple[ReportRow, ...]) -> int:
+    """Return the length of the longest formatted amount across every row.
+
+    The Fava report uses it to size every table's amount column to fit its
+    widest figure, in the ``f"{amount:.2f}"`` form the report displays.
+
+    Args:
+        rows: The report rows.
+
+    Returns:
+        The length of the longest amount, or ``0`` when there is none.
+
+    Examples:
+        >>> row = ReportRow(
+        ...     "Top",
+        ...     (MonthReport(date(2024, 1, 1), (ReportEntry("Rent", Decimal("1234.5")),)),),
+        ... )
+        >>> _report_amount_chars((row,))
+        7
+    """
+    return max(
+        (
+            len(f"{entry.amount:.2f}")
+            for row in rows
+            for month in row.months
+            for entry in month.entries
+        ),
+        default=0,
+    )
+
+
+def _open_in(envelope: Envelope, month: date) -> bool:
+    """Whether an envelope is open in a month.
+
+    Args:
+        envelope: The declared envelope.
+        month: The month to test.
+
+    Returns:
+        True when the month is on or after the envelope's ``open`` and on or
+        before its ``close`` (when it has one).
+    """
+    return month >= month_of(envelope.opened) and (
+        envelope.closed is None or month <= month_of(envelope.closed)
     )
 
 

@@ -13,6 +13,9 @@ from beancount_envelope_budget.core import BudgetResult, compute
 from beancount_envelope_budget.report import (
     POOL_ACTIVITY,
     POOL_ALLOCATION,
+    ReportEntry,
+    _top_entries,
+    build_reports,
     build_view,
     pool_ledger,
     pool_ledger_json,
@@ -118,3 +121,73 @@ def test_build_view_pool_cell_carries_ledger() -> None:
     view = build_view(result, date(2024, 1, 1))
     assert [e.kind for e in view.pool[0].pool] == [POOL_ALLOCATION, POOL_ACTIVITY]
     assert view.pool[0].pool[0].balance == D("-500")
+
+
+def test_reports_balances_row_spans_every_month() -> None:
+    """The first report row is the cash and pool balance, per month."""
+    reports = build_reports(_compute("parent_groups.bean"))
+    assert reports.has_start is True
+    assert reports.currency == "USD"
+    assert [row.months[0].month for row in reports.rows] == [date(2024, 1, 1)] * 4
+    balance = reports.rows[0]
+    assert balance.title == "Cash and pool"
+    assert [(e.name, e.amount) for e in balance.months[0].entries] == [
+        ("Cash", D("3030")),
+        ("Pool", D("2300")),
+    ]
+
+
+def test_reports_row_titles() -> None:
+    """The rows are the balance, then the three top-ten rankings."""
+    reports = build_reports(_compute("parent_groups.bean"))
+    assert [row.title for row in reports.rows] == [
+        "Cash and pool",
+        "Top spending",
+        "Top allocated",
+        "Top ending balance",
+    ]
+
+
+def test_reports_column_widths() -> None:
+    """The report exposes the longest name and amount, for uniform columns."""
+    reports = build_reports(_compute("parent_groups.bean"))
+    assert reports.name_chars == 9
+    assert reports.amount_chars == len("3030.00")
+    empty = build_reports(_compute("no_start.bean"))
+    assert empty.name_chars == 0
+    assert empty.amount_chars == 0
+
+
+def test_reports_rankings_order_and_filter() -> None:
+    """Each ranking is envelope-level, ordered high to low, positive only."""
+    reports = build_reports(_compute("parent_groups.bean"))
+    _balance, spending, allocated, closing = reports.rows
+    assert [e.name for e in spending.months[0].entries] == ["Rent", "Groceries", "Car"]
+    assert [e.name for e in allocated.months[0].entries] == [
+        "Rent",
+        "Groceries",
+        "Car",
+        "Misc",
+    ]
+    # Rent closes at zero, so it is not a "top ending balance".
+    assert [e.name for e in closing.months[0].entries] == [
+        "Groceries",
+        "Car",
+        "Misc",
+    ]
+    assert closing.months[0].entries[0].amount == D("380")
+
+
+def test_reports_without_start() -> None:
+    """A ledger with no start has an empty reports view."""
+    reports = build_reports(_compute("no_start.bean"))
+    assert reports.has_start is False
+    assert reports.rows == ()
+
+
+def test_top_entries_caps_and_breaks_ties() -> None:
+    """Ranked entries cap at TOP_N and break ties by name."""
+    entries = [ReportEntry(f"env{index:02d}", D(1)) for index in range(12)]
+    top = _top_entries(entries)
+    assert len(top) == 10
+    assert [entry.name for entry in top] == [f"env{index:02d}" for index in range(10)]

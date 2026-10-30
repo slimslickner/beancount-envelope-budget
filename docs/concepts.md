@@ -451,6 +451,16 @@ still overrides it:
 2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext" "{'months': 2}"
 ```
 
+### Reports
+
+The **Reports** tab (the link beside *Envelopes*, or `?view=reports`) shows the
+budget's whole history rather than one to three months, as table rows of month
+columns that scroll together horizontally. The first row is the cash and pool
+balance per month; the rest rank the top spending, allocated and ending-balance
+envelopes. Every column is the same fixed width, and each row's title stays
+pinned as its months scroll past. The tab is plain tables — no JavaScript and no
+charting dependency.
+
 ### Editing from the report
 
 Add a `write` key naming a Beancount file, relative to the ledger's directory, to
