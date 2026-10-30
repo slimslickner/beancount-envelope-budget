@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A planned envelope in the Fava report carries a ring beside its closing
   balance, filled in proportion to its goal (or its monthly level) and coloured
   by its funding status.
+- Clicking a planned envelope's closing figure in the Fava report opens a
+  popover with the plan in force for that month — its goal, how funded it is,
+  and whether it is under, on or over plan — linking to that directive (#39).
 - The Fava report's parent categories can be collapsed to their subtotal row by
   clicking the category name; the collapsed state is not persisted across page
   loads.

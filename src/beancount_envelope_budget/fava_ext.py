@@ -51,6 +51,7 @@ from beancount_envelope_budget.report import (
     Cell,
     PlanLine,
     PoolEntry,
+    active_plan,
     build_view,
     month_funding,
     overspend_cover,
@@ -71,6 +72,9 @@ __all__ = ["Envelopes"]
 
 _DEFAULT_MONTHS = 3
 _MONTH_PATTERN = re.compile(r"^\d{4}-\d{2}$")
+
+#: How each funding status reads in the closing popover.
+_FUNDING_LABEL = {"under": "underfunded", "on": "on plan", "over": "over plan"}
 
 
 class Envelopes(FavaExtensionBase):
@@ -412,6 +416,46 @@ class Envelopes(FavaExtensionBase):
             goal or level to measure against.
         """
         return f"{cell.fill * 100:.1f}%" if cell.fill is not None else "0%"
+
+    def funding_text(self, cell: Cell) -> str:
+        """Describe a cell's plan status for the closing popover.
+
+        The closing figure reveals this: the goal the envelope is aiming at, how
+        full it is toward it, and whether it is under, on or over plan. Each part
+        is omitted when the cell does not carry it, so a monthly envelope reads
+        ``50.0% funded · underfunded`` and a goal ``target 15000.00 · 3.3%
+        funded · underfunded``.
+
+        Args:
+            cell: The view cell.
+
+        Returns:
+            The description, or an empty string when the cell has no plan.
+        """
+        parts: list[str] = []
+        if cell.target is not None:
+            parts.append(f"target {cell.target:.2f}")
+        if cell.fill is not None:
+            parts.append(f"{cell.fill * 100:.1f}% funded")
+        if cell.funding is not None:
+            parts.append(_FUNDING_LABEL[cell.funding])
+        return " · ".join(parts)
+
+    def active_plan(self, plans: tuple[PlanLine, ...], month: date) -> PlanLine | None:
+        """Return the plan directive in force in a month, for the closing popover.
+
+        Delegates to :func:`~beancount_envelope_budget.report.active_plan`, the
+        single implementation, so the directive the popover shows agrees with the
+        funding level beside it.
+
+        Args:
+            plans: The envelope's plan directives, base first.
+            month: Any date within the month.
+
+        Returns:
+            The governing plan line, or ``None`` when the plan has never been set.
+        """
+        return active_plan(plans, month)
 
     def today_month(self) -> date:
         """Return the first day of the current month.
