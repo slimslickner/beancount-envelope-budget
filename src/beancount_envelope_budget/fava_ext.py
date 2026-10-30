@@ -51,7 +51,9 @@ from beancount_envelope_budget.report import (
     Cell,
     PlanLine,
     PoolEntry,
+    Reports,
     active_plan,
+    build_reports,
     build_view,
     month_funding,
     overspend_cover,
@@ -393,6 +395,18 @@ class Envelopes(FavaExtensionBase):
             _parse_month(month) or self.today_month(),
             _parse_count(months, self.default_months),
         )
+
+    def reports(self) -> Reports:
+        """Build the full-history, table-only reports view.
+
+        Delegates to :func:`beancount_envelope_budget.report.build_reports`, the
+        single implementation, so the reports tab's numbers come from the same
+        pure core as the rest of the report.
+
+        Returns:
+            The :class:`Reports`.
+        """
+        return build_reports(self._result())
 
     def money(self, value: Decimal) -> str:
         """Format a money amount for display.

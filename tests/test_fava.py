@@ -562,7 +562,7 @@ def test_template_groups_are_collapsible() -> None:
 def test_template_renders() -> None:
     """The template renders balances and tooltips from the view."""
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
-    assert "Envelope report" in html
+    assert "Envelopes" in html
     assert "Groceries" in html
     assert "380.00" in html
     assert "2024-03" in html
@@ -716,7 +716,7 @@ def test_template_freezes_header_and_footer() -> None:
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
     assert "position: sticky" in html
     assert "border-collapse: separate" in html
-    assert "max-height: 80vh" in html
+    assert "max-height: min(80vh, calc(100vh - 6rem))" in html
     assert "bottom: var(--envelope-total-row-height)" in html
 
 
@@ -1168,3 +1168,87 @@ def test_template_plan_popover_shows_read_only_info() -> None:
     assert "15000.00" in html
     assert "2028-06-01" in html
     assert "<form" not in html
+
+
+# --- Reports ---------------------------------------------------------------
+
+
+def test_reports_tab_is_rendered() -> None:
+    """The reports view offers the balance row and every ranking table."""
+    html = _render(_extension("parent_groups.bean"), {"view": "reports"})
+    assert "Reports" in html
+    assert "Cash and pool" in html
+    assert "Top spending" in html
+    assert "Top allocated" in html
+    assert "Top ending balance" in html
+    assert "<svg" not in html
+    # The balance row carries the cash and pool balances for the month.
+    assert ">Cash<" in html
+    assert ">Pool<" in html
+    assert "3030.00" in html
+    assert "2300.00" in html
+
+
+def test_reports_balance_row_is_first() -> None:
+    """The cash and pool balance row comes before the ranking rows."""
+    html = _render(_extension("parent_groups.bean"), {"view": "reports"})
+    assert html.index(">Cash and pool<") < html.index(">Top spending<")
+
+
+def test_reports_is_not_shown_by_default() -> None:
+    """The default report view is the ledger grid, not the reports."""
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
+    assert "Cash and pool" not in html
+    assert "<svg" not in html
+    assert 'href="?view=reports"' in html
+
+
+def test_template_puts_tabs_on_the_nav_row() -> None:
+    """The view tabs share the month-nav row, to save vertical space."""
+    html = _render(
+        _extension("parent_groups.bean"), {"month": "2024-01", "months": "1"}
+    )
+    nav = html[html.index('<p class="envelope-nav">') : html.index("</p>")]
+    assert "previous month" in nav
+    assert "envelope-nav-tabs" in nav
+    assert ">Envelopes<" in nav
+    assert ">Reports<" in nav
+    assert "envelope-tabs" not in html
+
+
+def test_reports_tabs_share_the_row() -> None:
+    """On the reports the tabs sit in the same row, with no month links."""
+    html = _render(_extension("basic.bean"), {"view": "reports"})
+    nav = html[html.index('<p class="envelope-nav">') : html.index("</p>")]
+    assert ">Reports<" in nav
+    assert "previous month" not in nav
+
+
+def test_reports_nav_is_not_sticky() -> None:
+    """The nav only sticks on the ledger grid; on the reports it scrolls away."""
+    html = _render(_extension("basic.bean"), {"view": "reports"})
+    assert ".envelope-report:not(:has(.envelope-reports)) .envelope-nav" in html
+
+
+def test_reports_rows_share_one_scroll() -> None:
+    """Every report row sits in one scroll, with fixed aligned month columns."""
+    html = _render(_extension("parent_groups.bean"), {"view": "reports"})
+    assert html.count('class="envelope-reports-strip"') == 1
+    assert html.count('class="envelope-reports-row"') == 4
+    assert "envelope-reports-months" in html
+    # The columns share widths derived from the longest name and amount.
+    assert "--envelope-reports-name-chars: 9" in html
+    assert "--envelope-reports-amount-chars: 7" in html
+    assert "table-layout: fixed" in html
+    assert "envelope-reports-name-col" in html
+    assert "--envelope-reports-name-width" in html
+    assert "--envelope-reports-amount-width" in html
+    # Each row's title stays pinned while its months scroll horizontally.
+    assert ".envelope-reports-row h3" in html
+    assert "width: max-content" in html
+
+
+def test_reports_without_start() -> None:
+    """A ledger with no start still has nothing to show on the reports."""
+    html = _render(_extension("no_start.bean"), {"view": "reports"})
+    assert "nothing to show" in html

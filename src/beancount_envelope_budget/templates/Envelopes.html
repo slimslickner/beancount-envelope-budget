@@ -1,4 +1,8 @@
-{% set view = extension.report(request.args.get('month'), request.args.get('months')) %}
+{% set reports = request.args.get('view') == 'reports' %}
+{% set dash = extension.reports() if reports else none %}
+{% set view = none if reports else extension.report(request.args.get('month'), request.args.get('months')) %}
+{% set has_start = dash.has_start if reports else view.has_start %}
+{% set currency = dash.currency if reports else view.currency %}
 {% set today = extension.today_month() %}
 {% set base = request.path if request.path.endswith('/') else request.path ~ '/' %}
 {% macro opening(cell, blank=false) -%}
@@ -32,7 +36,7 @@
   {%- set plan = extension.plan_fields(envelope.name, month) if extension.writable else none -%}
   <td class="envelope-name{{ ' envelope-pop-host envelope-plan-host' if shows else '' }}">{% if shows %}<input type="checkbox" class="envelope-pop-toggle" id="plan-{{ ident }}"><label class="envelope-pop-label" for="plan-{{ ident }}">{{ envelope.name }}</label><label class="envelope-pop-backdrop" for="plan-{{ ident }}"></label><div class="envelope-pop envelope-plan-pop">{% for line in envelope.plans %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ extension.plan_text(line) }}</a>{% endfor %}{% if extension.writable %}<form method="post" action="{{ action }}" data-create><input type="hidden" name="action" value="plan"><input type="hidden" name="envelope" value="{{ envelope.name }}"><label>Monthly <input name="monthly" size="8" placeholder="500 or avg3" value="{{ plan.monthly }}"></label><label>Priority <input name="priority" size="4" value="{{ plan.priority }}"></label><label>Target <input name="target" size="8" value="{{ plan.target }}"></label><label>By <input type="date" name="by" value="{{ plan.by }}"></label><input type="date" name="date" value="{{ extension.fill_date(month) }}"><button type="submit">Set plan</button></form><form method="post" action="{{ action }}" data-create><input type="hidden" name="action" value="unplan"><input type="hidden" name="envelope" value="{{ envelope.name }}"><input type="date" name="date" value="{{ extension.fill_date(month) }}"><button type="submit">Clear plan</button></form>{% endif %}</div>{% else %}{{ envelope.name }}{% endif %}</td>
 {%- endmacro %}
-{% if not view.has_start %}
+{% if not has_start %}
   <p>There is no <code>custom "envelope" "start"</code> directive, so there is nothing to show.</p>
 {% else %}
   <div class="envelope-report">
@@ -45,7 +49,7 @@
          while the middle rows scroll, vertically or horizontally. */
       .envelope-table-scroll {
         overflow: auto;
-        max-height: 80vh;
+        max-height: min(80vh, calc(100vh - 6rem));
       }
       .envelope-table {
         width: auto;
@@ -70,15 +74,27 @@
       .envelope-value {
         width: 7.5rem;
       }
-      /* Keep the month links reachable while the table scrolls. */
+      /* Keep the month links and tabs reachable while the table scrolls. The
+         nav only sticks on the ledger grid; on the reports it scrolls away,
+         since there is no scroll box to stay above. */
       .envelope-nav {
-        position: sticky;
-        top: 0;
-        z-index: 4;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
         margin: 0;
         padding: 0.25rem 0;
         background: var(--background, #fff);
         border-bottom: 1px solid rgba(128, 128, 128, 0.5);
+      }
+      .envelope-report:not(:has(.envelope-reports)) .envelope-nav {
+        position: sticky;
+        top: 0;
+        z-index: 4;
+      }
+      .envelope-nav-tabs {
+        display: flex;
+        gap: 0.5rem;
+        margin-left: auto;
       }
       /* Sticky layering, low to high: name column (1), parent heading (2),
          table header and pool/cash rows (3), nav bar (4), header corner (5). */
@@ -405,23 +421,140 @@
       .envelope-pop select {
         font: inherit;
       }
+      .envelope-tab {
+        padding: 0.2rem 0.75rem;
+        border: 1px solid rgba(128, 128, 128, 0.5);
+        border-radius: 0.25rem;
+        text-decoration: none;
+      }
+      .envelope-tab-active {
+        background: var(--table-header-background, rgba(128, 128, 128, 0.15));
+        font-weight: 600;
+      }
+      .envelope-reports-strip {
+        overflow-x: auto;
+        padding-bottom: 0.5rem;
+        /* The widths every report column shares: the longest name and the
+           longest amount the rows hold. They are set on the container so all the
+           rows agree, and used as explicit column widths so an empty month does
+           not shrink to its content. */
+        --envelope-reports-name-width: calc(
+          max(var(--envelope-reports-name-chars, 12), 12) * 1ch + 3ch
+        );
+        --envelope-reports-amount-width: calc(
+          max(var(--envelope-reports-amount-chars, 6), 6) * 1ch + 2ch
+        );
+      }
+      .envelope-reports-row {
+        /* Span the whole scrollable width, so the sticky heading below has room
+           to stay pinned as the rows scroll right. */
+        width: max-content;
+        min-width: 100%;
+      }
+      .envelope-reports-row + .envelope-reports-row {
+        margin-top: 1rem;
+      }
+      /* Keep each row's title in view while its months scroll past. */
+      .envelope-reports-row h3 {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        width: max-content;
+        margin: 0.5rem 0 0.35rem;
+        padding-right: 0.5rem;
+        background: var(--background, #fff);
+      }
+      /* Fixed-width month columns, shared across the rows, so the months line
+         up vertically and one scrollbar moves them all together. */
+      .envelope-reports-months {
+        display: flex;
+        gap: 1rem;
+        align-items: flex-start;
+      }
+      .envelope-reports-table {
+        border-collapse: collapse;
+        table-layout: fixed;
+        flex: 0 0 auto;
+        width: calc(
+          var(--envelope-reports-name-width) + var(--envelope-reports-amount-width)
+        );
+      }
+      .envelope-reports-name-col {
+        width: var(--envelope-reports-name-width);
+      }
+      .envelope-reports-amount-col {
+        width: var(--envelope-reports-amount-width);
+      }
+      .envelope-reports-table th {
+        text-align: left;
+        white-space: nowrap;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.5);
+      }
+      .envelope-reports-name {
+        padding-right: 0.5rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .envelope-reports-empty {
+        color: rgba(128, 128, 128, 1);
+      }
     </style>
 
-    <h2>Envelope report <small>in {{ view.currency }}</small></h2>
+    <h2>{{ 'Reports' if reports else 'Envelopes' }} <small>in {{ currency }}</small></h2>
 
     <p class="envelope-nav">
-      <a href="?{{ view.nav.previous }}">&laquo; previous month</a> &middot;
-      <a href="?{{ extension.today_nav(view.months|length) }}">this month</a> &middot;
-      <a href="?{{ view.nav.next }}">next month &raquo;</a>
-      {% if view.groups | selectattr('parent', 'ne', none) | list %}
-        &middot;
-        <label class="envelope-collapse">
-          <input type="checkbox" class="envelope-collapse-all" id="envelope-collapse-all">
-          Collapse all
-        </label>
+      {% if not reports %}
+        <span class="envelope-nav-months">
+          <a href="?{{ view.nav.previous }}">&laquo; previous month</a> &middot;
+          <a href="?{{ extension.today_nav(view.months|length) }}">this month</a> &middot;
+          <a href="?{{ view.nav.next }}">next month &raquo;</a>
+          {% if view.groups | selectattr('parent', 'ne', none) | list %}
+            &middot;
+            <label class="envelope-collapse">
+              <input type="checkbox" class="envelope-collapse-all" id="envelope-collapse-all">
+              Collapse all
+            </label>
+          {% endif %}
+        </span>
       {% endif %}
+      <span class="envelope-nav-tabs">
+        <a class="envelope-tab{{ '' if reports else ' envelope-tab-active' }}" href="?">Envelopes</a>
+        <a class="envelope-tab{{ ' envelope-tab-active' if reports else '' }}" href="?view=reports">Reports</a>
+      </span>
     </p>
 
+    {% if reports %}
+      <div class="envelope-reports">
+        <div class="envelope-reports-strip" style="--envelope-reports-name-chars: {{ dash.name_chars }}; --envelope-reports-amount-chars: {{ dash.amount_chars }}">
+          {% for row in dash.rows %}
+            <section class="envelope-reports-row">
+              <h3>{{ row.title }}</h3>
+              <div class="envelope-reports-months">
+                {% for month in row.months %}
+                  <table class="table envelope-reports-table">
+                    <colgroup>
+                      <col class="envelope-reports-name-col">
+                      <col class="envelope-reports-amount-col">
+                    </colgroup>
+                    <thead>
+                      <tr><th colspan="2">{{ month.month.strftime('%Y-%m') }}</th></tr>
+                    </thead>
+                    <tbody>
+                      {% for entry in month.entries %}
+                        <tr><td class="envelope-reports-name">{{ entry.name }}</td><td class="num">{{ extension.money(entry.amount) }}</td></tr>
+                      {% else %}
+                        <tr><td colspan="2" class="envelope-reports-empty">&mdash;</td></tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                {% endfor %}
+              </div>
+            </section>
+          {% endfor %}
+        </div>
+      </div>
+    {% else %}
     {% if view.warnings %}
       <div class="envelope-warnings">
         <strong>Warnings</strong>
@@ -527,5 +660,6 @@
         </tbody>
       </table>
     </div>
+    {% endif %}
   </div>
 {% endif %}
