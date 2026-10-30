@@ -106,6 +106,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The plugin now applies Beancount's `beancount.ops.pad` before it computes, so a
+  ledger that uses `pad` reports the same pool as the CLI and the Fava report.
+  Beancount runs `pad` after every user plugin, so previously the plugin saw a
+  ledger without the transactions `pad` synthesizes and could warn of a negative
+  pool the report never showed, or miss a padding entry that changed an envelope
+  (#29). `option "plugin_processing_mode" "raw"` leaves ordering to the ledger.
 - The Fava "add allocation" form no longer prefills the month's total spending.
   It prefills the envelope's plan top-up — the gap to its funding level, so money
   already allocated is not asked for twice — and, when the plan is already met

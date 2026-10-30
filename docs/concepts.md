@@ -362,6 +362,15 @@ display-precision leftover, so the invariant stays exact to the cent.
 
 If there is no `start` directive, the plugin does nothing and warns (`W003`).
 
+Beancount runs its `beancount.ops.pad` plugin **after** every user plugin, so a
+`pad` directive's synthesized transaction is not visible to a plugin that runs
+earlier. The CLI and the Fava report recompute on the finished ledger, so to keep
+its diagnostics in step the plugin applies `pad` to a working copy before it
+computes. Set `option "plugin_processing_mode" "raw"` to control plugin ordering
+yourself; the plugin then leaves `pad` to the ledger. Note that
+`beancount.plugins.auto` (via `--auto`) also runs after user plugins. Explicit
+opening-balance transactions are clearer than `pad` and avoid the extra pass.
+
 ## Command line
 
 ```sh

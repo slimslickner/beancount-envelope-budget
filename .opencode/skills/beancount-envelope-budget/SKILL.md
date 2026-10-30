@@ -96,6 +96,10 @@ net spending, so months close flat.
 - `W001` means the pool went negative on some day — usually allocating before the
   income that funds it lands. Run `pool LEDGER` to see the pool's ledger around
   the dip, with a running balance.
+- Beancount runs `beancount.ops.pad` after every user plugin, so a plugin that
+  runs earlier would miss `pad`'s synthesized transactions; the library applies
+  `pad` before computing to stay in step with the report. `plugin_processing_mode
+  "raw"` opts out.
 - The invariant `E007` compares the pool plus envelopes against cash at each month
   end; a mismatch means a posting was missed.
 - `topup` measures what is on hand at the run date; run it after the month's last

@@ -9,6 +9,13 @@ entries unchanged and appends the validation diagnostics as ordinary Beancount
 errors, so Fava lists them on its errors page. Errors never stop the ledger
 from loading.
 
+Beancount runs ``beancount.ops.pad`` after every user plugin, so a plugin never
+sees the transactions ``pad`` synthesizes. To report the same pool the CLI and
+the Fava report do — they recompute on the finished ledger — the plugin applies
+``pad`` to a working copy before computing. Set
+``option "plugin_processing_mode" "raw"`` to keep the ordering in the ledger
+instead.
+
 Pass the config string ``"resolved"`` to also write each non-cash posting's
 resolved envelope into posting metadata under ``envelope-resolved``, which BQL
 can then read with ``meta('envelope-resolved')``::
@@ -21,6 +28,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, NamedTuple
 
 from beancount.core import data
+from beancount.ops import pad as pad_ops
 
 from beancount_envelope_budget.core import Diagnostic, compute
 
@@ -73,11 +81,51 @@ def plugin(
         list of errors and warnings.
     """
     annotate = _resolved_requested(config)
-    result = compute(entries, options_map, collect_resolved=annotate)
+    result = compute(
+        _with_padding(entries, options_map),
+        options_map,
+        collect_resolved=annotate,
+    )
     errors = [_to_error(diagnostic, options_map) for diagnostic in result.diagnostics]
     if annotate:
         entries = _annotate(entries, dict(result.resolved))
     return entries, errors
+
+
+def _with_padding(
+    entries: list[Directive],
+    options_map: Mapping[str, object],
+) -> list[Directive]:
+    """Return the entries as Beancount's post-plugins will leave them.
+
+    Beancount appends ``beancount.ops.pad`` (and ``balance``) to the plugin
+    chain, after every user plugin, and ``pad`` synthesizes transactions from
+    ``pad`` directives. A plugin therefore never sees the finished ledger, and a
+    pool computed from the entries it is handed can disagree with the CLI and
+    the Fava report, which recompute on the final entries. Applying ``pad`` to a
+    working copy first keeps the two in step. The original entries are still
+    returned, so Beancount's own ``pad`` pass runs normally and nothing is
+    padded twice.
+
+    Args:
+        entries: The ledger entries.
+        options_map: The Beancount options map. Its ``plugin_processing_mode``
+            gates whether Beancount runs its own post-plugins.
+
+    Returns:
+        The padded entries, or ``entries`` unchanged when there are no ``pad``
+        directives, when the mode leaves ordering to the ledger, or when
+        ``pad`` fails (Beancount reports that itself).
+    """
+    if options_map.get("plugin_processing_mode") != "default":
+        return entries
+    if not any(isinstance(entry, data.Pad) for entry in entries):
+        return entries
+    try:
+        padded, _errors = pad_ops.pad(entries, options_map)
+    except Exception:  # noqa: BLE001 - fall back; Beancount reports the failure
+        return entries
+    return padded
 
 
 def _resolved_requested(config: str | None) -> bool:

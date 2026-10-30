@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from beancount import loader
-from beancount.core import data
+from beancount.core import data, flags
 
 from beancount_envelope_budget import plugin
+from beancount_envelope_budget.core import compute
 
 _PLUGIN = 'plugin "beancount_envelope_budget.plugin"'
 _PLUGIN_RESOLVED = 'plugin "beancount_envelope_budget.plugin" "resolved"'
+
+_LEDGERS = Path(__file__).parent / "ledgers"
 
 
 def _ledger(plugin_line: str, *, enveloped: bool) -> str:
@@ -97,6 +102,55 @@ def test_plugin_direct_call_returns_entries_unchanged() -> None:
     new_entries, plugin_errors = plugin.plugin(entries, options)
     assert new_entries == entries
     assert plugin_errors == []
+
+
+def test_plugin_applies_padding_before_computing() -> None:
+    """The plugin pads before computing, so it matches the report on a pad ledger."""
+    entries, _errors, options = loader.load_file(_LEDGERS / "padded_cash.bean")
+    pre = [
+        entry
+        for entry in entries
+        if not (
+            isinstance(entry, data.Transaction) and entry.flag == flags.FLAG_PADDING
+        )
+    ]
+    # The finished ledger, and a report built from it, has no pool warning.
+    assert [
+        d.code for d in compute(entries, options).diagnostics if d.code == "W001"
+    ] == []
+    # Computing on the pre-pad entries would warn ...
+    assert "W001" in [d.code for d in compute(pre, options).diagnostics]
+    # ... but the plugin re-applies pad first, so it agrees with the report.
+    new_entries, errors = plugin.plugin(pre, options)
+    assert errors == []
+    assert new_entries == pre
+
+
+def test_plugin_padding_skipped_in_raw_mode() -> None:
+    """In raw mode the plugin leaves plugin ordering to the ledger."""
+    ledger = f"""option "operating_currency" "USD"
+option "plugin_processing_mode" "raw"
+{_PLUGIN}
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Equity:Opening-Balances USD
+2020-01-01 open Expenses:Groceries USD
+  envelope: "Groceries"
+
+2020-01-01 pad Assets:Checking Equity:Opening-Balances
+2020-01-02 balance Assets:Checking 1000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Groceries"
+2024-01-01 custom "envelope" "allocate" "Groceries" 500.00 USD
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    # Beancount does not run pad in raw mode either, so the plugin and a direct
+    # compute agree: both see the pre-pad ledger and warn.
+    assert "W001" in [d.code for d in compute(entries, options).diagnostics]
+    _new_entries, errors = plugin.plugin(entries, options)
+    assert any("pool is negative" in error.message for error in errors)
 
 
 def test_envelope_resolved_annotation() -> None:
