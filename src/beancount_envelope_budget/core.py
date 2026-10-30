@@ -2464,7 +2464,7 @@ def _check_pool_floor(
     operating_currency: str,
     diagnostics: list[Diagnostic],
 ) -> None:
-    """Warn when the pool goes negative on any day.
+    """Warn when the pool goes negative, naming its lowest point.
 
     Args:
         start: The start date.
@@ -2483,28 +2483,24 @@ def _check_pool_floor(
 
     dates = sorted({start, *activity_by_date, *alloc_by_date})
     balance = pre_start_cash
-    first_negative: date | None = None
-    opening = pre_start_cash
-    lowest = balance
+    low = balance
+    low_date = start
+    low_opening = balance
     for when in dates:
         day_opening = balance
         balance += activity_by_date.get(when, Decimal(0))
-        if balance < 0 and first_negative is None:
-            first_negative, opening, lowest = when, day_opening, balance
-        elif balance < 0:
-            lowest = min(lowest, balance)
+        if balance < low:
+            low, low_date, low_opening = balance, when, day_opening
         balance -= alloc_by_date.get(when, Decimal(0))
-        if balance < 0 and first_negative is None:
-            first_negative, opening, lowest = when, day_opening, balance
-        elif balance < 0:
-            lowest = min(lowest, balance)
-    if first_negative is not None:
+        if balance < low:
+            low, low_date, low_opening = balance, when, day_opening
+    if low < 0:
         diagnostics.append(
             _diag(
                 "W001",
-                date=first_negative.isoformat(),
-                balance=format_amount(lowest, operating_currency),
-                opening=format_amount(opening, operating_currency),
+                date=low_date.isoformat(),
+                balance=format_amount(low, operating_currency),
+                opening=format_amount(low_opening, operating_currency),
             )
         )
 

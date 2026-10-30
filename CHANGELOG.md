@@ -106,6 +106,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `W001` now names the day of the pool's lowest balance, and that day's opening
+  balance, rather than the first day the pool went negative — which could be a
+  different day, making the warning read as wrong.
 - The plugin now applies Beancount's `beancount.ops.pad` before it computes, so a
   ledger that uses `pad` reports the same pool as the CLI and the Fava report.
   Beancount runs `pad` after every user plugin, so previously the plugin saw a
