@@ -58,6 +58,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before it would go negative. Their CLI equivalents are `fund --mode
   fully-fund` and `fund --mode fund-available`; both expand to one `allocate`
   per envelope that needs funding (#7).
+- A `pool` command prints the unassigned pool's per-posting ledger — income and
+  spending charged to the pool, plus every allocation leaving it — in date order
+  with the running balance after each line. A bare run opens on the pool's
+  lowest month when it ever went negative, else the latest month; `--all`,
+  `--month`, `--date` and `--json` cover the rest (#29).
+- The Fava pool row's activity figure opens the same ledger in a popover, both
+  directions with the running balance, each line linking to its transaction
+  (#29).
+- The shared report view exposes `pool_ledger`, the pool's ledger, so the CLI,
+  the Fava popover and a future dashboard read one source (#29, #42).
 
 ### Changed
 
@@ -83,6 +93,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with each envelope on a single row (opening once, then allocated, activity and
   closing per month). An envelope open in any visible month spans the whole
   window, blanking the months before it opens or after it closes.
+- The `W001` pool-floor warning now names the pool's balance at the start of the
+  day it went negative and points at the `pool` command (#29).
+- A folded rounding residual is now recorded in the collected activity detail, so
+  the pool ledger and the Fava activity popover include the same rounding the
+  warning measures.
 
 ### Removed
 

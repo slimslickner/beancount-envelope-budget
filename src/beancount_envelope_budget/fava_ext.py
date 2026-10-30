@@ -50,10 +50,12 @@ from beancount_envelope_budget.report import (
     BudgetView,
     Cell,
     PlanLine,
+    PoolEntry,
     build_view,
     month_funding,
     overspend_cover,
     plan_top_up,
+    pool_entry_text,
     today_month,
 )
 
@@ -455,6 +457,17 @@ class Envelopes(FavaExtensionBase):
         if remaining > 0:
             lines.append(f"and {remaining} more")
         return "\n".join(lines)
+
+    def pool_text(self, entry: PoolEntry) -> str:
+        """Describe one pool-ledger line for the pool popover.
+
+        Args:
+            entry: The pool-ledger line.
+
+        Returns:
+            The description, shared with the CLI so the two cannot disagree.
+        """
+        return pool_entry_text(entry)
 
     def detail_text(self, line: ActivityLine) -> str:
         """Describe one activity detail line.

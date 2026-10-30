@@ -1764,7 +1764,9 @@ def _process_transactions(
         for posting in cash_postings:
             cash_total += valuation.value(posting) or Decimal(0)
         cash.append((entry.date, cash_total))
-        _absorb_rounding(entry, valuation, activity)
+        _absorb_rounding(
+            entry, valuation, activity, details, collect_activity=collect_activity
+        )
         cash_ids = {id(posting) for posting in cash_postings}
         txn_meta = _meta(entry)
         payee, narration = _txn_parts(entry)
@@ -1922,6 +1924,9 @@ def _absorb_rounding(
     entry: Transaction,
     valuation: _Valuation,
     activity: list[tuple[str, date, Decimal]],
+    details: list[ActivityEvent],
+    *,
+    collect_activity: bool,
 ) -> None:
     """Fold a sub-tolerance residual into the pool so the invariant stays exact.
 
@@ -1941,6 +1946,9 @@ def _absorb_rounding(
         entry: The transaction.
         valuation: The operating currency and tolerance options.
         activity: The activity events, extended in place.
+        details: The detail events, extended in place when ``collect_activity``.
+        collect_activity: Whether to record the fold as a detail event too, so a
+            per-posting pool ledger includes the same rounding the warning sees.
     """
     operating_currency = valuation.currency
     if not operating_currency:
@@ -1954,6 +1962,18 @@ def _absorb_rounding(
     ).get(operating_currency, Decimal(0))
     if abs(residual) <= tolerance and rounded != 0:
         activity.append((POOL, entry.date, rounded))
+        if collect_activity:
+            payee, narration = _txn_parts(entry)
+            details.append(
+                ActivityEvent(
+                    POOL,
+                    entry.date,
+                    rounded,
+                    compare.hash_entry(entry),
+                    payee,
+                    narration,
+                )
+            )
 
 
 def _cash_postings(
@@ -2464,16 +2484,18 @@ def _check_pool_floor(
     dates = sorted({start, *activity_by_date, *alloc_by_date})
     balance = pre_start_cash
     first_negative: date | None = None
+    opening = pre_start_cash
     lowest = balance
     for when in dates:
+        day_opening = balance
         balance += activity_by_date.get(when, Decimal(0))
         if balance < 0 and first_negative is None:
-            first_negative, lowest = when, balance
+            first_negative, opening, lowest = when, day_opening, balance
         elif balance < 0:
             lowest = min(lowest, balance)
         balance -= alloc_by_date.get(when, Decimal(0))
         if balance < 0 and first_negative is None:
-            first_negative, lowest = when, balance
+            first_negative, opening, lowest = when, day_opening, balance
         elif balance < 0:
             lowest = min(lowest, balance)
     if first_negative is not None:
@@ -2482,6 +2504,7 @@ def _check_pool_floor(
                 "W001",
                 date=first_negative.isoformat(),
                 balance=format_amount(lowest, operating_currency),
+                opening=format_amount(opening, operating_currency),
             )
         )
 
