@@ -236,6 +236,33 @@ def test_mid_month_dip(load_budget) -> None:
     assert result.pool[-1].closing == D("2500")
 
 
+def test_pool_floor_names_the_low_date() -> None:
+    """W001 names the day of the lowest balance, not the first negative day."""
+    ledger = """
+option "operating_currency" "USD"
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Income:Salary USD
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "A"
+2024-01-01 custom "envelope" "open" "B"
+2024-01-02 custom "envelope" "allocate" "A" 100.00 USD
+2024-01-05 custom "envelope" "allocate" "B" 500.00 USD
+2024-01-10 * "income"
+  Assets:Checking   200.00 USD
+  Income:Salary    -200.00 USD
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    result = compute(entries, options)
+    warnings = [d for d in result.diagnostics if d.code == "W001"]
+    assert len(warnings) == 1
+    message = warnings[0].message
+    assert "2024-01-05" in message
+    assert "2024-01-02" not in message
+    assert "-600.00" in message
+    assert "-100.00" in message
+
+
 def test_invariant_holds(load_budget) -> None:
     """Pool plus envelopes equals cash at every month end for clean ledgers."""
     for name in (

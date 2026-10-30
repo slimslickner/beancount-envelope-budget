@@ -67,6 +67,20 @@ For envelopes with a `target` and a `by` date, print the monthly amount needed t
 | `-h, --help` | show this help message and exit |
 | `ledger` | path to the Beancount ledger (.bean or .beancount) |
 
+## `beancount-envelope-budget pool`
+
+Print every transaction and allocation that moved the unassigned pool, in date order with the running balance after each, so a negative pool (W001) can be traced. A bare run shows the pool's lowest month when it ever went negative, else the latest month.
+
+
+| Option | Help |
+| --- | --- |
+| `-h, --help` | show this help message and exit |
+| `ledger` | path to the Beancount ledger (.bean or .beancount) |
+| `--all` | show the pool's whole history instead of a single month |
+| `--month` | show one month of the pool's ledger |
+| `--date` | show one day of the pool's ledger, with its opening balance |
+| `--json` | print the ledger as JSON instead of a table |
+
 ## `beancount-envelope-budget fund`
 
 Print allocate directives, dated the last day of each month. The actuals, overspend and copy modes take --from/--to and skip any envelope-month that already has an allocation; topup, fully-fund and fund-available take --date.

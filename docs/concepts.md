@@ -328,7 +328,8 @@ closing(e, m) = closing(e, m-1) + allocated(e, m) + activity(e, m)
 Overspending needs no special rule: a negative balance simply carries forward
 until later allocations cover it. A pool that goes negative on any day means
 more was allocated than the cash available at that point, and is reported as a
-warning.
+warning (`W001`); `pool LEDGER` prints the pool's per-transaction ledger around it,
+with the running balance after each line.
 
 ## Validation
 
@@ -361,11 +362,21 @@ display-precision leftover, so the invariant stays exact to the cent.
 
 If there is no `start` directive, the plugin does nothing and warns (`W003`).
 
+Beancount runs its `beancount.ops.pad` plugin **after** every user plugin, so a
+`pad` directive's synthesized transaction is not visible to a plugin that runs
+earlier. The CLI and the Fava report recompute on the finished ledger, so to keep
+its diagnostics in step the plugin applies `pad` to a working copy before it
+computes. Set `option "plugin_processing_mode" "raw"` to control plugin ordering
+yourself; the plugin then leaves `pad` to the ledger. Note that
+`beancount.plugins.auto` (via `--auto`) also runs after user plugins. Explicit
+opening-balance transactions are clearer than `pad` and avoid the extra pass.
+
 ## Command line
 
 ```sh
 beancount-envelope-budget check  LEDGER
 beancount-envelope-budget report LEDGER [--month YYYY-MM] [--months N]
+beancount-envelope-budget pool   LEDGER [--all | --month YYYY-MM | --date YYYY-MM-DD]
 beancount-envelope-budget suggest LEDGER
 beancount-envelope-budget fund LEDGER --from YYYY-MM --to YYYY-MM [--mode MODE]
 beancount-envelope-budget fund LEDGER --mode topup [--date DATE] [--reserve AMOUNT] [--strict]
@@ -378,6 +389,10 @@ See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget
 - `check` exits non-zero on any error.
 - `report` prints opening, allocated, activity and closing for one to three
   months, plus the pool and cash rows.
+- `pool` prints the pool's per-transaction ledger — both directions, with the running
+  balance after each line — so a `W001` dip can be traced. A bare run opens on
+  the pool's lowest month when it ever went negative, else the latest month;
+  `--all` shows the whole history, and `--month`/`--date` window it.
 - `fund` prints `allocate` directives (redirect them into a file you include), or
   appends them with `--write FILE`; plain `fund` never edits your ledger. Besides
   the backfill modes it has `topup`, which funds planned envelopes to their level
@@ -401,6 +416,8 @@ Add the extension line and an **Envelopes** report appears in the sidebar:
 It is read-only unless you configure a write target; by default it shows one to
 three months and offers hover text for envelope targets. Hovering or focusing an activity figure reveals a popover listing the
 postings behind it; each line links to that transaction in Fava's entry popup.
+The pool row's activity figure opens the same popover, showing the pool's ledger
+— activity and allocations both — with the running balance after each line.
 The line reads `payee - narration`: the transaction's payee, then the posting's
 `narration` metadata — the `autobean.narration` convention — falling back to the
 transaction's narration, so the line items of one transaction read apart, such as

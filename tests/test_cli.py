@@ -420,3 +420,67 @@ def test_parse_month_rejects_garbage() -> None:
     """The month type raises for non-month strings."""
     with pytest.raises(argparse.ArgumentTypeError):
         cli._parse_month("not-a-month")
+
+
+def test_pool_defaults_to_the_lowest_month(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A bare pool run opens on the pool's lowest month and names its lines."""
+    assert cli.main(["pool", _ledger("mid_month_dip.bean")]) == 0
+    captured = capsys.readouterr()
+    assert "lowest month" in captured.err
+    assert "Opening: 0.00" in captured.out
+    assert "allocate Groceries" in captured.out
+    assert "Salary" in captured.out
+    assert "Lowest: -500.00 on 2024-01-01" in captured.out
+
+
+def test_pool_defaults_to_latest_when_positive(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A pool that never went negative defaults to the latest month, no notice."""
+    assert cli.main(["pool", _ledger("basic.bean")]) == 0
+    captured = capsys.readouterr()
+    assert "lowest month" not in captured.err
+    assert "Pool ledger" in captured.out
+
+
+def test_pool_all_shows_history(capsys: pytest.CaptureFixture[str]) -> None:
+    """--all prints the whole history without the lowest-month notice."""
+    assert cli.main(["pool", _ledger("mid_month_dip.bean"), "--all"]) == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert "2024-01-15" in captured.out
+
+
+def test_pool_day_window(capsys: pytest.CaptureFixture[str]) -> None:
+    """--date opens at the balance before that day."""
+    assert (
+        cli.main(["pool", _ledger("mid_month_dip.bean"), "--date", "2024-01-15"]) == 0
+    )
+    out = capsys.readouterr().out
+    assert "Opening: -500.00" in out
+    assert "Salary" in out
+    assert "allocate Groceries" not in out
+
+
+def test_pool_json(capsys: pytest.CaptureFixture[str]) -> None:
+    """--json prints the pool ledger as stable, parseable JSON."""
+    assert cli.main(["pool", _ledger("mid_month_dip.bean"), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["low"] == "-500.00"
+    assert payload["low_date"] == "2024-01-01"
+    assert payload["entries"][0]["kind"] == "allocation"
+    assert payload["entries"][0]["envelope"] == "Groceries"
+
+
+def test_pool_without_start(capsys: pytest.CaptureFixture[str]) -> None:
+    """A ledger without a start directive has nothing to show."""
+    assert cli.main(["pool", _ledger("no_start.bean")]) == 0
+    assert "no start directive" in capsys.readouterr().err
+
+
+def test_pool_missing_file(capsys: pytest.CaptureFixture[str]) -> None:
+    """A missing ledger is a usage error (exit 2)."""
+    assert cli.main(["pool", str(_LEDGERS / "nope.bean")]) == 2
+    assert "no such ledger" in capsys.readouterr().err

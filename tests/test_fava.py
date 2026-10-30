@@ -572,6 +572,20 @@ def test_template_blanks_zero_envelope_values() -> None:
     assert ">0.00<" in _row(html, ">Pool<")
 
 
+def test_template_pool_popover_shows_ledger() -> None:
+    """The pool activity figure opens a ledger with a running balance."""
+    html = _render(
+        _extension("mid_month_dip.bean"), {"month": "2024-01", "months": "1"}
+    )
+    pool = _row(html, ">Pool<")
+    assert "allocate Groceries" in pool
+    assert "Salary" in pool
+    assert "&rarr;" in pool
+    assert "-500.00" in pool
+    assert "2500.00" in pool
+    assert 'id="pool-202401"' in pool
+
+
 def test_template_hides_rounded_investment_zero() -> None:
     """A sub-cent cost basis does not leak a red -0.00 into the report."""
     html = _render(

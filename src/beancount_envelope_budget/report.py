@@ -9,7 +9,7 @@ Fava report share from here rather than each reimplement.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -40,12 +40,17 @@ __all__ = [
     "EnvelopeGroup",
     "EnvelopeView",
     "PlanLine",
+    "PoolEntry",
+    "PoolLedger",
     "build_view",
     "envelope_need",
     "month_funding",
     "overspend_cover",
     "plan_level",
     "plan_top_up",
+    "pool_entry_text",
+    "pool_ledger",
+    "pool_ledger_json",
     "to_jsonable",
     "today_month",
 ]
@@ -95,6 +100,86 @@ def today_month() -> date:
         1
     """
     return date.today().replace(day=1)  # noqa: DTZ011 - local today is intended
+
+
+#: The kind of a pool-ledger line: pool activity, or an allocation leaving it.
+POOL_ACTIVITY = "activity"
+POOL_ALLOCATION = "allocation"
+
+
+@dataclass(frozen=True, slots=True)
+class PoolEntry:
+    """One line in the pool's ledger.
+
+    The pool's balance moves for two reasons: pool activity (income, spending
+    charged to the pool, a security's gain, a folded rounding residual) and
+    allocations leaving it for an envelope. Both appear here in date order, with
+    the balance carried after each line, so the pool's lows are visible.
+
+    Attributes:
+        date: The line's date.
+        kind: :data:`POOL_ACTIVITY` or :data:`POOL_ALLOCATION`.
+        amount: The signed effect on the pool.
+        balance: The running pool balance after this line.
+        entry_hash: The Beancount hash of the source transaction or directive,
+            for linking back to it. It is the same value Beancount's
+            ``compare.hash_entry`` yields.
+        payee: The transaction's payee, for an activity line.
+        transaction_narration: The transaction's narration, for an activity line.
+        posting_narration: The posting's ``narration`` metadata, for an activity
+            line.
+        envelope: The destination envelope, for an allocation line.
+    """
+
+    date: date
+    kind: str
+    amount: Decimal
+    balance: Decimal
+    entry_hash: str
+    payee: str | None = None
+    transaction_narration: str | None = None
+    posting_narration: str | None = None
+    envelope: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PoolLedger:
+    """The pool's per-transaction ledger over a window.
+
+    Attributes:
+        opening: The pool balance carried into the window.
+        entries: The pool's lines within the window, in date order, each
+            carrying the running balance from :attr:`opening`.
+    """
+
+    opening: Decimal
+    entries: tuple[PoolEntry, ...]
+
+    @property
+    def low(self) -> Decimal | None:
+        """The lowest running balance in the window, or ``None`` when empty.
+
+        Examples:
+            >>> from decimal import Decimal
+            >>> PoolLedger(
+            ...     Decimal(0),
+            ...     (
+            ...         PoolEntry(date(2024, 1, 2), POOL_ACTIVITY, Decimal(5), Decimal(5), ""),
+            ...         PoolEntry(
+            ...             date(2024, 1, 3), POOL_ALLOCATION, Decimal(-8), Decimal(-3), ""
+            ...         ),
+            ...     ),
+            ... ).low
+            Decimal('-3')
+        """
+        return min((entry.balance for entry in self.entries), default=None)
+
+    @property
+    def low_date(self) -> date | None:
+        """The date of the lowest running balance, or ``None`` when empty."""
+        if not self.entries:
+            return None
+        return min(self.entries, key=lambda entry: entry.balance).date
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +282,8 @@ class Cell:
             ``None`` when it has neither.
         allocations: The ``allocate`` directives dated in this month, each
             linking back to its source directive.
+        pool: For the pool row, the pool's ledger lines in this month, each on
+            its own date with the running balance; empty for envelopes.
     """
 
     month: date
@@ -213,6 +300,7 @@ class Cell:
     target: Decimal | None = None
     fill: Decimal | None = None
     allocations: tuple[AllocationLine, ...] = ()
+    pool: tuple[PoolEntry, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -698,6 +786,139 @@ def _sort_key(name: str) -> str:
     return name.casefold()
 
 
+def pool_ledger(
+    result: BudgetResult,
+    *,
+    start: date | None = None,
+    end: date | None = None,
+) -> PoolLedger:
+    """Build the pool's ledger of transactions and allocations, in a date window.
+
+    The pool's balance moves for two reasons, and both are included: each
+    transaction's net pooled effect (income, spending charged to the pool, a
+    security's gain; a folded rounding residual is its own line) and allocations
+    leaving the pool for an envelope. A transaction is one line, so its internal
+    posting order never reads as a dip. Lines are ordered by date, with a day's
+    activity before its allocations, so the running balance walks the same path
+    the ``W001`` pool-floor warning measures. Each line carries the balance after
+    it, so the pool's lows are visible.
+
+    ``result`` must have been computed with ``collect_activity=True``, or the
+    pool's activity lines are absent and only allocations remain.
+
+    Args:
+        result: The computed budget.
+        start: The first date to include, or ``None`` for the beginning.
+        end: The last date to include, or ``None`` for the end.
+
+    Returns:
+        The :class:`PoolLedger`; the opening balance is the pool balance carried
+        into the window, and each entry keeps its absolute running balance.
+    """
+    if result.start is None:
+        return PoolLedger(result.pre_start_cash, ())
+    activity = [
+        (
+            event.date,
+            POOL_ACTIVITY,
+            PoolEntry(
+                date=event.date,
+                kind=POOL_ACTIVITY,
+                amount=event.amount,
+                balance=Decimal(0),
+                entry_hash=event.entry_hash,
+                payee=event.payee,
+                transaction_narration=event.transaction_narration,
+                posting_narration=event.posting_narration,
+            ),
+        )
+        for event in result.activity
+        if event.destination == POOL
+    ]
+    allocations = [
+        (
+            event.date,
+            POOL_ALLOCATION,
+            PoolEntry(
+                date=event.date,
+                kind=POOL_ALLOCATION,
+                amount=-event.amount,
+                balance=Decimal(0),
+                entry_hash=event.entry_hash,
+                envelope=event.envelope,
+            ),
+        )
+        for event in result.allocations
+    ]
+    # Sort by date and kind, keeping each list's own order within a day; that
+    # puts a day's activity before its allocations, as the warning does.
+    staged = sorted([*activity, *allocations], key=lambda item: (item[0], item[1]))
+
+    balance = result.pre_start_cash
+    built: list[PoolEntry] = []
+    for _date, _kind, entry in staged:
+        balance += entry.amount
+        built.append(replace(entry, balance=balance))
+
+    opening = result.pre_start_cash
+    if start is not None:
+        opening += sum(
+            (entry.amount for entry in built if entry.date < start), Decimal(0)
+        )
+        built = [entry for entry in built if entry.date >= start]
+    if end is not None:
+        built = [entry for entry in built if entry.date <= end]
+    return PoolLedger(opening, tuple(built))
+
+
+def pool_entry_text(entry: PoolEntry) -> str:
+    """Describe one pool-ledger line, for the CLI and the Fava popover.
+
+    Args:
+        entry: The pool entry.
+
+    Returns:
+        ``allocate <envelope>`` for an allocation, else ``payee - narration``
+        (preferring the posting's narration), or ``(no description)``.
+
+    Examples:
+        >>> pool_entry_text(
+        ...     PoolEntry(
+        ...         date(2024, 1, 5),
+        ...         POOL_ALLOCATION,
+        ...         Decimal("-500"),
+        ...         Decimal("-500"),
+        ...         "",
+        ...         envelope="Groceries",
+        ...     )
+        ... )
+        'allocate Groceries'
+    """
+    if entry.kind == POOL_ALLOCATION:
+        return f"allocate {entry.envelope}" if entry.envelope else "allocation"
+    narration = entry.posting_narration or entry.transaction_narration
+    parts = [part for part in (entry.payee, narration) if part]
+    return " - ".join(parts) or "(no description)"
+
+
+def pool_ledger_json(ledger: PoolLedger) -> dict[str, object]:
+    """Serialise a pool ledger to plain JSON-compatible data.
+
+    Args:
+        ledger: The pool ledger.
+
+    Returns:
+        A JSON-serialisable dictionary with fixed two-decimal money strings and
+        ISO dates.
+    """
+    return {
+        "opening": f"{ledger.opening:.2f}",
+        "entries": [_pool_entry_json(entry) for entry in ledger.entries],
+        "low": _money_json(ledger.low),
+        "low_date": ledger.low_date.isoformat() if ledger.low_date else None,
+    }
+
+
 def build_view(
     result: BudgetResult,
     month: date | None = None,
@@ -748,6 +969,7 @@ def build_view(
     projected = tuple(month not in available for month in months)
     details = _detail_index(result.activity)
     allocations = _allocation_index(result.allocations)
+    ledger = pool_ledger(result)
 
     envelopes = tuple(
         _envelope_view(report, months, available, details, allocations)
@@ -760,6 +982,7 @@ def build_view(
             row_for(result.pool, month),
             details.get((POOL, month), []),
             projected=month not in available,
+            pool=_pool_entries(ledger, month),
         )
         for month in months
     )
@@ -777,6 +1000,20 @@ def build_view(
         errors=tuple(d for d in result.diagnostics if d.severity is Severity.ERROR),
         nav=_nav(start, count),
     )
+
+
+def _pool_entries(ledger: PoolLedger, month: date) -> tuple[PoolEntry, ...]:
+    """Return a pool ledger's lines dated within a month.
+
+    Args:
+        ledger: The pool ledger.
+        month: The month to select.
+
+    Returns:
+        The month's pool entries, in order.
+    """
+    target = month_of(month)
+    return tuple(entry for entry in ledger.entries if month_of(entry.date) == target)
 
 
 def _detail_index(
@@ -876,6 +1113,7 @@ def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
     target: Decimal | None = None,
     fill: Decimal | None = None,
     allocations: tuple[AllocationLine, ...] = (),
+    pool: tuple[PoolEntry, ...] = (),
 ) -> Cell:
     """Build a cell from a monthly row and its detail.
 
@@ -889,6 +1127,7 @@ def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
         target: The month's goal balance, or ``None``.
         fill: How full the envelope is toward its goal, or ``None``.
         allocations: The month's ``allocate`` directives.
+        pool: The pool row's ledger lines for the month, if any.
 
     Returns:
         The :class:`Cell`.
@@ -908,6 +1147,7 @@ def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
         target=target,
         fill=fill,
         allocations=allocations,
+        pool=pool,
     )
 
 
@@ -1170,6 +1410,29 @@ def _plan_json(plan: Plan) -> dict[str, object]:
     }
 
 
+def _pool_entry_json(entry: PoolEntry) -> dict[str, object]:
+    """Serialise one pool-ledger line.
+
+    Args:
+        entry: The pool entry.
+
+    Returns:
+        A JSON-compatible dictionary with a fixed two-decimal money string and
+        an ISO date.
+    """
+    return {
+        "date": entry.date.isoformat(),
+        "kind": entry.kind,
+        "amount": f"{entry.amount:.2f}",
+        "balance": f"{entry.balance:.2f}",
+        "entry_hash": entry.entry_hash,
+        "payee": entry.payee,
+        "transaction_narration": entry.transaction_narration,
+        "posting_narration": entry.posting_narration,
+        "envelope": entry.envelope,
+    }
+
+
 def _cell_json(cell: Cell) -> dict[str, object]:
     """Serialise a cell.
 
@@ -1211,6 +1474,7 @@ def _cell_json(cell: Cell) -> dict[str, object]:
             }
             for line in cell.allocations
         ],
+        "pool": [_pool_entry_json(entry) for entry in cell.pool],
     }
 
 

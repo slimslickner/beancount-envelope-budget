@@ -39,9 +39,13 @@ from beancount_envelope_budget.core import (
     row_for,
 )
 from beancount_envelope_budget.report import (
+    PoolLedger,
     build_view,
     month_funding,
     plan_level,
+    pool_entry_text,
+    pool_ledger,
+    pool_ledger_json,
     to_jsonable,
     today_month,
 )
@@ -74,6 +78,10 @@ _MONTH_PATTERN = re.compile(r"^\d{4}-\d{2}$")
 _CENT = Decimal("0.01")
 _MONTHS_PER_YEAR = 12
 _DECEMBER = 12
+
+#: The pool ledger's leading text columns (date and description) are left-aligned
+#: and the trailing money columns right-aligned.
+_POOL_TEXT_COLUMNS = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,6 +336,131 @@ def _cmd_suggest(args: argparse.Namespace) -> int:
         return 0
     print(_table(("Envelope", "Balance", "Target", "By", "Months", "Per month"), rows))
     return 0
+
+
+def _cmd_pool(args: argparse.Namespace) -> int:
+    """Print the pool's per-transaction ledger, with a running balance.
+
+    Args:
+        args: Parsed arguments; ``args.ledger``, the optional ``--month`` or
+            ``--date`` window, ``--all`` for the whole history, and ``--json``.
+
+    Returns:
+        The process exit status.
+    """
+    if not args.ledger.exists():
+        print(f"no such ledger: {args.ledger}", file=sys.stderr)
+        return 2
+    loaded = _load(args.ledger, collect_activity=True)
+    result = loaded.result
+    if result.start is None:
+        print("there is no start directive; nothing to show", file=sys.stderr)
+        return 0
+    start, end, notice = _pool_window(result, args)
+    if notice is not None:
+        print(notice, file=sys.stderr)
+    ledger = pool_ledger(result, start=start, end=end)
+    if args.json:
+        print(json.dumps(pool_ledger_json(ledger), indent=2))
+    else:
+        print(_format_pool_ledger(ledger, result.operating_currency))
+    return 0
+
+
+def _pool_window(
+    result: BudgetResult,
+    args: argparse.Namespace,
+) -> tuple[date | None, date | None, str | None]:
+    """Resolve the date window a pool command should show.
+
+    Args:
+        result: The computed budget.
+        args: Parsed arguments; ``--all``, ``--month`` and ``--date``.
+
+    Returns:
+        The ``(start, end)`` window, each ``None`` for no bound, and an optional
+        notice to print to stderr. A bare run points at the month of the pool's
+        lowest point when it ever went negative, else the latest month.
+    """
+    if args.all:
+        return None, None, None
+    if args.date is not None:
+        return args.date, args.date, None
+    if args.month is not None:
+        return args.month, _last_day_of(args.month), None
+    if not result.months:
+        return None, None, None
+    ledger = pool_ledger(result)
+    low = ledger.low
+    month = (
+        month_of(ledger.low_date)
+        if low is not None and low < 0 and ledger.low_date is not None
+        else result.months[-1]
+    )
+    if low is not None and low < 0:
+        notice = (
+            f"{month:%Y-%m} is the pool's lowest month; use --all for the whole history"
+        )
+    else:
+        notice = None
+    return month, _last_day_of(month), notice
+
+
+def _format_pool_ledger(ledger: PoolLedger, currency: str) -> str:
+    """Render a pool ledger as a table with a running balance.
+
+    Args:
+        ledger: The pool ledger.
+        currency: The operating currency, shown in the heading.
+
+    Returns:
+        The rendered ledger.
+    """
+    heading = "Pool ledger"
+    if currency:
+        heading += f"\nAmounts in {currency}"
+    lines = [heading, f"Opening: {_money(ledger.opening)}", ""]
+    header = ("Date", "Description", "Amount", "Balance")
+    rows = [
+        (
+            entry.date.isoformat(),
+            pool_entry_text(entry),
+            f"{entry.amount:+.2f}",
+            _money(entry.balance),
+        )
+        for entry in ledger.entries
+    ]
+    widths = [len(label) for label in header]
+    for row in rows:
+        widths = [
+            max(width, len(cell)) for width, cell in zip(widths, row, strict=True)
+        ]
+    lines.append(_pool_table_row(header, widths))
+    lines.append("  ".join("-" * width for width in widths))
+    lines.extend(_pool_table_row(row, widths) for row in rows)
+    if ledger.low is not None and ledger.low < 0:
+        lines.append("")
+        lines.append(f"Lowest: {_money(ledger.low)} on {ledger.low_date}")
+    return "\n".join(lines)
+
+
+def _pool_table_row(row: tuple[str, ...], widths: list[int]) -> str:
+    """Render one pool-ledger row with left-aligned text and right-aligned money.
+
+    Args:
+        row: The row's cells.
+        widths: The column widths.
+
+    Returns:
+        The rendered row.
+    """
+    cells = [
+        cell.ljust(widths[index])
+        if index < _POOL_TEXT_COLUMNS
+        else cell.rjust(widths[index])
+        for index, cell in enumerate(row)
+    ]
+    return "  ".join(cells).rstrip()
 
 
 def _cmd_completion(args: argparse.Namespace) -> int:
@@ -1585,6 +1718,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _ledger_argument(suggest)
     suggest.set_defaults(func=_cmd_suggest)
+
+    pool = subparsers.add_parser(
+        "pool",
+        help="print the pool's ledger with a running balance",
+        description=(
+            "Print every transaction and allocation that moved the unassigned "
+            "pool, in date order with the running balance after each, so a negative "
+            "pool (W001) can be traced. A bare run shows the pool's lowest month "
+            "when it ever went negative, else the latest month."
+        ),
+    )
+    _ledger_argument(pool)
+    pool_window = pool.add_mutually_exclusive_group()
+    pool_window.add_argument(
+        "--all",
+        action="store_true",
+        help="show the pool's whole history instead of a single month",
+    )
+    pool_window.add_argument(
+        "--month",
+        type=_parse_month,
+        metavar="YYYY-MM",
+        help="show one month of the pool's ledger",
+    )
+    pool_window.add_argument(
+        "--date",
+        type=_parse_day,
+        metavar="YYYY-MM-DD",
+        help="show one day of the pool's ledger, with its opening balance",
+    )
+    pool.add_argument(
+        "--json",
+        action="store_true",
+        help="print the ledger as JSON instead of a table",
+    )
+    pool.set_defaults(func=_cmd_pool)
 
     fund = subparsers.add_parser(
         "fund",

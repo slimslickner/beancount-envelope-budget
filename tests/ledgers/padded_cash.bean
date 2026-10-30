@@ -1,0 +1,19 @@
+option "operating_currency" "USD"
+
+; A pad on a cash account, dated before the budget start. Beancount's
+; beancount.ops.pad synthesizes an opening-balance transaction from it, so the
+; pool is 1000.00 when tracking starts. A plugin that runs before pad sees no
+; such transaction and computes a pool of 0, which makes the allocation below
+; look like a negative pool (W001) the report never shows.
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Equity:Opening-Balances USD
+2020-01-01 open Expenses:Groceries USD
+  envelope: "Groceries"
+
+2020-01-01 pad Assets:Checking Equity:Opening-Balances
+2020-01-02 balance Assets:Checking 1000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Groceries"
+2024-01-01 custom "envelope" "allocate" "Groceries" 500.00 USD

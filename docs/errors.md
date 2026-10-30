@@ -14,7 +14,7 @@
 | `E008` | error | Invalid envelope metadata: {detail}. |
 | `E009` | error | The ledger does not declare a single operating currency. |
 | `E010` | error | Envelope {name} has a plan that has no effect: {detail}. |
-| `W001` | warning | The pool is negative on {date}, reaching a low of {balance}. |
+| `W001` | warning | The pool is negative on {date}, reaching a low of {balance} (it opened that day at {opening}). |
 | `W002` | warning | {kind} for {name} is dated before the start directive and is ignored. |
 | `W003` | warning | There is no start directive, so envelope budgeting does nothing. |
 
@@ -91,9 +91,9 @@ A plan funds an envelope either by `monthly` or by a `target` with a `by` date, 
 
 ## W001
 
-**Warning:** The pool is negative on {date}, reaching a low of {balance}.
+**Warning:** The pool is negative on {date}, reaching a low of {balance} (it opened that day at {opening}).
 
-More was allocated than the cash available at that point. Fund the envelope after the income arrives, or move money back from another envelope.
+More was allocated than the cash available at that point. Fund the envelope after the income arrives, or move money back from another envelope. Run `beancount-envelope-budget pool LEDGER` to see the pool's per-transaction ledger around the dip, with a running balance.
 
 
 ## W002
