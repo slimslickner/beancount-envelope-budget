@@ -771,15 +771,22 @@ def _form_optional_day(value: str | None) -> date | None:
 def _fill_day(month: date) -> date:
     """Return the date a new directive in a month is dated.
 
+    The current month dates today, so a directive added mid-month is not pushed
+    into the future; any other month dates its last day, so a future-dated
+    directive counts toward the month being actioned. Reading the suggestion and
+    fixing the date to the same month keeps a form for a projected month funding
+    that month rather than the present one.
+
     Args:
         month: Any date within the month.
 
     Returns:
-        The last day of the month, or today when today is earlier.
+        The date a directive for that month is dated.
     """
     first = month.replace(day=1)
     last = (first + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-    return min(last, date.today())  # noqa: DTZ011 - local today is intended
+    today = date.today()  # noqa: DTZ011 - local today is intended
+    return today if first == today.replace(day=1) else last
 
 
 def _parse_source(source: str) -> list[Custom]:

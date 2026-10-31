@@ -517,7 +517,8 @@ Adding a directive opens a small modal showing the Beancount text the form's
 fields describe — rendered by `actions.py`, the same generators the CLI's
 `allocate`, `plan` and `unplan` commands print or write — which can be edited
 before it is saved. A new directive is dated the last day of its month, or today
-when today is earlier. The modal is a single vanilla-JS module (no build step);
+for the current month, so a form for a future month funds that month. The modal
+is a single vanilla-JS module (no build step);
 without JavaScript the forms submit their fields directly, so the report still
 works. Writes go through Fava's own file API, so its lock, watcher and editor stay
 consistent. This makes a write-enabled Fava a remote ledger mutation if Fava is

@@ -126,6 +126,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The Fava report now suggests funding for the month being actioned, not the
+  current one: a form for a future month evaluates that month's plan and
+  balances, and dates its new directive inside that month, instead of collapsing
+  onto today (#22).
 - The Fava **Reports** tab now respects the window's date filter: with a period
   selected it shows only the months inside it, drawing the cumulative cash and
   pool balances from the whole budget rather than a truncated history. With no

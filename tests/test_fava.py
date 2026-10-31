@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -886,9 +886,98 @@ def test_render_source_from_fields() -> None:
 
 
 def test_fill_date_is_the_month_end_or_today() -> None:
-    """A new directive is dated the month end, or today when earlier."""
+    """A past month's directive is dated its month end."""
     extension = _extension("basic.bean")
     assert extension.fill_date(date(2024, 1, 1)) == "2024-01-31"
+
+
+def _extension_from_text(text: str) -> Envelopes:
+    """Build an extension over inline ledger text.
+
+    Args:
+        text: Beancount source.
+
+    Returns:
+        The loaded extension.
+    """
+    entries, _errors, options = loader.load_string(text)
+    ledger = cast("FavaLedger", SimpleNamespace(all_entries=entries, options=options))
+    extension = Envelopes(ledger, None)
+    extension.after_load_file()
+    return extension
+
+
+def _today() -> date:
+    """Return the local current date, matching the extension's own clock."""
+    return date.today()  # noqa: DTZ011 - local today is intended
+
+
+def _monthly_ledger() -> str:
+    """A monthly envelope funded this month, with room left for next month."""
+    this_month = _today().replace(day=1)
+    prior = (this_month - timedelta(days=1)).replace(day=1)
+    opening = prior - timedelta(days=1)
+    return (
+        'option "operating_currency" "USD"\n'
+        "2020-01-01 open Assets:Checking USD\n"
+        "  cash-account: TRUE\n"
+        "2020-01-01 open Expenses:Groceries USD\n"
+        '  envelope: "Groceries"\n'
+        "2020-01-01 open Equity:Opening-Balances USD\n"
+        f'{opening} * "Opening"\n'
+        "  Assets:Checking           10000.00 USD\n"
+        "  Equity:Opening-Balances -10000.00 USD\n"
+        f'{prior} custom "envelope" "start"\n'
+        f'{prior} custom "envelope" "open" "Groceries"\n'
+        "  monthly: 300.00\n"
+        f'{this_month} custom "envelope" "allocate" "Groceries" 300.00 USD\n'
+        f'{this_month} * "Groceries"\n'
+        "  Expenses:Groceries   120.00 USD\n"
+        "  Assets:Checking     -120.00 USD\n"
+    )
+
+
+def _next_month() -> date:
+    """Return the first day of next month, relative to the real today."""
+    return (_today().replace(day=1) + timedelta(days=32)).replace(day=1)
+
+
+def _month_end(month: date) -> date:
+    """Return the last calendar day of a month."""
+    first = month.replace(day=1)
+    return (first + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+
+
+def test_fill_day_dates_future_months_in_that_month() -> None:
+    """A future month dates its last day, so a directive counts toward it (#22)."""
+    nxt = _next_month()
+    assert fava_ext._fill_day(nxt) == _month_end(nxt)
+    assert fava_ext._fill_day(_today()) == _today()
+    assert fava_ext._fill_day(date(2024, 1, 1)) == date(2024, 1, 31)
+
+
+def test_fill_date_for_a_future_month() -> None:
+    """A future month's form dates a directive inside that month (#22)."""
+    extension = _extension("basic.bean")
+    nxt = _next_month()
+    assert extension.fill_date(nxt) == _month_end(nxt).isoformat()
+
+
+def test_prefill_interprets_the_actioned_month() -> None:
+    """A future month suggests its own plan need, not the current month's (#22)."""
+    extension = _extension_from_text(_monthly_ledger())
+    this_month = _today().replace(day=1)
+    assert extension.prefill("Groceries", this_month) == "0.00"
+    assert extension.prefill("Groceries", _next_month()) == "120.00"
+
+
+def test_month_action_dates_a_future_month() -> None:
+    """The month funding action dates its directives inside the future month (#22)."""
+    extension = _extension_from_text(_monthly_ledger())
+    entries = fava_ext._month_entries(
+        "fully_fund", {"month": _next_month().strftime("%Y-%m")}, extension._result()
+    )
+    assert [entry.date for entry in entries] == [_month_end(_next_month())]
 
 
 def test_plan_fields_open_on_the_current_plan() -> None:
