@@ -1181,6 +1181,30 @@ def test_js_module_refreshes_after_save() -> None:
     assert "\n  refresh();" in source
 
 
+def test_js_module_places_popovers() -> None:
+    """The module sizes and places popovers so they stay inside the viewport.
+
+    There is no JavaScript runtime in this project, so this only pins the
+    contract: on open the popover is measured and switched to a fixed overlay
+    that flips side to fit (#43).
+    """
+    source = (Path(fava_ext.__file__).parent / "Envelopes.js").read_text()
+    assert "setup_popovers()" in source.split("onExtensionPageLoad(ctx)")[1]
+    assert "function place_popover(" in source
+    assert "function reset_popover(" in source
+    assert "function float_popover(" in source
+    assert "getBoundingClientRect" in source
+    assert "envelope-pop-floating" in source
+    assert 'window.addEventListener("scroll", place_open_popover, true)' in source
+
+
+def test_template_popovers_size_to_content() -> None:
+    """The stylesheet sizes ledger popovers to their widest line (#43)."""
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
+    assert "envelope-pop-floating" in html
+    assert "width: max-content" in html
+
+
 def test_perform_requires_a_write_target() -> None:
     """Applying an edit without a write target is refused."""
     extension = _extension("basic.bean")

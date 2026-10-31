@@ -238,9 +238,11 @@
       }
       /* Activity drill-down: clicking the activity figure reveals the
          contributing postings, each linking to Fava's entry context popup.
-         The popover hangs below the figure, anchored to its right edge so it
-         grows leftward over the table rather than off the right. It scrolls
-         with the table; the scroll box grows to reveal it. */
+         The popover is sized to its widest line (never wrapping a ledger line)
+         and placed by the JavaScript module so it stays fully inside the
+         viewport, growing left or right of the cell as space allows. Without
+         JavaScript it falls back to hanging below the figure from its right
+         edge, and scrolls inside the table. */
       .envelope-activity {
         position: relative;
       }
@@ -250,8 +252,9 @@
         top: 100%;
         right: 0;
         z-index: 10;
-        max-width: min(26rem, 60vw);
-        max-height: 50vh;
+        width: max-content;
+        max-width: min(90vw, 48rem);
+        max-height: 60vh;
         overflow: auto;
         padding: 0.35rem 0.5rem;
         background: var(--background, #fff);
@@ -379,7 +382,7 @@
         top: 100%;
         z-index: 10;
         min-width: 16rem;
-        max-width: min(28rem, 70vw);
+        max-width: min(90vw, 40rem);
         max-height: 60vh;
         overflow: auto;
         padding: 0.4rem 0.6rem;
@@ -402,6 +405,22 @@
          does not run off the last month's column. */
       .envelope-closing-pop {
         right: 0;
+      }
+      /* Once the JavaScript module measures and places a popover, it switches it
+         to a fixed overlay so the report's scroll box cannot clip it and Fava's
+         sidebar cannot cover it. Position and size then come from inline styles;
+         this rule strips the CSS fallback anchors and must win over the
+         per-variant rules above, so it comes last. */
+      .envelope-pop-floating {
+        position: fixed;
+        top: auto;
+        right: auto;
+        bottom: auto;
+        left: auto;
+        margin: 0;
+        /* Above Fava's sidebar and header; the popover is out of the table now,
+           so this z-index competes page-wide. */
+        z-index: 1000;
       }
       .envelope-closing-status {
         margin-bottom: 0.35rem;
