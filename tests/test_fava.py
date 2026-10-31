@@ -898,7 +898,62 @@ def test_plan_fields_open_on_the_current_plan() -> None:
     assert fields["monthly"] == "2500.00"
     assert fields["priority"] == "1"
     empty = _extension("basic.bean").plan_fields("Groceries", date(2024, 1, 1))
-    assert empty == {"monthly": "", "priority": "", "target": "", "by": ""}
+    assert empty == {
+        "monthly": "",
+        "up_to": "",
+        "priority": "",
+        "target": "",
+        "by": "",
+    }
+
+
+def test_plan_fields_include_up_to() -> None:
+    """The plan form opens on an ``up-to`` ceiling (#22)."""
+    fields = _extension("up_to.bean").plan_fields("Car", date(2024, 1, 1))
+    assert fields["monthly"] == "250.00"
+    assert fields["up_to"] == "600.00"
+
+
+def test_plan_text_shows_up_to() -> None:
+    """The plan popover describes an ``up-to`` ceiling (#22)."""
+    extension = _extension("up_to.bean")
+    view = extension.report("2024-03", "1")
+    car = next(e for e in view.envelopes if e.name == "Car")
+    assert extension.plan_text(car.plans[0]) == "open: monthly 250.00 · up to 600.00"
+
+
+def test_funding_text_shows_up_to() -> None:
+    """The closing popover names the ceiling and the plan status (#22)."""
+    extension = _extension("up_to.bean")
+    view = extension.report("2024-03", "1")
+    car = next(e for e in view.envelopes if e.name == "Car")
+    text = extension.funding_text(car.cells[0])
+    assert text.startswith("up to 600.00 · ")
+    assert text.endswith("underfunded")
+
+
+def test_action_entry_plan_includes_up_to() -> None:
+    """The plan action writes the ``up-to`` ceiling it names (#22)."""
+    extension = _extension("basic.bean")
+    entry = fava_ext._action_entry(
+        {
+            "action": "plan",
+            "envelope": "Groceries",
+            "monthly": "250",
+            "up_to": "600",
+            "date": "2024-02-01",
+        },
+        extension._result(),
+    )
+    assert actions.render(entry) == (
+        '2024-02-01 custom "envelope" "plan" "Groceries"\n  monthly: 250\n  up-to: 600'
+    )
+
+
+def test_template_renders_up_to_tooltip() -> None:
+    """The template surfaces the ``up-to`` ceiling in the closing popover (#22)."""
+    html = _render(_extension("up_to.bean"), {"month": "2024-03", "months": "1"})
+    assert "up to 600.00" in html
 
 
 def test_js_module_is_shipped() -> None:

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- An `up-to` metadata key on a plan pairs with `monthly` to cap a balance: fund
+  by the monthly amount each month, but never past the ceiling. Once full, or
+  once the month's allowance is used up, funding stops; spending re-opens room.
+  It works through `fund --mode topup`, the month funding actions and the Fava
+  report, all sharing one rule (#22).
 - The Fava report gains a **Reports** tab (`?view=reports`, renamed from
   Dashboard; the ledger grid is now headed **Envelopes**) that spans the budget's
   whole history as table rows of month columns: the cash and pool balances, then

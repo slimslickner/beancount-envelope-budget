@@ -248,6 +248,7 @@ class PlanLine:
         target: A goal balance, or ``None``.
         target_currency: The currency of the goal, or ``None``.
         by: The date the goal should be reached by, or ``None``.
+        up_to: A balance ceiling paired with ``monthly``, or ``None``.
         clears: Whether this is an ``unplan`` that resets the plan to defaults.
         base: Whether this is the envelope's ``open`` directive.
     """
@@ -259,6 +260,7 @@ class PlanLine:
     target: Decimal | None = None
     target_currency: str | None = None
     by: date | None = None
+    up_to: Decimal | None = None
     clears: bool = False
     base: bool = False
 
@@ -285,6 +287,8 @@ class Cell:
             level this month, or ``None`` when there is no level.
         target: The envelope's goal balance this month, or ``None`` when it has
             no target.
+        up_to: The envelope's balance ceiling this month, or ``None`` when it has
+            no ``up-to``.
         fill: How full the envelope is toward its goal, clamped to ``0`` to
             ``1`` — the amount credited toward the plan this month (see
             :meth:`~beancount_envelope_budget.core.EnvelopeReport.funded_at`)
@@ -308,6 +312,7 @@ class Cell:
     level: Decimal | None = None
     funding: str | None = None
     target: Decimal | None = None
+    up_to: Decimal | None = None
     fill: Decimal | None = None
     allocations: tuple[AllocationLine, ...] = ()
     pool: tuple[PoolEntry, ...] = ()
@@ -575,12 +580,36 @@ def _average_spend(report: EnvelopeReport, on: date, window: int) -> Decimal | N
     return total / count if count else None
 
 
+def _monthly_amount(report: EnvelopeReport, on: date) -> Decimal | None:
+    """Resolve an envelope's planned monthly amount on a date.
+
+    Args:
+        report: The envelope's report.
+        on: The date to evaluate.
+
+    Returns:
+        The monthly amount — a number, or the average of the last ``avgN``
+        completed months of spending, rounded to the cent — or ``None`` when the
+        envelope has no ``monthly`` plan (or an ``avgN`` with no history).
+    """
+    plan = report.envelope.effective(on)
+    if isinstance(plan.monthly, Decimal):
+        return _round_to_cent(plan.monthly)
+    if isinstance(plan.monthly, str):
+        average = _average_spend(report, on, _avg_window(plan.monthly))
+        return None if average is None else _round_to_cent(average)
+    return None
+
+
 def plan_level(report: EnvelopeReport, on: date) -> Decimal | None:
     """Resolve an envelope's funding level on a date.
 
     An envelope with a ``monthly`` plan holds that amount (a number, or the
-    average of its last ``avgN`` completed months of spending). A goal envelope
-    with a ``target`` holds the on-track balance from
+    average of its last ``avgN`` completed months of spending). An envelope with
+    an ``up-to`` ceiling holds ``min(up_to, opening + monthly)`` — the balance it
+    should reach this month, contributing the month's amount but never climbing
+    past the ceiling. A goal envelope with a ``target`` holds the on-track
+    balance from
     :meth:`~beancount_envelope_budget.core.Envelope.funding_level`. The resolved
     level is rounded to the cent, because a goal's prorated target can carry a
     sub-cent tail that a whole-cent balance would otherwise read as over- or
@@ -614,11 +643,15 @@ def plan_level(report: EnvelopeReport, on: date) -> Decimal | None:
         Decimal('3000.00')
     """
     plan = report.envelope.effective(on)
-    if isinstance(plan.monthly, Decimal):
-        return _round_to_cent(plan.monthly)
-    if isinstance(plan.monthly, str):
-        average = _average_spend(report, on, _avg_window(plan.monthly))
-        return None if average is None else _round_to_cent(average)
+    if plan.up_to is not None:
+        monthly = _monthly_amount(report, on)
+        if monthly is None:
+            return _round_to_cent(plan.up_to)
+        opening = row_for(report.rows, on).opening
+        return _round_to_cent(min(plan.up_to, opening + monthly))
+    monthly = _monthly_amount(report, on)
+    if monthly is not None:
+        return monthly
     level = report.envelope.funding_level(on)
     return None if level is None else _round_to_cent(level)
 
@@ -664,11 +697,16 @@ def active_plan(plans: tuple[PlanLine, ...], month: date) -> PlanLine | None:
 def plan_top_up(report: EnvelopeReport, on: date) -> Decimal:
     """Amount to allocate to fund an envelope to its plan level.
 
-    This is the "set the month's allocation to the plan" intent: the gap between
-    the envelope's funding level and the money already credited this month (see
-    :meth:`~beancount_envelope_budget.core.EnvelopeReport.funded_at`). An
-    envelope with no plan has no level, so it needs nothing here; use
-    :func:`overspend_cover` for its spending.
+    This is the "set the month's allocation to the plan" intent. For a plain
+    envelope it is the gap between the envelope's funding level and the money
+    already credited this month (see
+    :meth:`~beancount_envelope_budget.core.EnvelopeReport.funded_at`). For an
+    envelope with an ``up-to`` ceiling, ``monthly`` is a per-month contribution
+    allowance: the amount is what is left of that allowance after this month's
+    allocations, capped by how far the closing balance still sits below the
+    ceiling, so once the envelope is full the amount is zero and spending only
+    re-opens room within the allowance. An envelope with no plan has no level, so
+    it needs nothing here; use :func:`overspend_cover` for its spending.
 
     Args:
         report: The envelope's report.
@@ -691,7 +729,28 @@ def plan_top_up(report: EnvelopeReport, on: date) -> Decimal:
         ... )
         >>> plan_top_up(report, date(2026, 10, 31))
         Decimal('550.00')
+        >>> capped = EnvelopeReport(
+        ...     Envelope(
+        ...         "Car",
+        ...         date(2026, 10, 1),
+        ...         None,
+        ...         Plan(monthly=Decimal("250"), up_to=Decimal("600")),
+        ...         (),
+        ...     ),
+        ...     (MonthRow(date(2026, 10, 1), Decimal("500"), Decimal(0), Decimal(0)),),
+        ... )
+        >>> plan_top_up(capped, date(2026, 10, 31))
+        Decimal('100.00')
     """
+    plan = report.envelope.effective(on)
+    if plan.up_to is not None:
+        monthly = _monthly_amount(report, on)
+        if monthly is None:
+            return Decimal(0)
+        row = row_for(report.rows, on)
+        allowance_left = max(Decimal(0), monthly - row.allocated)
+        room = max(Decimal(0), plan.up_to - row.closing)
+        return _round_to_cent(min(allowance_left, room))
     level = plan_level(report, on)
     if level is None:
         return Decimal(0)
@@ -1430,6 +1489,7 @@ def _plan_lines(envelope: Envelope) -> tuple[PlanLine, ...]:
         target=envelope.plan.target,
         target_currency=envelope.plan.target_currency,
         by=envelope.plan.by,
+        up_to=envelope.plan.up_to,
         base=True,
     )
     history = tuple(
@@ -1441,6 +1501,7 @@ def _plan_lines(envelope: Envelope) -> tuple[PlanLine, ...]:
             target=change.target,
             target_currency=change.target_currency,
             by=change.by,
+            up_to=change.up_to,
             clears=change.clears,
         )
         for change in envelope.plans
@@ -1457,6 +1518,7 @@ def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
     level: Decimal | None = None,
     funding: str | None = None,
     target: Decimal | None = None,
+    up_to: Decimal | None = None,
     fill: Decimal | None = None,
     allocations: tuple[AllocationLine, ...] = (),
     pool: tuple[PoolEntry, ...] = (),
@@ -1471,6 +1533,7 @@ def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
         level: The month's funding level, or ``None``.
         funding: The month's funding status, or ``None``.
         target: The month's goal balance, or ``None``.
+        up_to: The month's balance ceiling, or ``None``.
         fill: How full the envelope is toward its goal, or ``None``.
         allocations: The month's ``allocate`` directives.
         pool: The pool row's ledger lines for the month, if any.
@@ -1491,6 +1554,7 @@ def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
         level=level,
         funding=funding,
         target=target,
+        up_to=up_to,
         fill=fill,
         allocations=allocations,
         pool=pool,
@@ -1525,8 +1589,15 @@ def _envelope_view(
         on = _last_day(month)
         plan = envelope.effective(on)
         level = plan_level(report, on)
-        reference = plan.target if plan.target is not None else level
         funded = report.funded_at(on)
+        if plan.up_to is not None:
+            up_to = plan.up_to
+            reference = _round_to_cent(plan.up_to)
+            funding = "on" if plan_top_up(report, on) == 0 else "under"
+        else:
+            up_to = None
+            reference = plan.target if plan.target is not None else level
+            funding = _funding(level, funded)
         cells.append(
             _cell(
                 row,
@@ -1535,8 +1606,9 @@ def _envelope_view(
                 visible=month >= opened_month
                 and (closed_month is None or month <= closed_month),
                 level=level,
-                funding=_funding(level, funded),
+                funding=funding,
                 target=plan.target,
+                up_to=up_to,
                 fill=_fill(reference, funded),
                 allocations=tuple(allocations.get((report.name, month), [])),
             )
@@ -1753,6 +1825,7 @@ def _plan_json(plan: Plan) -> dict[str, object]:
         "target": _money_json(plan.target),
         "target_currency": plan.target_currency,
         "by": plan.by.isoformat() if plan.by is not None else None,
+        "up_to": _money_json(plan.up_to),
     }
 
 
@@ -1799,6 +1872,7 @@ def _cell_json(cell: Cell) -> dict[str, object]:
         "level": _money_json(cell.level),
         "funding": cell.funding,
         "target": _money_json(cell.target),
+        "up_to": _money_json(cell.up_to),
         "fill": _ratio_json(cell.fill),
         "detail": [
             {
@@ -1846,6 +1920,7 @@ def _plan_line_json(line: PlanLine) -> dict[str, object]:
         "target": _money_json(line.target),
         "target_currency": line.target_currency,
         "by": line.by.isoformat() if line.by is not None else None,
+        "up_to": _money_json(line.up_to),
         "clears": line.clears,
         "base": line.base,
     }

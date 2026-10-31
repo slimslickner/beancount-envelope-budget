@@ -179,7 +179,7 @@ DIRECTIVE_VERBS: tuple[DirectiveVerb, ...] = (
                 description="The name of the envelope to declare.",
             ),
         ),
-        metadata=("monthly", "priority", "target", "by", "parent"),
+        metadata=("monthly", "up-to", "priority", "target", "by", "parent"),
         description="Declares an envelope.",
     ),
     DirectiveVerb(
@@ -258,7 +258,7 @@ DIRECTIVE_VERBS: tuple[DirectiveVerb, ...] = (
                 description="The envelope the plan applies to.",
             ),
         ),
-        metadata=("monthly", "priority", "target", "by"),
+        metadata=("monthly", "up-to", "priority", "target", "by"),
         description=(
             "Changes an envelope's plan from that date. It takes the same "
             "metadata as `open` and changes only the fields it names; the "
@@ -349,6 +349,18 @@ METADATA_KEYS: tuple[MetadataKey, ...] = (
         applies_to=(AppliesTo.ENVELOPE_OPEN, AppliesTo.ENVELOPE_PLAN),
         description=(
             "The date by which the target should be reached, e.g. 2028-06-01."
+        ),
+    ),
+    MetadataKey(
+        key="up-to",
+        kind=ValueKind.DECIMAL,
+        required=False,
+        default=None,
+        applies_to=(AppliesTo.ENVELOPE_OPEN, AppliesTo.ENVELOPE_PLAN),
+        description=(
+            "A balance ceiling paired with `monthly`: fund by the monthly amount "
+            "each month, but never above this balance. Requires `monthly` and is "
+            "mutually exclusive with `target`."
         ),
     ),
     MetadataKey(
@@ -467,8 +479,9 @@ DIAGNOSTIC_CODES: tuple[DiagnosticCode, ...] = (
         severity=Severity.ERROR,
         summary="Invalid envelope metadata: {detail}.",
         explanation=(
-            'Check the types: `monthly` must be a number or "avgN", `priority` '
-            "a number, `target` an amount, `by` a date and `parent` a string."
+            'Check the types: `monthly` must be a number or "avgN", `up-to` a '
+            "positive number, `priority` a number, `target` an amount, `by` a "
+            "date and `parent` a string."
         ),
     ),
     DiagnosticCode(
@@ -488,8 +501,10 @@ DIAGNOSTIC_CODES: tuple[DiagnosticCode, ...] = (
             "A plan funds an envelope either by `monthly` or by a `target` with "
             "a `by` date, never both. `target` without `by`, `by` without "
             "`target`, and `monthly` with `target` are all errors because the "
-            "ignored key would otherwise have no effect. Remove the unused or "
-            "conflicting key, or start a fresh plan with `unplan`."
+            "ignored key would otherwise have no effect. An `up-to` ceiling "
+            "needs the `monthly` it caps and cannot be combined with a `target`. "
+            "Remove the unused or conflicting key, or start a fresh plan with "
+            "`unplan`."
         ),
     ),
     DiagnosticCode(

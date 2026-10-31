@@ -51,7 +51,8 @@ When working inside this repository, prefix commands with `uv run`.
 - `copy` — repeat the previous month's allocation (roll one month forward).
 - `topup` — fund each envelope up to its level, in priority order, from the
   pool. A `monthly` envelope's level is that amount; a goal envelope's is the
-  on-track balance for the run month.
+  on-track balance for the run month. An `up-to` envelope spends what is left of
+  the month's `monthly` allowance, never past the ceiling.
 - `fully-fund` — the month-level action: fund every envelope to its plan level or
   its overspend, whichever is greater, in priority order. Unlike `topup`,
   envelopes with no plan are still funded their overspend.
@@ -63,10 +64,12 @@ The three range modes skip any envelope-month that already has an allocation;
 because they measure from current balances — rerun them after each paycheck and
 append the new output.
 
-An envelope's plan is its `monthly`, `priority`, `target` and `by` metadata, set
-on `open` or changed from a date with `plan` (`custom "envelope" "plan" "<name>"`
-plus the same metadata), and cleared with `unplan`. `monthly` may be a number or
-`"avgN"`, the average of the last N completed months of spending.
+An envelope's plan is its `monthly`, `up-to`, `priority`, `target` and `by`
+metadata, set on `open` or changed from a date with `plan`
+(`custom "envelope" "plan" "<name>"` plus the same metadata), and cleared with
+`unplan`. `monthly` may be a number or `"avgN"`, the average of the last N
+completed months of spending. `up-to` pairs with `monthly` to cap the balance: it
+requires `monthly` and cannot be combined with `target`.
 
 **`topup` needs a plan.** With no `monthly` (and no `target` + `by`) it has no
 level to fund to and prints nothing. Use `fully-fund` for a whole month instead:

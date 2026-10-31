@@ -1,0 +1,18 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Expenses:Car USD
+  envelope: "Car"
+2020-01-01 open Equity:Opening-Balances USD
+
+2023-12-31 * "Opening balance"
+  Assets:Checking           10000.00 USD
+  Equity:Opening-Balances -10000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Car"
+  monthly: 250.00
+  up-to: 600.00
+2024-01-31 custom "envelope" "allocate" "Car" 250.00 USD
+2024-02-29 custom "envelope" "allocate" "Car" 250.00 USD

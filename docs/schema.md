@@ -23,7 +23,7 @@ Declares an envelope.
 | `envelope` | string | yes | The name of the envelope to declare. |
 
 
-Metadata: `monthly`, `priority`, `target`, `by`, `parent`.
+Metadata: `monthly`, `up-to`, `priority`, `target`, `by`, `parent`.
 
 ### `allocate`
 
@@ -74,7 +74,7 @@ Changes an envelope's plan from that date. It takes the same metadata as `open` 
 | `envelope` | string | yes | The envelope the plan applies to. |
 
 
-Metadata: `monthly`, `priority`, `target`, `by`.
+Metadata: `monthly`, `up-to`, `priority`, `target`, `by`.
 
 ### `unplan`
 
@@ -98,6 +98,7 @@ Metadata: none.
 | `priority` | decimal | no | — | envelope open, envelope plan | Lower numbers fund first during topup. Ties fund in declaration order; envelopes without a priority fund last. |
 | `target` | amount (number and currency) | no | — | envelope open, envelope plan | A goal balance for the envelope, e.g. 15000.00 USD. |
 | `by` | date | no | — | envelope open, envelope plan | The date by which the target should be reached, e.g. 2028-06-01. |
+| `up-to` | decimal | no | — | envelope open, envelope plan | A balance ceiling paired with `monthly`: fund by the monthly amount each month, but never above this balance. Requires `monthly` and is mutually exclusive with `target`. |
 | `parent` | string | no | — | envelope open | A grouping label. Envelopes with the same parent are shown together under a heading, with a subtotal of their balances. |
 
 

@@ -43,10 +43,14 @@ option "operating_currency" "USD"
   target: 15000.00 USD
   by: 2028-06-01
   priority: 1
+2024-01-01 custom "envelope" "open" "Car Repairs"
+  monthly: 250.00
+  up-to: 600.00
 
 2024-01-01 custom "envelope" "allocate" "Groceries" 600.00 USD
 2024-01-01 custom "envelope" "allocate" "Gifts" 100.00 USD
 2024-01-01 custom "envelope" "allocate" "Car" 500.00 USD
+2024-01-01 custom "envelope" "allocate" "Car Repairs" 250.00 USD
 
 2024-01-05 * "Employer" "Payroll"
   Assets:Checking             3500.00 USD

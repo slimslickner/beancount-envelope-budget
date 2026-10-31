@@ -437,3 +437,66 @@ def test_fixtures_are_valid_beancount() -> None:
     for path in sorted((Path(__file__).parent / "ledgers").glob("*.bean")):
         _entries, errors, _options = loader.load_file(path)
         assert not errors, f"{path.name}: {[e.message for e in errors]}"
+
+
+def test_up_to_parses_as_a_capped_monthly(load_budget) -> None:
+    """``up-to`` parses as a positive number alongside ``monthly``."""
+    envelope = _envelope(load_budget("up_to.bean"), "Car").envelope
+    plan = envelope.effective(date(2024, 2, 15))
+    assert plan.monthly == D("250")
+    assert plan.up_to == D("600")
+
+
+def test_up_to_plan_merges_and_clears() -> None:
+    """A ``plan`` changes ``up-to`` alone and ``unplan`` clears it (#22)."""
+    ledger = """
+option "operating_currency" "USD"
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Car"
+  monthly: 250.00
+  up-to: 600.00
+2024-06-01 custom "envelope" "plan" "Car"
+  up-to: 900.00
+2024-09-01 custom "envelope" "unplan" "Car"
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    result = compute(entries, options)
+    report = _envelope(result, "Car")
+    assert report.envelope.effective(date(2024, 3, 1)).up_to == D("600")
+    assert report.envelope.effective(date(2024, 7, 1)).up_to == D("900")
+    assert report.envelope.effective(date(2024, 7, 1)).monthly == D("250")
+    assert report.envelope.effective(date(2024, 10, 1)).up_to is None
+
+
+def test_up_to_plan_errors() -> None:
+    """``up-to`` without ``monthly``, with a target, or <= 0 is reported (#22)."""
+    ledger = """
+option "operating_currency" "USD"
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "NeedsMonthly"
+  up-to: 600.00
+2024-01-01 custom "envelope" "open" "Conflicts"
+  up-to: 600.00
+  target: 5000.00 USD
+  by: 2025-01-01
+2024-01-01 custom "envelope" "open" "Negative"
+  monthly: 250.00
+  up-to: -5.00
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    result = compute(entries, options)
+    messages = [d.message for d in result.diagnostics]
+    assert any("up-to requires monthly" in message for message in messages)
+    assert any(
+        "up-to and target are mutually exclusive" in message for message in messages
+    )
+    assert any(
+        "up-to for Negative must be a positive number" in message
+        for message in messages
+    )
+    assert any(d.code == "E008" for d in result.diagnostics)
+    assert any(d.code == "E010" for d in result.diagnostics)

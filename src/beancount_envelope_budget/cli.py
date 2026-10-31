@@ -43,6 +43,7 @@ from beancount_envelope_budget.report import (
     build_view,
     month_funding,
     plan_level,
+    plan_top_up,
     pool_entry_text,
     pool_ledger,
     pool_ledger_json,
@@ -968,9 +969,9 @@ def _plan_topup(
         level = plan_level(report, on)
         if level is None:
             continue
-        balance = report.funded_at(on)
-        need = (level - balance).quantize(_CENT, rounding=ROUND_CEILING)
+        need = plan_top_up(report, on)
         if need <= 0:
+            balance = report.funded_at(on)
             excess = (balance - level).quantize(_CENT, rounding=ROUND_FLOOR)
             if plan.target is not None and excess > 0:
                 overfunded.append((envelope.name, excess))
