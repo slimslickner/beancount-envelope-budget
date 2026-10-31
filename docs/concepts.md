@@ -459,11 +459,15 @@ The pool row's activity figure opens the same popover, showing the pool's ledger
 The line reads `payee - narration`: the transaction's payee, then the posting's
 `narration` metadata — the `autobean.narration` convention — falling back to the
 transaction's narration, so the line items of one transaction read apart, such as
-a mortgage payment's `Principal`, `Escrow` and `Interest`. The months sit side by
-side when the window is wide enough and stack when it is narrow, and envelopes
-are grouped by their `parent` label with a subtotal per group, parent headings
-and envelopes in alphabetical order. Parent categories collapse to their subtotal
-when their name is clicked.
+a mortgage payment's `Principal`, `Escrow` and `Interest`. A popover sizes itself
+to its widest line and stays inside the window: it grows left or right of the
+cell, whichever side has more room, so it never runs under Fava's sidebar, and a
+ledger line is never wrapped — it scrolls sideways only if it truly cannot fit.
+This sizing is the extension's JavaScript; without it the popovers still open,
+anchored to the cell. The months sit side by side when the window is wide enough
+and stack when it is narrow, and envelopes are grouped by their `parent` label
+with a subtotal per group, parent headings and envelopes in alphabetical order.
+Parent categories collapse to their subtotal when their name is clicked.
 
 The table is a self-contained scroll area: its header, envelope column and
 pool/cash rows stay in place, and the month links stay reachable at the top, so

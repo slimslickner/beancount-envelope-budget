@@ -173,6 +173,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The Fava popovers now size to their content and stay inside the window: the
+  activity and pool-ledger popovers no longer clip a long line like
+  `2026-10-21 · Emergency Fund · -35000.00 → 64316.97`, and every popover grows
+  to the side of the cell with the most room instead of running under Fava's
+  sidebar. A ledger line is never wrapped — it scrolls sideways only when it
+  truly cannot fit — and a popover switches to a fixed overlay so the report's
+  scroll box cannot clip it. This is the extension's JavaScript; without it the
+  popovers still open, anchored to the cell (#43).
 - A goal envelope's progress is now judged only up to the month being shown, so
   a month is no longer credited with allocations, income or refunds made in
   later months. The Fava report's funding ring and `fund`, `suggest` and the
