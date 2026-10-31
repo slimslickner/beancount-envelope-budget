@@ -31,7 +31,7 @@ Create `main.bean`:
 option "operating_currency" "USD"
 
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Expenses:Groceries USD
   envelope: "Groceries"
 2020-01-01 open Income:Salary USD

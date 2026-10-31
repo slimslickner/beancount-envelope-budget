@@ -13,7 +13,7 @@ from beancount_envelope_budget import actions, cli, writer
 _LEDGER = """\
 option "operating_currency" "USD"
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Equity:Opening-Balances USD
 2020-01-01 open Expenses:Groceries USD
   envelope: "Groceries"

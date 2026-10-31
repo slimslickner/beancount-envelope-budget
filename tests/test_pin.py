@@ -206,7 +206,7 @@ def _pin_ledger() -> str:
         'option "operating_currency" "USD"\n'
         ";; keep this comment\n"
         "2020-01-01 open Assets:Checking USD\n"
-        "  cash-account: TRUE\n"
+        "  on-budget: TRUE\n"
         "2020-01-01 open Expenses:Groceries USD\n"
         '  envelope: "Groceries"\n'
         "2020-01-01 open Equity:Opening-Balances USD\n"
@@ -263,7 +263,7 @@ def test_pin_write_across_multiple_files(
     (tmp_path / "main.bean").write_text(
         'option "operating_currency" "USD"\n'
         "2020-01-01 open Assets:Checking USD\n"
-        "  cash-account: TRUE\n"
+        "  on-budget: TRUE\n"
         "2020-01-01 open Expenses:Groceries USD\n"
         '  envelope: "Groceries"\n'
         "2020-01-01 open Equity:Opening-Balances USD\n"

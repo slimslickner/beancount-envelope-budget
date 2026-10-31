@@ -29,7 +29,7 @@ def _ledger_text() -> str:
         'option "operating_currency" "USD"',
         "",
         "2020-01-01 open Assets:Checking USD",
-        "  cash-account: TRUE",
+        "  on-budget: TRUE",
     ]
     for account, envelope in (
         ("Expenses:Rent", "Rent"),

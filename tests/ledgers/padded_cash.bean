@@ -6,7 +6,7 @@ option "operating_currency" "USD"
 ; such transaction and computes a pool of 0, which makes the allocation below
 ; look like a negative pool (W001) the report never shows.
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Equity:Opening-Balances USD
 2020-01-01 open Expenses:Groceries USD
   envelope: "Groceries"

@@ -79,7 +79,7 @@ Metadata: none.
 | Key | Kind | Required | Default | Applies to | Meaning |
 | --- | --- | --- | --- | --- | --- |
 | `envelope` | string | no | — | account open, transaction, posting | The envelope an account's or posting's effects belong to. The reserved value pool sends them to the pool instead. |
-| `cash-account` | boolean | no | — | account open | TRUE marks an Assets or Liabilities account as spendable cash whose balance counts toward the pool. FALSE is the same as leaving the key out. |
+| `on-budget` | boolean | no | — | account open | TRUE marks an Assets or Liabilities account as spendable cash whose balance counts toward the pool. FALSE is the same as leaving the key out. |
 | `monthly` | number or "avgN" | no | — | envelope open, envelope plan | The planned monthly funding amount, or "avgN" for the average of the last N completed months of spending. |
 | `priority` | decimal | no | — | envelope open, envelope plan | Lower numbers fund first during topup. Ties fund in declaration order; envelopes without a priority fund last. |
 | `goal` | amount (number and currency) | no | — | envelope open, envelope plan | A savings goal: the total to contribute by its `by` date, e.g. 15000.00 USD. Funded by cumulative contributions, not the balance, so spending does not un-fund it. |

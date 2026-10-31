@@ -3,7 +3,7 @@ option "operating_currency" "USD"
 ; "Old" is declared and closed at a zero balance, so it should stay in the
 ; report through its close month and disappear from the months after it.
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Expenses:Groceries USD
   envelope: "Groceries"
 2020-01-01 open Income:Salary USD

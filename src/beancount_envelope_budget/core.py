@@ -662,11 +662,11 @@ class AccountInfo:
     """The envelope-relevant metadata of an account.
 
     Attributes:
-        is_cash: Whether the account is marked ``cash-account: TRUE``.
+        on_budget: Whether the account is marked ``on-budget: TRUE``.
         envelope: The account's ``envelope`` metadata, if any.
     """
 
-    is_cash: bool
+    on_budget: bool
     envelope: str | None
 
 
@@ -1088,11 +1088,11 @@ def _scan_accounts(
         if not isinstance(entry, Open):
             continue
         meta = _meta(entry)
-        is_cash = False
-        marker = meta.get("cash-account")
+        on_budget = False
+        marker = meta.get("on-budget")
         if marker is True:
             if _root(entry.account) in _CASH_ROOTS:
-                is_cash = True
+                on_budget = True
             else:
                 diagnostics.append(_diag("E004", entry=entry, account=entry.account))
         elif marker is not None and marker is not False:
@@ -1107,7 +1107,7 @@ def _scan_accounts(
                 )
             )
             envelope = None
-        accounts[entry.account] = AccountInfo(is_cash=is_cash, envelope=envelope)
+        accounts[entry.account] = AccountInfo(on_budget=on_budget, envelope=envelope)
     return accounts
 
 
@@ -2250,7 +2250,7 @@ def _cash_postings(
     for posting in entry.postings:
         info = accounts.get(posting.account)
         number = _amount_number(posting.units)
-        if info is not None and info.is_cash and number is not None:
+        if info is not None and info.on_budget and number is not None:
             found.append(posting)
     return found
 
@@ -2484,7 +2484,7 @@ def _pre_start_cash(
             continue
         for posting in entry.postings:
             info = accounts.get(posting.account)
-            if info is None or not info.is_cash:
+            if info is None or not info.on_budget:
                 continue
             value = valuation.value(posting)
             if value is None:

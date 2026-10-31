@@ -8,7 +8,7 @@ option "inferred_tolerance_default" "USD:0.02"
 2020-01-01 open Assets:Brokerage:VTI VTI
   envelope: "Taxable Investments"
 2020-01-01 open Assets:Brokerage:Cash USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Income:Gains USD
 2020-01-01 open Equity:Opening-Balances USD
 

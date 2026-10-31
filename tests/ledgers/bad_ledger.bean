@@ -1,7 +1,7 @@
 option "operating_currency" "USD"
 
 2020-01-01 open Assets:Checking USD,EUR
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Expenses:Groceries USD,EUR
 2020-01-01 open Expenses:Fun USD
   envelope: "Vacation"

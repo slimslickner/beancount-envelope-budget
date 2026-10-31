@@ -1032,7 +1032,7 @@ def _monthly_ledger() -> str:
     return (
         'option "operating_currency" "USD"\n'
         "2020-01-01 open Assets:Checking USD\n"
-        "  cash-account: TRUE\n"
+        "  on-budget: TRUE\n"
         "2020-01-01 open Expenses:Groceries USD\n"
         '  envelope: "Groceries"\n'
         "2020-01-01 open Equity:Opening-Balances USD\n"

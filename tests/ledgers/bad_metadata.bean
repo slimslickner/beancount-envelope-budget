@@ -1,15 +1,15 @@
 option "operating_currency" "USD"
 
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Assets:401k USD
-  cash-account: FALSE
+  on-budget: FALSE
 2020-01-01 open Expenses:Groceries USD
   envelope: "Groceries"
 2020-01-01 open Income:Salary USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Equity:Opening-Balances USD
-  cash-account: "yes"
+  on-budget: "yes"
 
 2024-01-01 custom "envelope" "start"
 2024-01-01 custom "envelope" "open" "Groceries"
