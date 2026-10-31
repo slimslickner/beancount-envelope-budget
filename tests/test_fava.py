@@ -407,10 +407,10 @@ def test_template_closing_popover_shows_plan_status() -> None:
     under = _row(html, ">Under<")
     assert "envelope-closing-pop" in under
     assert "envelope-closing-host" in under
-    # The status omits the level, showing the funding fraction and label.
+    # The status now shows the funding fraction and the full derivation.
     assert "50.0% funded" in under
-    assert "underfunded" in under
-    assert "level " not in under
+    assert "underfunded by 50.00" in under
+    assert "level 100.00 = monthly 100.00" in under
 
 
 def test_template_closing_popover_shows_the_active_plan() -> None:
@@ -1123,8 +1123,9 @@ def test_funding_text_shows_up_to() -> None:
     view = extension.report("2024-03", "1")
     car = next(e for e in view.envelopes if e.name == "Car")
     text = extension.funding_text(car.cells[0])
-    assert text.startswith("up to 600.00 · ")
-    assert text.endswith("underfunded")
+    assert "level 600.00 = min(ceiling 600.00, opening 500.00 + monthly 250.00)" in text
+    assert "funded 500.00 = closing balance" in text
+    assert text.endswith("underfunded by 100.00\ntop up 100.00")
 
 
 def test_action_entry_plan_includes_up_to() -> None:
@@ -1554,3 +1555,29 @@ def test_template_reports_show_a_note_when_the_filter_is_empty(
     html = _render(extension, {"view": "reports"})
     assert "No months in the selected date range." in html
     assert "Top spending" not in html
+
+
+def test_prefill_reason_explains_the_suggestion() -> None:
+    """The add-allocation note spells out the prefilled amount's derivation."""
+    extension = _extension("up_to.bean")
+    lines = extension.prefill_reason("Car", date(2024, 3, 1))
+    assert (
+        lines[0]
+        == "level 600.00 = min(ceiling 600.00, opening 500.00 + monthly 250.00)"
+    )
+    assert lines[-1] == "top up 100.00"
+    assert extension.prefill_reason("Nope", date(2024, 3, 1)) == ()
+
+
+def test_template_shows_the_prefill_reason(
+    tmp_path: Path,
+) -> None:
+    """The allocation popover shows why the suggested amount is suggested."""
+    extension = _extension(
+        "up_to.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    html = _render(extension, {"month": "2024-03", "months": "1"})
+    assert "envelope-prefill-reason" in html
+    assert "top up 100.00" in html

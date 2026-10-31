@@ -250,6 +250,12 @@ One directive name, `"envelope"`, with a verb as the first argument. See
   and the envelope still reads green, with a full ring. Only an explicit un-save
   (a negative allocation) reduces it. The report colours and
   rings envelopes by this comparison, and `fund --mode topup` funds up to it.
+- `explain` and the Fava closing popover spell out that comparison rather than
+  just the verdict: an `avgN` envelope lists the completed months it averaged,
+  an `up-to` envelope shows `min(ceiling, opening + monthly)` and the room left,
+  and a goal shows its `goal`, deadline and elapsed/total months behind the
+  level. Each also shows how full the envelope is, the amount credited, and the
+  top-up still suggested.
 - To save for a second round from the same goal envelope, either **raise the
   `goal`** — the contributions carry, so only the difference is saved — or
   **`unplan` then `plan`** to restart the clock and re-seed with whatever balance
@@ -397,6 +403,7 @@ opening-balance transactions are clearer than `pad` and avoid the extra pass.
 ```sh
 beancount-envelope-budget check  LEDGER
 beancount-envelope-budget report LEDGER [--month YYYY-MM] [--months N]
+beancount-envelope-budget explain LEDGER [--month YYYY-MM] [--envelope REGEX]
 beancount-envelope-budget pool   LEDGER [--all | --month YYYY-MM | --date YYYY-MM-DD]
 beancount-envelope-budget suggest LEDGER
 beancount-envelope-budget fund LEDGER --from YYYY-MM --to YYYY-MM [--mode MODE]
@@ -410,6 +417,12 @@ See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget
 - `check` exits non-zero on any error.
 - `report` prints opening, allocated, activity and closing for one to three
   months, plus the pool and cash rows.
+- `explain` prints how each planned envelope is evaluated for a month — the
+  resolved `monthly` (and the completed months an `avgN` averaged), the `up-to`
+  ceiling formula, or the goal schedule — alongside the funding level, the
+  funded amount, whether the envelope is under, on or over, and the suggested
+  top-up, so a funding suggestion is never a bare number. `--envelope` filters
+  by name and `--json` prints the lines per envelope.
 - `pool` prints the pool's per-transaction ledger — both directions, with the running
   balance after each line — so a `W001` dip can be traced. A bare run opens on
   the pool's lowest month when it ever went negative, else the latest month;
@@ -435,8 +448,12 @@ Add the extension line and an **Envelopes** report appears in the sidebar:
 ```
 
 It is read-only unless you configure a write target; by default it shows one to
-three months and offers hover text for envelope goals. Hovering or focusing an activity figure reveals a popover listing the
-postings behind it; each line links to that transaction in Fava's entry popup.
+three months. Clicking a planned envelope's closing figure opens a popover that
+explains its evaluation — the level's formula, the funded amount, how full it is
+and the under/on/over verdict — matching the CLI's `explain` output, with a link
+to the plan directive in force. Hovering or focusing an activity figure reveals
+a popover listing the postings behind it; each line links to that transaction in
+Fava's entry popup.
 The pool row's activity figure opens the same popover, showing the pool's ledger
 — activity and allocations both — with the running balance after each line.
 The line reads `payee - narration`: the transaction's payee, then the posting's
@@ -511,9 +528,10 @@ clicking anywhere else, and none needing JavaScript:
   new allocation. Its amount is prefilled with the envelope's plan top-up — the
   gap to its funding level, so money already allocated is not asked for twice —
   falling back to covering the month's overspend when the plan is met or there
-  is none. A second, labelled quick-fill covers that overspending directly when
-  it differs from the prefill, so a partly funded envelope can be funded to plan
-  or brought back to zero either way.
+  is none; the popover also shows the derivation behind that prefill, so the
+  suggested number is not a bare figure. A second, labelled quick-fill covers
+  that overspending directly when it differs from the prefill, so a partly
+  funded envelope can be funded to plan or brought back to zero either way.
 - **Every envelope name** lists the envelope's whole plan history — its `open`
   base plan and each dated `plan`/`unplan` after it — with the same links, plus
   forms to add a plan (opening on the plan in force, with a fresh date) and to

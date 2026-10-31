@@ -39,6 +39,7 @@ __all__ = [
     "Diagnostic",
     "Envelope",
     "EnvelopeReport",
+    "GoalSchedule",
     "MonthRow",
     "Plan",
     "PlanChange",
@@ -215,6 +216,30 @@ class PlanChange:
 
 
 @dataclass(frozen=True, slots=True)
+class GoalSchedule:
+    """A goal envelope's funding schedule at one point in time.
+
+    A goal is grown linearly from the month it first took effect to its ``by``
+    month, counting both ends. This records the schedule behind
+    :meth:`Envelope.funding_level`, so a report can explain the level: the
+    ``goal`` is reached over ``total`` months, of which ``elapsed`` have passed.
+
+    Attributes:
+        start: The date the goal first took effect.
+        by: The deadline the goal should be reached by.
+        elapsed: The number of months counted so far, capped at ``total``.
+        total: The total number of months from ``start`` to ``by``, inclusive.
+        level: The on-track contribution level at the evaluated date.
+    """
+
+    start: date
+    by: date
+    elapsed: int
+    total: int
+    level: Decimal
+
+
+@dataclass(frozen=True, slots=True)
 class Envelope:
     """A declared envelope and its funding parameters.
 
@@ -312,6 +337,42 @@ class Envelope:
             ... ) is None
             True
         """
+        schedule = self.goal_schedule(on)
+        return None if schedule is None else schedule.level
+
+    def goal_schedule(self, on: date) -> GoalSchedule | None:
+        """Return the funding schedule for a goal envelope.
+
+        The schedule is the arithmetic behind :meth:`funding_level`: the month
+        the goal first took effect, its deadline, the months elapsed and total,
+        and the resulting level. A report uses it to explain why a goal reads
+        under, on or over plan.
+
+        Args:
+            on: The date to evaluate.
+
+        Returns:
+            The :class:`GoalSchedule`, or ``None`` when the envelope has no
+            goal (or no ``by``).
+
+        Examples:
+            >>> emergency = Envelope(
+            ...     "Emergency",
+            ...     date(2026, 1, 1),
+            ...     None,
+            ...     Plan(
+            ...         goal=Decimal("6000"),
+            ...         goal_currency="USD",
+            ...         by=date(2026, 6, 30),
+            ...     ),
+            ...     (),
+            ... )
+            >>> schedule = emergency.goal_schedule(date(2026, 3, 15))
+            >>> schedule.start, schedule.elapsed, schedule.total
+            (datetime.date(2026, 1, 1), 3, 6)
+            >>> schedule.level
+            Decimal('3000')
+        """
         plan = self.effective(on)
         if plan.goal is None or plan.by is None:
             return None
@@ -320,9 +381,9 @@ class Envelope:
             return None
         total = _months_inclusive(start, plan.by)
         if total <= 0:
-            return plan.goal
+            return GoalSchedule(start, plan.by, total, total, plan.goal)
         elapsed = max(0, min(_months_inclusive(start, on), total))
-        return plan.goal * elapsed / total
+        return GoalSchedule(start, plan.by, elapsed, total, plan.goal * elapsed / total)
 
 
 def _goal_start(envelope: Envelope, on: date) -> date | None:

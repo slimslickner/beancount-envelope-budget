@@ -59,6 +59,8 @@ from beancount_envelope_budget.report import (
     active_plan,
     build_reports,
     build_view,
+    funding_explanation,
+    funding_explanation_lines,
     month_funding,
     overspend_cover,
     plan_top_up,
@@ -82,9 +84,6 @@ _MONTH_PATTERN = re.compile(r"^\d{4}-\d{2}$")
 
 #: The most month links the report's strip shows at once.
 _STRIP_MONTHS = 8
-
-#: How each funding status reads in the closing popover.
-_FUNDING_LABEL = {"under": "underfunded", "on": "on plan", "over": "over plan"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -482,32 +481,65 @@ class Envelopes(FavaExtensionBase):
         """
         return f"{cell.fill * 100:.1f}%" if cell.fill is not None else "0%"
 
-    def funding_text(self, cell: Cell) -> str:
-        """Describe a cell's plan status for the closing popover.
+    def funding_lines(self, cell: Cell) -> tuple[str, ...]:
+        """Describe how a cell's plan is evaluated, one line per part.
 
-        The closing figure reveals this: the goal the envelope is aiming at, how
-        full it is toward it, and whether it is under, on or over plan. Each part
-        is omitted when the cell does not carry it, so a monthly envelope reads
-        ``50.0% funded · underfunded``, an ``up-to`` envelope ``up to 600.00 ·
-        50.0% funded · underfunded`` and a goal ``goal 15000.00 · 3.3%
-        funded · underfunded``.
+        Delegates to :func:`~beancount_envelope_budget.report.funding_explanation_lines`,
+        the shared formatter, so the closing popover shows the same derivation
+        the CLI's ``explain`` command prints: the level's formula, what the
+        funded amount is measured from, the under/on/over verdict and the
+        top-up still needed. A funding-fraction line leads when the cell has a
+        goal to measure against.
 
         Args:
             cell: The view cell.
 
         Returns:
-            The description, or an empty string when the cell has no plan.
+            The derivation lines, or an empty tuple when the cell has no plan.
         """
-        parts: list[str] = []
-        if cell.up_to is not None:
-            parts.append(f"up to {cell.up_to:.2f}")
-        if cell.goal is not None:
-            parts.append(f"goal {cell.goal:.2f}")
+        if cell.explanation is None:
+            return ()
+        lines: list[str] = []
         if cell.fill is not None:
-            parts.append(f"{cell.fill * 100:.1f}% funded")
-        if cell.funding is not None:
-            parts.append(_FUNDING_LABEL[cell.funding])
-        return " · ".join(parts)
+            lines.append(f"{cell.fill * 100:.1f}% funded")
+        lines.extend(funding_explanation_lines(cell.explanation))
+        return tuple(lines)
+
+    def funding_text(self, cell: Cell) -> str:
+        """Describe a cell's plan status as plain text.
+
+        The text-only form of :meth:`funding_lines`, joined with newlines — the
+        fallback for a client that cannot render the lines separately.
+
+        Args:
+            cell: The view cell.
+
+        Returns:
+            The derivation, or an empty string when the cell has no plan.
+        """
+        return "\n".join(self.funding_lines(cell))
+
+    def prefill_reason(self, envelope: str, month: date) -> tuple[str, ...]:
+        """Explain the amount an "add allocation" form would prefill.
+
+        Shows how the suggested allocation was reached for the actioned month,
+        so the prefilled number is not a bare figure.
+
+        Args:
+            envelope: The envelope name.
+            month: The month to fill.
+
+        Returns:
+            The derivation lines, or an empty tuple when the envelope has no
+            plan.
+        """
+        report = self._result().envelope(envelope)
+        if report is None:
+            return ()
+        explanation = funding_explanation(report, _fill_day(month))
+        if explanation is None:
+            return ()
+        return funding_explanation_lines(explanation)
 
     def active_plan(self, plans: tuple[PlanLine, ...], month: date) -> PlanLine | None:
         """Return the plan directive in force in a month, for the closing popover.

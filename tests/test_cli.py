@@ -484,3 +484,60 @@ def test_pool_missing_file(capsys: pytest.CaptureFixture[str]) -> None:
     """A missing ledger is a usage error (exit 2)."""
     assert cli.main(["pool", str(_LEDGERS / "nope.bean")]) == 2
     assert "no such ledger" in capsys.readouterr().err
+
+
+def test_explain_prints_the_plan_derivation(capsys: pytest.CaptureFixture[str]) -> None:
+    """``explain`` shows how an up-to plan is evaluated for a month."""
+    assert cli.main(["explain", _ledger("up_to.bean"), "--month", "2024-03"]) == 0
+    out = capsys.readouterr().out
+    assert "Plan evaluation for 2024-03" in out
+    assert "Amounts in USD" in out
+    assert "level 600.00 = min(ceiling 600.00, opening 500.00 + monthly 250.00)" in out
+    assert "top up 100.00" in out
+
+
+def test_explain_json_carries_the_lines(capsys: pytest.CaptureFixture[str]) -> None:
+    """``explain --json`` prints each envelope's derivation lines."""
+    assert (
+        cli.main(
+            [
+                "explain",
+                _ledger("savings_goal.bean"),
+                "--month",
+                "2024-03",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["month"] == "2024-03-01"
+    assert payload["currency"] == "USD"
+    car = next(entry for entry in payload["envelopes"] if entry["name"] == "Car")
+    assert car["lines"][0] == (
+        "level 833.33 = goal 15000.00 (3/54 months) to 2028-06-01"
+    )
+
+
+def test_explain_envelope_filter(capsys: pytest.CaptureFixture[str]) -> None:
+    """``--envelope`` limits the envelopes explained."""
+    assert (
+        cli.main(
+            [
+                "explain",
+                _ledger("up_to.bean"),
+                "--month",
+                "2024-03",
+                "--envelope",
+                "^Nope$",
+            ]
+        )
+        == 0
+    )
+    assert "no envelope has a plan" in capsys.readouterr().err
+
+
+def test_explain_without_start(capsys: pytest.CaptureFixture[str]) -> None:
+    """A ledger without a start directive has nothing to explain."""
+    assert cli.main(["explain", _ledger("no_start.bean")]) == 0
+    assert "no start directive" in capsys.readouterr().err

@@ -67,6 +67,19 @@ For envelopes with a `goal` and a `by` date, print the monthly amount needed to 
 | `-h, --help` | show this help message and exit |
 | `ledger` | path to the Beancount ledger (.bean or .beancount) |
 
+## `beancount-envelope-budget explain`
+
+For a month, print how each planned envelope's funding is evaluated: the resolved monthly amount (and the spending an avgN averaged), the up-to ceiling or goal schedule, the funding level, the amount credited toward it, whether the envelope is under, on or over plan, and the top-up still needed.
+
+
+| Option | Help |
+| --- | --- |
+| `-h, --help` | show this help message and exit |
+| `ledger` | path to the Beancount ledger (.bean or .beancount) |
+| `--month` | the month to explain; defaults to the current month |
+| `--envelope` | only explain envelopes whose name matches this regular expression |
+| `--json` | print the explanation as JSON instead of text |
+
 ## `beancount-envelope-budget pool`
 
 Print every transaction and allocation that moved the unassigned pool, in date order with the running balance after each, so a negative pool (W001) can be traced. A bare run shows the pool's lowest month when it ever went negative, else the latest month.
