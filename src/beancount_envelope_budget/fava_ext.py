@@ -33,6 +33,7 @@ set.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -45,7 +46,7 @@ from fava.ext import ExtensionConfigError, FavaExtensionBase, extension_endpoint
 from flask import g, has_app_context, jsonify, make_response, redirect, request
 
 from beancount_envelope_budget import actions, plugin, writer
-from beancount_envelope_budget.core import BudgetResult, Plan, compute
+from beancount_envelope_budget.core import BudgetResult, Plan, compute, iter_months
 from beancount_envelope_budget.report import (
     MAX_MONTHS,
     ActivityLine,
@@ -74,13 +75,41 @@ if TYPE_CHECKING:
     from fava.core import FavaLedger
     from flask import Response
 
-__all__ = ["Envelopes"]
+__all__ = ["Envelopes", "MonthLink"]
 
 _DEFAULT_MONTHS = 3
 _MONTH_PATTERN = re.compile(r"^\d{4}-\d{2}$")
 
+#: The most month links the report's strip shows at once.
+_STRIP_MONTHS = 8
+
 #: How each funding status reads in the closing popover.
 _FUNDING_LABEL = {"under": "underfunded", "on": "on plan", "over": "over plan"}
+
+
+@dataclass(frozen=True, slots=True)
+class MonthLink:
+    """One month in the report's selectable month strip.
+
+    A display-only record: the strip lists the budget's whole history so a user
+    can jump several months at once, so this is built in the Fava layer from
+    :attr:`~beancount_envelope_budget.core.BudgetResult.months` rather than added
+    to the pure view model.
+
+    Attributes:
+        month: The first day of the month.
+        label: The three-letter month abbreviation, such as ``Jan``.
+        query: The report query string that makes this month the window's first
+            month, preserving the current month count.
+        current: Whether this is the current month.
+        visible: Whether this month is in the currently visible window.
+    """
+
+    month: date
+    label: str
+    query: str
+    current: bool
+    visible: bool
 
 
 class Envelopes(FavaExtensionBase):
@@ -501,23 +530,77 @@ class Envelopes(FavaExtensionBase):
 
         Delegates to :func:`~beancount_envelope_budget.report.today_month`, the
         single implementation shared with the CLI, so the two never disagree.
-        The template highlights the current month's column and links to it.
+        The template highlights the current month's column and marks it in the
+        month strip.
 
         Returns:
             The first day of the local current month.
         """
         return today_month()
 
-    def today_nav(self, count: int) -> str:
-        """Build the query string linking to the current month.
+    def month_nav(self, window: tuple[date, ...]) -> tuple[MonthLink, ...]:
+        """Build the selectable month strip, capped to a sliding block.
+
+        The strip lists at most :data:`_STRIP_MONTHS` months as three-letter
+        abbreviations, so a user can jump several months at once rather than
+        stepping with the coarse previous/next links. The visible window sits at
+        the right, with a single trailing month past it — clicking that link
+        steps the window forward, which keeps working even when only one month is
+        shown. The block never starts before the budget's first month; near the
+        start it fills forward instead. Each link sets the window's first month
+        and preserves the current month count; today's month and every month in
+        the visible window are marked. It is a display concern built here from
+        :attr:`~beancount_envelope_budget.core.BudgetResult.months`, so the view
+        model and the CLI are untouched.
 
         Args:
-            count: The number of months to keep visible.
+            window: The currently visible months, ascending.
 
         Returns:
-            A query string for the report's ``this month`` link.
+            One :class:`MonthLink` per month in the block, ascending, at most
+            :data:`_STRIP_MONTHS` of them.
         """
-        return f"month={self.today_month():%Y-%m}&months={count}"
+        result = self._result()
+        today = self.today_month()
+        visible = set(window)
+        count = len(window)
+        first = result.months[0]
+        end = _shift_month(window[-1], 1)
+        start = _shift_month(end, -(_STRIP_MONTHS - 1))
+        if start < first:
+            start = first
+            end = _shift_month(first, _STRIP_MONTHS - 1)
+        return tuple(
+            MonthLink(
+                month=month,
+                label=f"{month:%b}",
+                query=f"month={month:%Y-%m}&months={count}",
+                current=month == today,
+                visible=month in visible,
+            )
+            for month in iter_months(start, end)
+        )
+
+    def name_chars(self) -> int:
+        """Return the longest label in the ledger's name column.
+
+        The ledger table's name column is sized from this, so it does not resize
+        as envelopes come in and out of the visible window while navigating. It
+        covers the envelope names, their group labels, and the fixed
+        ``Envelope``, ``Pool`` and ``Cash`` cells.
+
+        Returns:
+            The longest label's length, in characters.
+        """
+        result = self._result()
+        names = {report.name for report in result.envelopes}
+        names.update(
+            report.envelope.parent
+            for report in result.envelopes
+            if report.envelope.parent is not None
+        )
+        names.update(("Envelope", "Pool", "Cash"))
+        return max(map(len, names))
 
     def activity_title(self, cell: Cell) -> str:
         """Build the plain-text listing of an activity cell's transactions.
@@ -579,6 +662,26 @@ class Envelopes(FavaExtensionBase):
             The relative URL, computed from the extension page's depth.
         """
         return "../../errors/"
+
+
+def _shift_month(month: date, delta: int) -> date:
+    """Shift a month by a signed number of months.
+
+    Args:
+        month: Any date within the month.
+        delta: The number of months to shift.
+
+    Returns:
+        The first day of the shifted month.
+
+    Examples:
+        >>> _shift_month(date(2024, 1, 1), 1)
+        datetime.date(2024, 2, 1)
+        >>> _shift_month(date(2024, 1, 1), -1)
+        datetime.date(2023, 12, 1)
+    """
+    index = month.year * 12 + (month.month - 1) + delta
+    return date(index // 12, index % 12 + 1, 1)
 
 
 def _compute(ledger: FavaLedger, entries: list[Directive]) -> BudgetResult:

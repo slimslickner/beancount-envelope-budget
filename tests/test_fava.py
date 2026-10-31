@@ -622,6 +622,20 @@ def _row(html: str, marker: str) -> str:
     return next(row for row in html.split("<tr") if marker in row)
 
 
+def _month_strip(html: str) -> str:
+    """Return the selectable month strip fragment from a rendered template.
+
+    Args:
+        html: The rendered template.
+
+    Returns:
+        The strip's HTML, from its opening span up to the view tabs.
+    """
+    start = html.index('<span class="envelope-months">')
+    end = html.index('<span class="envelope-nav-tabs">')
+    return html[start:end]
+
+
 def test_template_blanks_zero_envelope_values() -> None:
     """A leaf envelope's 0.00 values render blank, while the pool shows them."""
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
@@ -688,18 +702,17 @@ def test_template_colors_funding_status() -> None:
 
 
 def test_template_marks_current_month(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The current month is labelled in the header and linked from the nav."""
+    """The current month is labelled in the header and marked in the strip."""
     monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2024, 1, 1))
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
     assert "(current)" in _row(html, ">Envelope<")
-    assert "month=2024-01&amp;months=3" in html
-    # The this-month link sits between previous and next.
-    nav = html.split("<tr")[0]
+    strip = _month_strip(html)
     assert (
-        nav.index("previous month") < nav.index("this month") < nav.index("next month")
+        'class="envelope-month envelope-month-visible envelope-month-current"' in strip
     )
-    assert "last 3 months" not in nav
-    assert "next 3 months" not in nav
+    assert 'href="?month=2024-01&amp;months=3"' in strip
+    assert 'aria-label="January 2024"' in strip
+    assert ">Jan<" in strip
 
 
 def test_template_no_current_month_outside_window(
@@ -709,6 +722,99 @@ def test_template_no_current_month_outside_window(
     monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2019, 6, 1))
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
     assert "(current)" not in _row(html, ">Envelope<")
+    assert "envelope-month-current" not in _month_strip(html)
+
+
+def test_month_strip_caps_at_eight(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The strip shows at most eight months, not the whole history."""
+    monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2027, 1, 1))
+    html = _render(_extension("disney_2028.bean"), {"month": "2027-03", "months": "2"})
+    strip = _month_strip(html)
+    assert strip.count('href="?month=') == 8
+    for label in ("Jan", "Feb", "Dec"):
+        assert f">{label}<" in strip
+    # The block spans late 2026 through early 2027, so both years are marked.
+    assert f">{2026}<" in strip
+    assert f">{2027}<" in strip
+
+
+def test_month_strip_blocks_around_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The block sits around the window, with one trailing month to step to."""
+    monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2030, 1, 1))
+    extension = _extension("disney_2028.bean")
+    links = extension.month_nav(extension.report("2027-06", "2").months)
+    assert [link.month for link in links] == [
+        date(2027, 1, 1),
+        date(2027, 2, 1),
+        date(2027, 3, 1),
+        date(2027, 4, 1),
+        date(2027, 5, 1),
+        date(2027, 6, 1),
+        date(2027, 7, 1),
+        date(2027, 8, 1),
+    ]
+    assert [link.visible for link in links] == [
+        False,
+        False,
+        False,
+        False,
+        False,
+        True,
+        True,
+        False,
+    ]
+    june = next(link for link in links if link.month == date(2027, 6, 1))
+    assert june.query == "month=2027-06&months=2"
+    assert june.current is False
+
+
+def test_month_strip_steps_forward_with_single_month(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With one month shown, a trailing month is still there to step to."""
+    monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2024, 1, 1))
+    extension = _extension("basic.bean")
+    links = extension.month_nav(extension.report("2024-01", "1").months)
+    february = next(link for link in links if link.month == date(2024, 2, 1))
+    assert february.query == "month=2024-02&months=1"
+    assert february.visible is False
+
+
+def test_month_strip_marks_visible_window() -> None:
+    """Every month in the visible window is marked, and only those."""
+    html = _render(_extension("disney_2028.bean"), {"month": "2027-03", "months": "3"})
+    strip = _month_strip(html)
+    assert strip.count("envelope-month-visible") == 3
+    assert 'href="?month=2027-03&amp;months=3"' in strip
+
+
+def test_month_strip_reaches_into_projected_months() -> None:
+    """The strip runs through the visible window, past the last computed month."""
+    html = _render(_extension("disney_2028.bean"), {"month": "2028-06", "months": "3"})
+    strip = _month_strip(html)
+    # The history ends in July 2028; the window's last month, August, is
+    # projected and selectable, with September as the trailing step.
+    assert 'href="?month=2028-08&amp;months=3"' in strip
+    assert 'href="?month=2028-09&amp;months=3"' in strip
+    assert strip.count("envelope-month-visible") == 3
+
+
+def test_template_shows_today_link(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Today link jumps back to the current month, keeping the count."""
+    monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2030, 1, 1))
+    html = _render(_extension("disney_2028.bean"), {"month": "2027-03", "months": "2"})
+    assert 'class="envelope-today"' in html
+    assert 'href="?month=2030-01&amp;months=2">Today</a>' in html
+
+
+def test_template_pins_name_column() -> None:
+    """The name column is sized to the longest label, so it cannot resize."""
+    extension = _extension("parent_groups.bean")
+    html = _render(extension, {"month": "2024-01", "months": "1"})
+    assert f"calc(max({extension.name_chars()}, 9) * 1ch + 3ch)" in html
+    assert extension.name_chars() >= len("Envelope")
 
 
 def test_template_freezes_header_and_footer() -> None:
@@ -1342,7 +1448,8 @@ def test_template_puts_tabs_on_the_nav_row() -> None:
         _extension("parent_groups.bean"), {"month": "2024-01", "months": "1"}
     )
     nav = html[html.index('<p class="envelope-nav">') : html.index("</p>")]
-    assert "previous month" in nav
+    assert "envelope-months" in nav
+    assert 'class="envelope-month ' in nav
     assert "envelope-nav-tabs" in nav
     assert ">Envelopes<" in nav
     assert ">Reports<" in nav
@@ -1350,11 +1457,11 @@ def test_template_puts_tabs_on_the_nav_row() -> None:
 
 
 def test_reports_tabs_share_the_row() -> None:
-    """On the reports the tabs sit in the same row, with no month links."""
+    """On the reports the tabs sit in the same row, with no month strip."""
     html = _render(_extension("basic.bean"), {"view": "reports"})
     nav = html[html.index('<p class="envelope-nav">') : html.index("</p>")]
     assert ">Reports<" in nav
-    assert "previous month" not in nav
+    assert "envelope-months" not in nav
 
 
 def test_reports_nav_is_not_sticky() -> None:
