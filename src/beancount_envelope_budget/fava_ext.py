@@ -42,7 +42,7 @@ from fava.core import file as fava_file
 from fava.ext import ExtensionConfigError, FavaExtensionBase, extension_endpoint
 from flask import jsonify, make_response, redirect, request
 
-from beancount_envelope_budget import actions, writer
+from beancount_envelope_budget import actions, plugin, writer
 from beancount_envelope_budget.core import BudgetResult, Plan, compute
 from beancount_envelope_budget.report import (
     MAX_MONTHS,
@@ -141,11 +141,7 @@ class Envelopes(FavaExtensionBase):
             The :class:`BudgetResult`.
         """
         if self.result is None:
-            self.result = compute(
-                self._entries(),
-                self.ledger.options,
-                collect_activity=True,
-            )
+            self.result = _compute(self.ledger, self._entries())
         return self.result
 
     def prefill(self, envelope: str, month: date) -> str:
@@ -361,11 +357,7 @@ class Envelopes(FavaExtensionBase):
 
     def after_load_file(self) -> None:
         """Recompute the budget once the ledger has been loaded."""
-        self.result = compute(
-            self._entries(),
-            self.ledger.options,
-            collect_activity=True,
-        )
+        self.result = _compute(self.ledger, self._entries())
 
     def _entries(self) -> list[Directive]:
         """Return the ledger's entries as Beancount directives.
@@ -554,6 +546,37 @@ class Envelopes(FavaExtensionBase):
             The relative URL, computed from the extension page's depth.
         """
         return "../../errors/"
+
+
+def _compute(ledger: FavaLedger, entries: list[Directive]) -> BudgetResult:
+    """Compute the budget, reusing the plugin's result when it fits.
+
+    The plugin runs during the load and leaves its (validation-only) budget
+    pending. The report needs activity detail and hashes, so it cannot reuse
+    that one, but consuming it here clears the pending budget; otherwise the
+    budget is computed with the collection the report requires.
+
+    Args:
+        ledger: The Fava ledger, for its options and entries.
+        entries: The ledger entries.
+
+    Returns:
+        The :class:`BudgetResult`.
+    """
+    result = plugin.cached_result(
+        ledger.options,
+        collect_resolved=False,
+        collect_activity=True,
+        collect_hashes=True,
+    )
+    if result is not None:
+        return result
+    return compute(
+        entries,
+        ledger.options,
+        collect_activity=True,
+        collect_hashes=True,
+    )
 
 
 def _parse_month(value: object) -> date | None:

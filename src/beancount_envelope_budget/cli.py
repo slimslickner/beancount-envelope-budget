@@ -26,7 +26,7 @@ from argcomplete.completers import FilesCompleter
 from beancount import loader
 from beancount.core.data import Open, Transaction
 
-from beancount_envelope_budget import __version__, actions, writer
+from beancount_envelope_budget import __version__, actions, plugin, writer
 from beancount_envelope_budget.core import (
     BudgetResult,
     Diagnostic,
@@ -142,16 +142,22 @@ def _load(
     *,
     collect_resolved: bool = False,
     collect_activity: bool = False,
+    collect_hashes: bool = False,
 ) -> _Loaded:
     """Load a ledger and compute its budget.
 
-    Beancount's own plugins run as usual; any diagnostics produced by our plugin
-    are dropped here, because the CLI recomputes them itself.
+    Beancount's own plugins run as usual, including ours. Our plugin leaves its
+    budget pending, so when the collection flags match — as they do for the
+    validation-only commands — it is reused instead of scanning the ledger a
+    second time; otherwise the budget is computed here. Either way any
+    diagnostics our plugin produced during the load are dropped, because they
+    come with the reused result or the fresh computation.
 
     Args:
         path: The ledger path.
         collect_resolved: Whether to record each posting's resolved envelope.
         collect_activity: Whether to record per-posting activity detail.
+        collect_hashes: Whether to compute Beancount entry hashes.
 
     Returns:
         The loaded ledger and its budget.
@@ -160,12 +166,20 @@ def _load(
     beancount_errors = tuple(
         error for error in errors if type(error).__name__ != "EnvelopeBudgetError"
     )
-    result = compute(
-        entries,
+    result = plugin.cached_result(
         options,
         collect_resolved=collect_resolved,
         collect_activity=collect_activity,
+        collect_hashes=collect_hashes,
     )
+    if result is None:
+        result = compute(
+            entries,
+            options,
+            collect_resolved=collect_resolved,
+            collect_activity=collect_activity,
+            collect_hashes=collect_hashes,
+        )
     return _Loaded(path, entries, result, beancount_errors)
 
 
@@ -293,7 +307,7 @@ def _cmd_report(args: argparse.Namespace) -> int:
     if not args.ledger.exists():
         print(f"no such ledger: {args.ledger}", file=sys.stderr)
         return 2
-    loaded = _load(args.ledger, collect_activity=True)
+    loaded = _load(args.ledger, collect_activity=True, collect_hashes=True)
     result = loaded.result
     if result.start is None:
         print("there is no start directive; nothing to report", file=sys.stderr)
@@ -351,7 +365,7 @@ def _cmd_pool(args: argparse.Namespace) -> int:
     if not args.ledger.exists():
         print(f"no such ledger: {args.ledger}", file=sys.stderr)
         return 2
-    loaded = _load(args.ledger, collect_activity=True)
+    loaded = _load(args.ledger, collect_activity=True, collect_hashes=True)
     result = loaded.result
     if result.start is None:
         print("there is no start directive; nothing to show", file=sys.stderr)

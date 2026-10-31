@@ -82,6 +82,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The plugin no longer computes Beancount entry hashes it never uses, and the
+  CLI reuses the budget the plugin already computed instead of scanning the
+  ledger a second time, so loading a year of transactions is materially faster
+  (#47).
 - A `monthly` envelope is judged funded by the money made available that month
   (its opening balance plus allocation) rather than its closing balance, so it
   stays green and full-ringed after spending its planned amount; a goal envelope

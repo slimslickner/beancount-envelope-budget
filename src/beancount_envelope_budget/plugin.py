@@ -25,19 +25,20 @@ can then read with ``meta('envelope-resolved')``::
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
 from beancount.core import data
 from beancount.ops import pad as pad_ops
 
-from beancount_envelope_budget.core import Diagnostic, compute
+from beancount_envelope_budget.core import BudgetResult, Diagnostic, compute
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from beancount.core.data import Directive, Transaction
 
-__all__ = ["__plugins__", "plugin"]
+__all__ = ["__plugins__", "cached_result", "plugin"]
 
 #: The plugin functions for Beancount to run, discovered via ``__plugins__``.
 __plugins__ = ["plugin"]
@@ -47,6 +48,43 @@ _CONFIG_RESOLVED = "resolved"
 
 #: The metadata key written when ``envelope-resolved`` is enabled.
 RESOLVED_KEY = "envelope-resolved"
+
+
+class _Cache(NamedTuple):
+    """A budget the plugin computed, and the collection flags it used.
+
+    Attributes:
+        result: The computed budget.
+        collect_resolved: Whether resolved postings were recorded.
+        collect_activity: Whether activity detail was recorded.
+        collect_hashes: Whether entry hashes were computed.
+    """
+
+    result: BudgetResult
+    collect_resolved: bool
+    collect_activity: bool
+    collect_hashes: bool
+
+
+@dataclass(slots=True)
+class _Pending:
+    """The last computed budget and the load it belongs to.
+
+    The plugin leaves its result here rather than on the options map, whose
+    entries Fava stringifies for its options page. It is matched on the options
+    map's identity, the one object Beancount threads unchanged through a load.
+
+    Attributes:
+        options: The options map of the load, for identity matching.
+        cache: The budget and its collection flags, or ``None``.
+    """
+
+    options: object = None
+    cache: _Cache | None = None
+
+
+#: The budget the plugin computed most recently, awaiting a matching consumer.
+_PENDING = _Pending()
 
 
 class EnvelopeBudgetError(NamedTuple):
@@ -86,10 +124,75 @@ def plugin(
         options_map,
         collect_resolved=annotate,
     )
+    _store(options_map, result, collect_resolved=annotate)
     errors = [_to_error(diagnostic, options_map) for diagnostic in result.diagnostics]
     if annotate:
         entries = _annotate(entries, dict(result.resolved))
     return entries, errors
+
+
+def _store(
+    options_map: Mapping[str, object],
+    result: BudgetResult,
+    *,
+    collect_resolved: bool,
+) -> None:
+    """Leave the computed budget for a consumer in this process to reuse.
+
+    The plugin and the CLI wait on the same budget from the same ledger; keeping
+    it here lets the CLI reuse it instead of scanning the ledger a second time.
+    It is a side effect of an otherwise pure function, and it is matched on the
+    options map's identity, so it cannot be picked up by another load.
+
+    Args:
+        options_map: The Beancount options map.
+        result: The budget the plugin computed.
+        collect_resolved: Whether resolved postings were recorded.
+    """
+    _PENDING.options = options_map
+    _PENDING.cache = _Cache(
+        result=result,
+        collect_resolved=collect_resolved,
+        collect_activity=False,
+        collect_hashes=False,
+    )
+
+
+def cached_result(
+    options_map: Mapping[str, object],
+    *,
+    collect_resolved: bool,
+    collect_activity: bool,
+    collect_hashes: bool,
+) -> BudgetResult | None:
+    """Return a budget the plugin computed for this load, when it fits.
+
+    The pending budget is consumed (cleared) whether or not it matches, so a
+    consumer never sees a stale entry. It is returned only when it belongs to
+    this load and the collection flags it was built with equal the ones
+    requested; otherwise the caller must compute afresh with its own flags.
+
+    Args:
+        options_map: The Beancount options map from the same load.
+        collect_resolved: The resolved-postings collection requested.
+        collect_activity: The activity-detail collection requested.
+        collect_hashes: The hash collection requested.
+
+    Returns:
+        The reusable budget, or ``None`` when there is none or it does not match.
+    """
+    if _PENDING.options is not options_map or _PENDING.cache is None:
+        return None
+    cache = _PENDING.cache
+    _PENDING.options = None
+    _PENDING.cache = None
+    if (
+        cache.collect_resolved,
+        cache.collect_activity,
+        cache.collect_hashes,
+    ) != (collect_resolved, collect_activity, collect_hashes):
+        return None
+    return cache.result
 
 
 def _with_padding(

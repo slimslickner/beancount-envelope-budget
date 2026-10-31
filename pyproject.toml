@@ -104,6 +104,8 @@ convention = "google"
 ]
 # The CLI prints to stdout by design.
 "src/beancount_envelope_budget/cli.py" = ["T201"]
+# The benchmark script is a standalone development aid that prints a report.
+"scripts/**" = ["INP001", "T201"]
 
 # --- ty: type checking ----------------------------------------------------------
 
