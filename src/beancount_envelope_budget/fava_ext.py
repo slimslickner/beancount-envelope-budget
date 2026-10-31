@@ -211,6 +211,8 @@ class Envelopes(FavaExtensionBase):
         parts: list[str] = []
         if line.monthly is not None:
             parts.append(f"monthly {line.monthly}")
+        if line.up_to is not None:
+            parts.append(f"up to {line.up_to:.2f}")
         if line.priority is not None:
             parts.append(f"priority {line.priority}")
         if line.target is not None:
@@ -291,13 +293,14 @@ class Envelopes(FavaExtensionBase):
             month: The month the plan is being set in.
 
         Returns:
-            ``monthly``, ``priority``, ``target`` and ``by`` as strings, each
-            empty when the plan does not set it.
+            ``monthly``, ``up_to``, ``priority``, ``target`` and ``by`` as
+            strings, each empty when the plan does not set it.
         """
         report = self._result().envelope(envelope)
         plan = report.envelope.effective(_fill_day(month)) if report else Plan()
         return {
             "monthly": "" if plan.monthly is None else str(plan.monthly),
+            "up_to": "" if plan.up_to is None else f"{plan.up_to}",
             "priority": "" if plan.priority is None else str(plan.priority),
             "target": "" if plan.target is None else f"{plan.target}",
             "by": "" if plan.by is None else plan.by.isoformat(),
@@ -458,7 +461,8 @@ class Envelopes(FavaExtensionBase):
         The closing figure reveals this: the goal the envelope is aiming at, how
         full it is toward it, and whether it is under, on or over plan. Each part
         is omitted when the cell does not carry it, so a monthly envelope reads
-        ``50.0% funded · underfunded`` and a goal ``target 15000.00 · 3.3%
+        ``50.0% funded · underfunded``, an ``up-to`` envelope ``up to 600.00 ·
+        50.0% funded · underfunded`` and a goal ``target 15000.00 · 3.3%
         funded · underfunded``.
 
         Args:
@@ -468,6 +472,8 @@ class Envelopes(FavaExtensionBase):
             The description, or an empty string when the cell has no plan.
         """
         parts: list[str] = []
+        if cell.up_to is not None:
+            parts.append(f"up to {cell.up_to:.2f}")
         if cell.target is not None:
             parts.append(f"target {cell.target:.2f}")
         if cell.fill is not None:
@@ -765,15 +771,22 @@ def _form_optional_day(value: str | None) -> date | None:
 def _fill_day(month: date) -> date:
     """Return the date a new directive in a month is dated.
 
+    The current month dates today, so a directive added mid-month is not pushed
+    into the future; any other month dates its last day, so a future-dated
+    directive counts toward the month being actioned. Reading the suggestion and
+    fixing the date to the same month keeps a form for a projected month funding
+    that month rather than the present one.
+
     Args:
         month: Any date within the month.
 
     Returns:
-        The last day of the month, or today when today is earlier.
+        The date a directive for that month is dated.
     """
     first = month.replace(day=1)
     last = (first + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-    return min(last, date.today())  # noqa: DTZ011 - local today is intended
+    today = date.today()  # noqa: DTZ011 - local today is intended
+    return today if first == today.replace(day=1) else last
 
 
 def _parse_source(source: str) -> list[Custom]:
@@ -902,6 +915,7 @@ def _action_entry(params: Mapping[str, str], result: BudgetResult) -> Custom:
             target=_form_optional_decimal(params.get("target")),
             target_currency=currency,
             by=_form_optional_day(params.get("by")),
+            up_to=_form_optional_decimal(params.get("up_to")),
         )
     if action == "unplan":
         return actions.unplan(params["envelope"], day)

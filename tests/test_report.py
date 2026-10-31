@@ -229,3 +229,27 @@ def test_top_entries_caps_and_breaks_ties() -> None:
     top = _top_entries(entries)
     assert len(top) == 10
     assert [entry.name for entry in top] == [f"env{index:02d}" for index in range(10)]
+
+
+def test_up_to_cell_caps_the_level_and_reads_under() -> None:
+    """An ``up-to`` cell caps its level and reports the room left (#22)."""
+    view = build_view(_compute("up_to.bean"), date(2024, 3, 1))
+    car = next(e for e in view.envelopes if e.name == "Car")
+    cell = car.cells[0]
+    assert cell.opening == D("500")
+    assert cell.level == D("600")
+    assert cell.up_to == D("600")
+    assert cell.target is None
+    assert cell.funding == "under"
+    assert cell.fill == D("500") / D("600")
+
+
+def test_up_to_cell_reads_on_at_the_ceiling() -> None:
+    """An ``up-to`` cell at its ceiling has no room left and reads on plan."""
+    view = build_view(_compute("up_to_full.bean"), date(2024, 4, 1))
+    car = next(e for e in view.envelopes if e.name == "Car")
+    cell = car.cells[0]
+    assert cell.opening == D("600")
+    assert cell.closing == D("600")
+    assert cell.funding == "on"
+    assert cell.fill == D("1")

@@ -56,6 +56,18 @@ def test_plan_target_needs_currency() -> None:
         actions.plan("Car", date(2024, 1, 31), target=Decimal(15000))
 
 
+def test_plan_with_up_to_ceiling() -> None:
+    entry = actions.plan(
+        "Car",
+        date(2024, 1, 31),
+        monthly=Decimal(250),
+        up_to=Decimal(600),
+    )
+    assert actions.render(entry) == (
+        '2024-01-31 custom "envelope" "plan" "Car"\n  monthly: 250\n  up-to: 600'
+    )
+
+
 def test_unplan_renders() -> None:
     entry = actions.unplan("Car", date(2024, 2, 1))
     assert actions.render(entry) == '2024-02-01 custom "envelope" "unplan" "Car"'

@@ -165,10 +165,11 @@ class Plan:
         target: A goal balance, if any.
         target_currency: The currency of the target, if any.
         by: The date the target should be reached by, if any.
+        up_to: A balance ceiling paired with ``monthly``, if any.
 
     Examples:
         >>> Plan()
-        Plan(monthly=None, priority=None, target=None, target_currency=None, by=None)
+        Plan(monthly=None, priority=None, target=None, target_currency=None, by=None, up_to=None)
     """
 
     monthly: Monthly | None = None
@@ -176,6 +177,7 @@ class Plan:
     target: Decimal | None = None
     target_currency: str | None = None
     by: date | None = None
+    up_to: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +195,7 @@ class PlanChange:
         target: The new goal balance, or ``None`` when unchanged.
         target_currency: The currency of the new target, or ``None``.
         by: The new deadline, or ``None`` when unchanged.
+        up_to: The new balance ceiling, or ``None`` when unchanged.
         clears: Whether applying the change resets the plan to defaults.
         entry_hash: The Beancount hash of the source directive, for linking back
             to it in Fava (empty when the change has no source, as in a doctest).
@@ -204,6 +207,7 @@ class PlanChange:
     target: Decimal | None = None
     target_currency: str | None = None
     by: date | None = None
+    up_to: Decimal | None = None
     clears: bool = False
     entry_hash: str = ""
 
@@ -263,6 +267,7 @@ class Envelope:
                     else plan.target_currency
                 ),
                 by=change.by if change.by is not None else plan.by,
+                up_to=change.up_to if change.up_to is not None else plan.up_to,
             )
         return plan
 
@@ -426,12 +431,14 @@ class EnvelopeReport:
 
         A goal envelope — one with a ``target`` and no ``monthly`` — is funded by
         its closing balance, because a ``target`` is a balance to hold and
-        spending draws it down. A ``monthly`` envelope is funded by the money
-        made available that month: the opening balance plus the month's
-        allocation (its closing balance less the month's activity), so receiving
-        the planned amount reads as funded even after the month's spending. The
-        precedence matches :func:`~beancount_envelope_budget.report.plan_level`:
-        a plan with a ``monthly`` is measured as a monthly plan.
+        spending draws it down. An envelope with an ``up-to`` ceiling is likewise
+        measured by its closing balance, the balance the ceiling caps. A
+        ``monthly`` envelope is funded by the money made available that month:
+        the opening balance plus the month's allocation (its closing balance less
+        the month's activity), so receiving the planned amount reads as funded
+        even after the month's spending. The precedence matches
+        :func:`~beancount_envelope_budget.report.plan_level`: a plan with a
+        ``monthly`` and an ``up-to`` is measured as an up-to plan.
 
         Args:
             on: A date in the month to evaluate.
@@ -460,7 +467,7 @@ class EnvelopeReport:
         """
         plan = self.envelope.effective(on)
         row = row_for(self.rows, on)
-        if plan.monthly is None and plan.target is not None:
+        if plan.up_to is not None or (plan.monthly is None and plan.target is not None):
             return row.closing
         return row.opening + row.allocated
 
@@ -1104,6 +1111,38 @@ def _parse_priority(
     return number
 
 
+def _parse_up_to(
+    value: object,
+    name: str,
+    entry: Directive,
+    diagnostics: list[Diagnostic],
+) -> Decimal | None:
+    """Parse an ``up-to`` metadata value.
+
+    Args:
+        value: The raw metadata value, expected to be a positive number.
+        name: The envelope name, for the diagnostic.
+        entry: The source directive.
+        diagnostics: The list to append diagnostics to.
+
+    Returns:
+        The parsed number, or ``None`` on error.
+    """
+    if value is None:
+        return None
+    number = _as_decimal(value)
+    if number is None or number <= 0:
+        diagnostics.append(
+            _diag(
+                "E008",
+                entry=entry,
+                detail=f"up-to for {name} must be a positive number",
+            )
+        )
+        return None
+    return number
+
+
 def _parse_target(
     value: object,
     name: str,
@@ -1199,6 +1238,10 @@ def _validate_plan(
         detail = "target requires by"
     elif plan.by is not None and plan.target is None:
         detail = "by requires target"
+    elif plan.up_to is not None and plan.target is not None:
+        detail = "up-to and target are mutually exclusive"
+    elif plan.up_to is not None and plan.monthly is None:
+        detail = "up-to requires monthly"
     if detail is not None:
         diagnostics.append(_diag("E010", entry=entry, name=name, detail=detail))
 
@@ -1253,6 +1296,7 @@ def _handle_open(
         target=target[0] if target is not None else None,
         target_currency=target[1] if target is not None else None,
         by=_parse_by(raw.meta.get("by"), name, raw.entry, diagnostics),
+        up_to=_parse_up_to(raw.meta.get("up-to"), name, raw.entry, diagnostics),
     )
     _validate_plan(plan, name, raw.entry, diagnostics)
     drafts[name] = _Draft(
@@ -1297,6 +1341,7 @@ def _handle_plan(
             target=target[0] if target is not None else None,
             target_currency=target[1] if target is not None else None,
             by=_parse_by(raw.meta.get("by"), name, raw.entry, diagnostics),
+            up_to=_parse_up_to(raw.meta.get("up-to"), name, raw.entry, diagnostics),
             entry_hash=compare.hash_entry(raw.entry) if collect_hashes else "",
         )
     )

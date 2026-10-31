@@ -42,9 +42,10 @@ beancount-envelope-budget fund main.bean --mode topup --date 2027-03-01 --reserv
 ```
 
 This prints `allocate` directives, funding envelopes in priority order up to
-their level — `monthly`, or the on-track balance for a goal — and holding
-`--reserve` back in the pool. Anything that could not be funded prints as a
-comment, and a goal already above its level prints as overfunded:
+their level — `monthly`, the capped allowance of a `monthly` + `up-to` plan, or
+the on-track balance for a goal — and holding `--reserve` back in the pool.
+Anything that could not be funded prints as a comment, and a goal already above
+its level prints as overfunded:
 
 ```beancount
 2027-03-01 custom "envelope" "allocate" "Mortgage" 2500.00 USD
@@ -57,10 +58,10 @@ Append the output to a file you `include`, then re-check. Rerunning after anothe
 paycheck prints only what is still missing; once nothing is missing it prints
 nothing. With `--strict` it exits non-zero when anything is unfunded.
 
-`topup` sizes each envelope from its plan (`monthly`, or a `target` + `by`), so
-with no plan directives it prints nothing — there is no level to fund to. If you
-would rather not write any plans, top spent envelopes back to zero instead by
-running `overspend` over a single month:
+`topup` sizes each envelope from its plan (`monthly`, `monthly` + `up-to`, or a
+`target` + `by`), so with no plan directives it prints nothing — there is no
+level to fund to. If you would rather not write any plans, top spent envelopes
+back to zero instead by running `overspend` over a single month:
 
 ```sh
 # bring every negative envelope back to zero for the current month

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -886,9 +886,98 @@ def test_render_source_from_fields() -> None:
 
 
 def test_fill_date_is_the_month_end_or_today() -> None:
-    """A new directive is dated the month end, or today when earlier."""
+    """A past month's directive is dated its month end."""
     extension = _extension("basic.bean")
     assert extension.fill_date(date(2024, 1, 1)) == "2024-01-31"
+
+
+def _extension_from_text(text: str) -> Envelopes:
+    """Build an extension over inline ledger text.
+
+    Args:
+        text: Beancount source.
+
+    Returns:
+        The loaded extension.
+    """
+    entries, _errors, options = loader.load_string(text)
+    ledger = cast("FavaLedger", SimpleNamespace(all_entries=entries, options=options))
+    extension = Envelopes(ledger, None)
+    extension.after_load_file()
+    return extension
+
+
+def _today() -> date:
+    """Return the local current date, matching the extension's own clock."""
+    return date.today()  # noqa: DTZ011 - local today is intended
+
+
+def _monthly_ledger() -> str:
+    """A monthly envelope funded this month, with room left for next month."""
+    this_month = _today().replace(day=1)
+    prior = (this_month - timedelta(days=1)).replace(day=1)
+    opening = prior - timedelta(days=1)
+    return (
+        'option "operating_currency" "USD"\n'
+        "2020-01-01 open Assets:Checking USD\n"
+        "  cash-account: TRUE\n"
+        "2020-01-01 open Expenses:Groceries USD\n"
+        '  envelope: "Groceries"\n'
+        "2020-01-01 open Equity:Opening-Balances USD\n"
+        f'{opening} * "Opening"\n'
+        "  Assets:Checking           10000.00 USD\n"
+        "  Equity:Opening-Balances -10000.00 USD\n"
+        f'{prior} custom "envelope" "start"\n'
+        f'{prior} custom "envelope" "open" "Groceries"\n'
+        "  monthly: 300.00\n"
+        f'{this_month} custom "envelope" "allocate" "Groceries" 300.00 USD\n'
+        f'{this_month} * "Groceries"\n'
+        "  Expenses:Groceries   120.00 USD\n"
+        "  Assets:Checking     -120.00 USD\n"
+    )
+
+
+def _next_month() -> date:
+    """Return the first day of next month, relative to the real today."""
+    return (_today().replace(day=1) + timedelta(days=32)).replace(day=1)
+
+
+def _month_end(month: date) -> date:
+    """Return the last calendar day of a month."""
+    first = month.replace(day=1)
+    return (first + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+
+
+def test_fill_day_dates_future_months_in_that_month() -> None:
+    """A future month dates its last day, so a directive counts toward it (#22)."""
+    nxt = _next_month()
+    assert fava_ext._fill_day(nxt) == _month_end(nxt)
+    assert fava_ext._fill_day(_today()) == _today()
+    assert fava_ext._fill_day(date(2024, 1, 1)) == date(2024, 1, 31)
+
+
+def test_fill_date_for_a_future_month() -> None:
+    """A future month's form dates a directive inside that month (#22)."""
+    extension = _extension("basic.bean")
+    nxt = _next_month()
+    assert extension.fill_date(nxt) == _month_end(nxt).isoformat()
+
+
+def test_prefill_interprets_the_actioned_month() -> None:
+    """A future month suggests its own plan need, not the current month's (#22)."""
+    extension = _extension_from_text(_monthly_ledger())
+    this_month = _today().replace(day=1)
+    assert extension.prefill("Groceries", this_month) == "0.00"
+    assert extension.prefill("Groceries", _next_month()) == "120.00"
+
+
+def test_month_action_dates_a_future_month() -> None:
+    """The month funding action dates its directives inside the future month (#22)."""
+    extension = _extension_from_text(_monthly_ledger())
+    entries = fava_ext._month_entries(
+        "fully_fund", {"month": _next_month().strftime("%Y-%m")}, extension._result()
+    )
+    assert [entry.date for entry in entries] == [_month_end(_next_month())]
 
 
 def test_plan_fields_open_on_the_current_plan() -> None:
@@ -898,7 +987,62 @@ def test_plan_fields_open_on_the_current_plan() -> None:
     assert fields["monthly"] == "2500.00"
     assert fields["priority"] == "1"
     empty = _extension("basic.bean").plan_fields("Groceries", date(2024, 1, 1))
-    assert empty == {"monthly": "", "priority": "", "target": "", "by": ""}
+    assert empty == {
+        "monthly": "",
+        "up_to": "",
+        "priority": "",
+        "target": "",
+        "by": "",
+    }
+
+
+def test_plan_fields_include_up_to() -> None:
+    """The plan form opens on an ``up-to`` ceiling (#22)."""
+    fields = _extension("up_to.bean").plan_fields("Car", date(2024, 1, 1))
+    assert fields["monthly"] == "250.00"
+    assert fields["up_to"] == "600.00"
+
+
+def test_plan_text_shows_up_to() -> None:
+    """The plan popover describes an ``up-to`` ceiling (#22)."""
+    extension = _extension("up_to.bean")
+    view = extension.report("2024-03", "1")
+    car = next(e for e in view.envelopes if e.name == "Car")
+    assert extension.plan_text(car.plans[0]) == "open: monthly 250.00 · up to 600.00"
+
+
+def test_funding_text_shows_up_to() -> None:
+    """The closing popover names the ceiling and the plan status (#22)."""
+    extension = _extension("up_to.bean")
+    view = extension.report("2024-03", "1")
+    car = next(e for e in view.envelopes if e.name == "Car")
+    text = extension.funding_text(car.cells[0])
+    assert text.startswith("up to 600.00 · ")
+    assert text.endswith("underfunded")
+
+
+def test_action_entry_plan_includes_up_to() -> None:
+    """The plan action writes the ``up-to`` ceiling it names (#22)."""
+    extension = _extension("basic.bean")
+    entry = fava_ext._action_entry(
+        {
+            "action": "plan",
+            "envelope": "Groceries",
+            "monthly": "250",
+            "up_to": "600",
+            "date": "2024-02-01",
+        },
+        extension._result(),
+    )
+    assert actions.render(entry) == (
+        '2024-02-01 custom "envelope" "plan" "Groceries"\n  monthly: 250\n  up-to: 600'
+    )
+
+
+def test_template_renders_up_to_tooltip() -> None:
+    """The template surfaces the ``up-to`` ceiling in the closing popover (#22)."""
+    html = _render(_extension("up_to.bean"), {"month": "2024-03", "months": "1"})
+    assert "up to 600.00" in html
 
 
 def test_js_module_is_shipped() -> None:

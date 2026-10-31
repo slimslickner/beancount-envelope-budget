@@ -113,12 +113,19 @@ Set it on `open`, change it from a date with `plan`, or clear it with `unplan`:
 `plan` takes the same metadata as `open` and changes only the fields it names, so
 `open` and `plan` resolve to the same plan. `monthly` may be a number or
 `"avgN"` — the average of the last N completed months of spending — so `"avg3"`
-tracks spending without a fixed figure. A plan funds an envelope one of two
-ways: `monthly` holds about a month's spending, or a `target` with a `by` date
-holds a goal. The two are mutually exclusive and a `target` needs a `by`; a plan
-that names only one half of a pair, or both `monthly` and `target`, is reported
-as `E010` rather than silently ignored. `unplan` stops `fund --mode topup`
-funding the envelope while it keeps its balance.
+tracks spending without a fixed figure. A plan funds an envelope one of three
+ways: `monthly` holds about a month's spending, `monthly` with an `up-to` ceiling
+funds by that amount each month but stops at a balance, or a `target` with a `by`
+date holds a goal. `monthly` and `target` are mutually exclusive and a `target`
+needs a `by`; an `up-to` needs its `monthly` and cannot be combined with a
+`target`. A plan that names only one half of a pair, or conflicts, is reported as
+`E010` rather than silently ignored. `unplan` stops `fund --mode topup` funding
+the envelope while it keeps its balance.
+
+An `up-to` envelope treats `monthly` as a per-month contribution allowance: each
+month `fund` adds up to that amount, but never past the ceiling. Once it is full
+the allowance goes unspent and funding stops; spending re-opens room, but only the
+current month's remaining allowance can refill it.
 
 A goal envelope's **level** is the balance it should hold to stay on schedule —
 its `target`, grown linearly from the month the target took effect to its `by`

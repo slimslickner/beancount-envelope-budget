@@ -210,6 +210,66 @@ def test_topup_level(capsys: pytest.CaptureFixture[str]) -> None:
     ]
 
 
+def test_topup_up_to_stops_at_the_ceiling(capsys: pytest.CaptureFixture[str]) -> None:
+    """topup funds an up-to envelope only as far as its ceiling (#22)."""
+    code = cli.main(
+        [
+            "fund",
+            _ledger("up_to.bean"),
+            "--mode",
+            "topup",
+            "--date",
+            "2024-03-15",
+        ]
+    )
+    assert code == 0
+    assert _lines(capsys) == [
+        '2024-03-15 custom "envelope" "allocate" "Car" 100.00 USD',
+    ]
+
+
+def test_topup_up_to_uses_the_monthly_allowance(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """topup spends the monthly allowance after spending, then stops (#22)."""
+    ledger = tmp_path / "main.bean"
+    ledger.write_text(
+        'option "operating_currency" "USD"\n'
+        "2020-01-01 open Assets:Checking USD\n"
+        "  cash-account: TRUE\n"
+        "2020-01-01 open Expenses:Car USD\n"
+        '  envelope: "Car"\n'
+        "2020-01-01 open Equity:Opening-Balances USD\n"
+        '2023-12-31 * "Opening"\n'
+        "  Assets:Checking           10000.00 USD\n"
+        "  Equity:Opening-Balances -10000.00 USD\n"
+        '2024-01-01 custom "envelope" "start"\n'
+        '2024-01-01 custom "envelope" "open" "Car"\n'
+        "  monthly: 250.00\n"
+        "  up-to: 600.00\n"
+        '2024-01-31 custom "envelope" "allocate" "Car" 250.00 USD\n'
+        '2024-02-29 custom "envelope" "allocate" "Car" 250.00 USD\n'
+        '2024-03-05 custom "envelope" "allocate" "Car" 100.00 USD\n'
+        '2024-03-20 * "Repair"\n'
+        "  Expenses:Car    300.00 USD\n"
+        "  Assets:Checking -300.00 USD\n",
+        encoding="utf-8",
+    )
+    args = ["fund", str(ledger), "--mode", "topup", "--date", "2024-03-25"]
+    assert cli.main(args) == 0
+    assert _lines(capsys) == [
+        '2024-03-25 custom "envelope" "allocate" "Car" 150.00 USD',
+    ]
+    # The 250 allowance is used up (100 + 150), so a rerun asks for nothing.
+    ledger.write_text(
+        ledger.read_text(encoding="utf-8")
+        + '2024-03-25 custom "envelope" "allocate" "Car" 150.00 USD\n',
+        encoding="utf-8",
+    )
+    assert cli.main(args) == 0
+    assert _lines(capsys) == []
+
+
 def test_topup_credits_monthly_allocation(capsys: pytest.CaptureFixture[str]) -> None:
     """topup credits a monthly envelope's allocation, so it funds nothing."""
     code = cli.main(
