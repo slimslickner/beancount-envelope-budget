@@ -114,21 +114,6 @@ Print a single allocate directive, dated --date (today by default), or append it
 | `--date` | the directive's date; defaults to today |
 | `--write` | append the directive(s) to this file (relative to the ledger's directory) instead of printing them; the ledger is reloaded after |
 
-## `beancount-envelope-budget move`
-
-Print a single move directive, dated --date (today by default), or append it to --write so the ledger itself is changed.
-
-
-| Option | Help |
-| --- | --- |
-| `-h, --help` | show this help message and exit |
-| `ledger` | path to the Beancount ledger (.bean or .beancount) |
-| `source` | the envelope to take money from |
-| `destination` | the envelope to give money to |
-| `amount` | the amount to move between the envelopes |
-| `--date` | the directive's date; defaults to today |
-| `--write` | append the directive(s) to this file (relative to the ledger's directory) instead of printing them; the ledger is reloaded after |
-
 ## `beancount-envelope-budget plan`
 
 Print a single plan directive, dated --date (today by default), or append it to --write so the ledger itself is changed. Give at least one of the metadata options.

@@ -61,7 +61,6 @@ _ROOT_EQUITY = "Equity"
 _INCOME_OR_EQUITY = frozenset({_ROOT_INCOME, _ROOT_EQUITY})
 _CASH_ROOTS = frozenset({"Assets", "Liabilities"})
 _MONTHS_PER_YEAR = 12
-_MOVE_ARGS = 3
 _ALLOCATE_ARGS = 3
 
 #: The shape of an average-of-N-months monthly amount, e.g. ``"avg3"``.
@@ -433,7 +432,7 @@ class EnvelopeReport:
 
         A goal envelope — one with a ``goal`` and no ``monthly`` — is funded by
         its cumulative contributions, not its balance: the goal-start month's
-        opening balance plus allocations, moves-in, income and refunds since.
+        opening balance plus allocations, income and refunds since.
         Spending is ignored, so a goal that has been fully saved still reads as
         funded after the money is spent. An envelope with an ``up-to`` ceiling is
         measured by its closing balance, the balance the ceiling caps. A
@@ -482,7 +481,7 @@ class EnvelopeReport:
 
         The goal-start month's opening balance seeds the count, so a goal added
         to an already-funded envelope credits the money already there; then every
-        allocation, move-in, income and refund since is added, while spending and
+        allocation, income and refund since is added, while spending and
         other outflows are ignored. It equals the balance at ``on`` plus
         everything spent since the goal began, and it is what a goal's funding
         level is compared against. Month granularity matches the rest of the
@@ -1273,12 +1272,10 @@ class _Declarations:
     Attributes:
         envelopes: Declared envelopes, in declaration order.
         allocate: The ``allocate`` directives.
-        move: ``(date, source, goal, amount)`` move events.
     """
 
     envelopes: tuple[Envelope, ...]
     allocate: tuple[AllocationEvent, ...]
-    move: tuple[tuple[date, str, str, Decimal], ...]
 
 
 def _validate_plan(
@@ -1513,14 +1510,13 @@ def _process_declarations(
         collect_hashes: Whether to compute source directive hashes.
 
     Returns:
-        The declared envelopes and the allocation and move events.
+        The declared envelopes and the allocation events.
     """
     drafts: dict[str, _Draft] = {}
     order: list[str] = []
     allocate: list[AllocationEvent] = []
-    move: list[tuple[date, str, str, Decimal]] = []
     for raw in raw_directives:
-        if raw.date < start and raw.verb in {"open", "allocate", "move"}:
+        if raw.date < start and raw.verb in {"open", "allocate"}:
             diagnostics.append(
                 _diag(
                     "W002",
@@ -1542,8 +1538,6 @@ def _process_declarations(
             _handle_allocate(
                 raw, drafts, allocate, diagnostics, collect_hashes=collect_hashes
             )
-        elif raw.verb == "move":
-            _handle_move(raw, drafts, move, diagnostics)
         elif raw.verb == "close":
             _handle_close(raw, drafts, diagnostics)
         else:
@@ -1553,7 +1547,6 @@ def _process_declarations(
     return _Declarations(
         envelopes=tuple(drafts[name].freeze() for name in order),
         allocate=tuple(allocate),
-        move=tuple(move),
     )
 
 
@@ -1660,33 +1653,6 @@ def _handle_allocate(
             entry_hash=compare.hash_entry(raw.entry) if collect_hashes else "",
         )
     )
-
-
-def _handle_move(
-    raw: _RawDirective,
-    drafts: dict[str, _Draft],
-    move: list[tuple[date, str, str, Decimal]],
-    diagnostics: list[Diagnostic],
-) -> None:
-    """Handle a ``move`` directive.
-
-    Args:
-        raw: The parsed directive.
-        drafts: The declared envelopes, keyed by name.
-        move: The move events, extended in place.
-        diagnostics: The list to append diagnostics to.
-    """
-    source = raw.args[0] if raw.args else None
-    dest = raw.args[1] if len(raw.args) > 1 else None
-    amount = _parse_amount(
-        raw.args[2] if len(raw.args) >= _MOVE_ARGS else None, raw.entry, diagnostics
-    )
-    from_name = _valid_target(source, drafts, raw.date, raw.entry, diagnostics)
-    to_name = _valid_target(dest, drafts, raw.date, raw.entry, diagnostics)
-    number = _amount_number(amount)
-    if from_name is None or to_name is None or number is None:
-        return
-    move.append((raw.date, from_name, to_name, number))
 
 
 def _handle_close(
@@ -2457,7 +2423,7 @@ def _build_result(
     Args:
         start: The start date.
         operating_currency: The single operating currency.
-        declarations: The declared envelopes and allocation/move events.
+        declarations: The declared envelopes and allocation events.
         effects: The activity, cash, resolution and detail events.
         pre_start_cash: The cash held before the start date.
         diagnostics: The list to append diagnostics to.
@@ -2474,9 +2440,6 @@ def _build_result(
     env_alloc: dict[str, list[tuple[date, Decimal]]] = defaultdict(list)
     for event in declarations.allocate:
         env_alloc[event.envelope].append((event.date, event.amount))
-    for when, source, dest, amount in declarations.move:
-        env_alloc[source].append((when, -amount))
-        env_alloc[dest].append((when, amount))
 
     env_activity: dict[str, list[tuple[date, Decimal]]] = defaultdict(list)
     pool_activity: list[tuple[date, Decimal]] = []
@@ -2545,7 +2508,7 @@ def _month_range(
 
     Args:
         start: The start date.
-        declarations: The declared envelopes and allocation/move events.
+        declarations: The declared envelopes and allocation events.
         activity: The validated activity events.
         cash: The cash changes.
 
@@ -2555,7 +2518,6 @@ def _month_range(
     dates = [start]
     dates.extend(when for _dest, when, _amount in activity)
     dates.extend(event.date for event in declarations.allocate)
-    dates.extend(when for when, _source, _dest, _amount in declarations.move)
     dates.extend(when for when, _amount in cash)
     dates.extend(
         envelope.closed for envelope in declarations.envelopes if envelope.closed
@@ -2633,7 +2595,7 @@ def _check_envelope_closes(
     Args:
         declarations: The declared envelopes.
         env_activity: Activity events by envelope.
-        env_alloc: Allocation and move events by envelope.
+        env_alloc: Allocation events by envelope.
         operating_currency: The currency, for the message.
         diagnostics: The list to append diagnostics to.
     """

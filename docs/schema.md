@@ -38,20 +38,6 @@ Moves money from the pool into an envelope, dated the directive's own month.
 
 Metadata: none.
 
-### `move`
-
-Moves money between two envelopes, e.g. to cover an overspend.
-
-
-| Argument | Kind | Required | Description |
-| --- | --- | --- | --- |
-| `from` | string | yes | The envelope to take money from. |
-| `to` | string | yes | The envelope to give money to. |
-| `amount` | amount (number and currency) | yes | The amount moved between the two envelopes. |
-
-
-Metadata: none.
-
 ### `close`
 
 Retires an envelope. Its balance must be zero, and it disappears from reports afterwards.

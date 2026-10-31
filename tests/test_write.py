@@ -141,18 +141,6 @@ def test_cli_allocate_write_appends(
     )
 
 
-def test_cli_move_write(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    path = _ledger(tmp_path)
-    code = cli.main(
-        ["move", str(path), "Groceries", "Gifts", "25", "--write", str(path)]
-    )
-    assert code == 0
-    assert 'custom "envelope" "move" "Groceries" "Gifts" 25.00 USD' in (
-        path.read_text(encoding="utf-8")
-    )
-    capsys.readouterr()
-
-
 def test_cli_write_recheck_reports_unknown_envelope(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

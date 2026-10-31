@@ -49,7 +49,7 @@ How each action moves the lines:
 | Refund into an envelope | – | ↑ | ↑ |
 | Buy a security from cash | – | ↓ | ↓ |
 | Sell a security (cost refunded, gain to pool) | ↑ | ↑ | ↑ |
-| Move money between envelopes | – | ± | – |
+| Move money between envelopes (two allocations) | – | ± | – |
 
 Credit cards are cash accounts, so a card balance is negative and *lowers* cash
 and the pool. Cash is therefore net spendable money including card debt.
@@ -191,7 +191,8 @@ One directive name, `"envelope"`, with a verb as the first argument. See
   monthly: 250.00
   up-to: 600.00
 2024-01-31 custom "envelope" "allocate" "Groceries" 600.00 USD
-2024-02-15 custom "envelope" "move" "Groceries" "Gifts" 50.00 USD
+2024-02-15 custom "envelope" "allocate" "Groceries" -50.00 USD
+2024-02-15 custom "envelope" "allocate" "Gifts" 50.00 USD
 2027-12-31 custom "envelope" "close" "Old"
 2028-01-01 custom "envelope" "plan" "Mortgage"
   monthly: 2600.00
@@ -212,8 +213,9 @@ One directive name, `"envelope"`, with a verb as the first argument. See
   prefix a name with a zero-padded number (`01`, `02`, `10`) to put it in a
   chosen place.
 - `allocate` moves money from the pool into an envelope. A negative amount moves
-  money back to the pool.
-- `move` moves money between two envelopes, e.g. to cover an overspend.
+  money back to the pool, so moving money between two envelopes is two
+  allocations: a negative one from the source and a positive one to the
+  destination.
 - `close` retires an envelope. Its balance must be zero.
 - `plan` changes an envelope's plan from its date. It takes the **same** metadata
   as `open` and changes only the fields it names, so `monthly: 2600.00` alone
@@ -243,10 +245,10 @@ One directive name, `"envelope"`, with a verb as the first argument. See
   reads as funded even after the month's spending. An `up-to` envelope is funded
   by its closing balance, the balance the ceiling caps. A goal envelope is funded
   by its **cumulative contributions**: the goal month's opening balance plus every
-  allocation, move-in, income and refund since, with spending ignored. So a goal
+  allocation, income and refund since, with spending ignored. So a goal
   that has been fully saved stays funded after the money is spent — take the trip
   and the envelope still reads green, with a full ring. Only an explicit un-save
-  (a negative allocation, or a `move` out) reduces it. The report colours and
+  (a negative allocation) reduces it. The report colours and
   rings envelopes by this comparison, and `fund --mode topup` funds up to it.
 - To save for a second round from the same goal envelope, either **raise the
   `goal`** — the contributions carry, so only the difference is saved — or
@@ -338,10 +340,11 @@ closing(e, m) = closing(e, m-1) + allocated(e, m) + activity(e, m)
 
 - **Opening.** The first month starts every envelope at 0. Later months start at
   the previous closing.
-- **Allocated.** Allocations dated in the month, plus moves in, minus moves out.
+- **Allocated.** Allocations dated in the month. Moving money between envelopes
+  is two allocations, so it appears here rather than as a separate rule.
 - **Activity.** The summed envelope effects, dated by transaction date.
 - **Pool.** Pool closing = pool opening + pool effects − allocations dated in the
-  month. Moves between envelopes do not touch it.
+  month.
 
 Overspending needs no special rule: a negative balance simply carries forward
 until later allocations cover it. A pool that goes negative on any day means
@@ -418,7 +421,7 @@ See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget
   envelope to its plan or its overspend, whichever is greater — the latter
   stopping before the pool would go negative. The month actions in the Fava
   report generate the same directives.
-- `allocate`, `move`, `plan` and `unplan` print one directive, or append it with
+- `allocate`, `plan` and `unplan` print one directive, or append it with
   `--write FILE`, so the CLI can make the same ledger edits the Fava report can.
 - `pin` freezes an account's current envelope onto its existing postings so you
   can change the account's metadata without reclassifying history.
@@ -532,9 +535,9 @@ works. Writes go through Fava's own file API, so its lock, watcher and editor st
 consistent. This makes a write-enabled Fava a remote ledger mutation if Fava is
 exposed beyond localhost; keep it local.
 
-Moving money between envelopes is not a separate action: a `move` is two
-allocations, one back to the pool and one out of it, so the report expresses it
-as two entries. The `move` verb still works in the ledger and the CLI.
+Moving money between envelopes is not a separate action: it is two allocations,
+one back to the pool and one out of it, so the report expresses it as two
+entries.
 
 The invariant is unchanged: pure code still never touches disk. Writing is an
 explicit, opt-in surface, here and in the CLI.

@@ -14,7 +14,8 @@ option "operating_currency" "USD"
 2024-01-01 custom "envelope" "open" "C"
 
 2024-01-05 custom "envelope" "allocate" "A" 100.00 USD
-2024-01-06 custom "envelope" "move" "A" "B" 30.00 USD
+2024-01-06 custom "envelope" "allocate" "A" -30.00 USD
+2024-01-06 custom "envelope" "allocate" "B" 30.00 USD
 2024-01-07 custom "envelope" "close" "C"
 2024-01-08 custom "envelope" "allocate" "A" 10.00 USD
 2024-01-09 custom "envelope" "allocate" "Ghost" 5.00 USD

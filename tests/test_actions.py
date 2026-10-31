@@ -22,13 +22,6 @@ def test_allocate_negative_moves_back_to_pool() -> None:
     assert actions.render(entry).endswith('"Groceries" -40.00 USD')
 
 
-def test_move_renders_both_envelopes() -> None:
-    entry = actions.move("Groceries", "Gifts", Decimal(50), date(2024, 2, 1), "USD")
-    assert actions.render(entry) == (
-        '2024-02-01 custom "envelope" "move" "Groceries" "Gifts" 50.00 USD'
-    )
-
-
 def test_plan_omits_unset_metadata() -> None:
     entry = actions.plan("Car", date(2024, 1, 31), monthly=Decimal(500))
     assert actions.render(entry) == (

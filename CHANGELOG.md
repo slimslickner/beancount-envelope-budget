@@ -12,12 +12,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** a plan's `target` + `by` is now `goal` + `by`, and is a one-shot
   savings goal funded by **cumulative contributions** rather than a balance. A
   goal envelope is credited with its goal month's opening balance plus every
-  allocation, move-in, income and refund since, and spending is ignored — so a
+  allocation, income and refund since, and spending is ignored — so a
   goal that has been fully saved stays funded after the money is spent (save for
   a trip, take the trip, and the envelope stays green). `fund --mode topup` and
   `suggest` follow the same contributions measure, so they no longer re-fund
   spending. To hold and refill a balance instead, use `monthly` with `up-to`
   (#22). Update ledgers to the new key; there are no users before 1.0.
+
+### Removed
+
+- **Breaking:** the `move` directive verb, the `move` CLI command and the Fava
+  move action. A `move A B X` was only ever two allocations — `allocate A -X`
+  and `allocate B X` — with the pool untouched either way, so it carried no
+  unique semantics. Write the two `allocate` directives instead; a leftover
+  `move` line is now reported as `E008` (unknown verb) (#55).
 
 ### Added
 

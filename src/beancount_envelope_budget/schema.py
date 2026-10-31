@@ -208,31 +208,6 @@ DIRECTIVE_VERBS: tuple[DirectiveVerb, ...] = (
         ),
     ),
     DirectiveVerb(
-        verb="move",
-        positionals=(
-            PositionalArg(
-                name="from",
-                kind=ValueKind.STRING,
-                required=True,
-                description="The envelope to take money from.",
-            ),
-            PositionalArg(
-                name="to",
-                kind=ValueKind.STRING,
-                required=True,
-                description="The envelope to give money to.",
-            ),
-            PositionalArg(
-                name="amount",
-                kind=ValueKind.AMOUNT,
-                required=True,
-                description="The amount moved between the two envelopes.",
-            ),
-        ),
-        metadata=(),
-        description=("Moves money between two envelopes, e.g. to cover an overspend."),
-    ),
-    DirectiveVerb(
         verb="close",
         positionals=(
             PositionalArg(
@@ -445,8 +420,8 @@ DIAGNOSTIC_CODES: tuple[DiagnosticCode, ...] = (
         severity=Severity.ERROR,
         summary=("Envelope {name} is closed with a non-zero balance of {balance}."),
         explanation=(
-            "Move the remaining balance to another envelope with `move`, or "
-            "allocate the difference back to the pool, before closing."
+            "Allocate the difference back to the pool, or allocate it out to "
+            "another envelope, before closing."
         ),
     ),
     DiagnosticCode(
@@ -531,7 +506,7 @@ DIAGNOSTIC_CODES: tuple[DiagnosticCode, ...] = (
             "{kind} for {name} is dated before the start directive and is ignored."
         ),
         explanation=(
-            "Allocations, moves and `open` directives dated before the `start` "
+            "Allocations and `open` directives dated before the `start` "
             "directive are ignored. Move them to on or after the start date."
         ),
     ),
