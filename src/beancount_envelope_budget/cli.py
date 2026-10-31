@@ -328,7 +328,7 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 
 def _cmd_suggest(args: argparse.Namespace) -> int:
-    """Print the monthly amount each goal envelope needs to hit its target.
+    """Print the monthly amount each goal envelope needs to hit its goal.
 
     Args:
         args: Parsed arguments; ``args.ledger`` is the ledger path.
@@ -347,9 +347,9 @@ def _cmd_suggest(args: argparse.Namespace) -> int:
     latest = max(entry.date for entry in loaded.entries)
     rows = _suggest_rows(result, latest)
     if not rows:
-        print("no goal envelopes with a target and a `by` date")
+        print("no envelopes with a `goal` and a `by` date")
         return 0
-    print(_table(("Envelope", "Balance", "Target", "By", "Months", "Per month"), rows))
+    print(_table(("Envelope", "Saved", "Goal", "By", "Months", "Per month"), rows))
     return 0
 
 
@@ -650,13 +650,13 @@ def _emit(entries: list[Custom], args: argparse.Namespace) -> int:
             print(actions.render(entry))
         return 0
     try:
-        target = writer.resolve_target(args.write, args.ledger.parent)
+        goal = writer.resolve_target(args.write, args.ledger.parent)
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 2
     for entry in entries:
-        writer.append(target, entry)
-    print(f"appended {len(entries)} directive(s) to {target}")
+        writer.append(goal, entry)
+    print(f"appended {len(entries)} directive(s) to {goal}")
     return _recheck(args.ledger)
 
 
@@ -735,7 +735,7 @@ def _cmd_move(args: argparse.Namespace) -> int:
         print("the ledger has no operating currency", file=sys.stderr)
         return 2
     day = args.date or date.today()  # noqa: DTZ011 - local today is intended
-    entry = actions.move(args.source, args.target, args.amount, day, currency)
+    entry = actions.move(args.source, args.destination, args.amount, day, currency)
     return _emit([entry], args)
 
 
@@ -754,10 +754,10 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     if (
         args.monthly is None
         and args.priority is None
-        and args.target is None
+        and args.goal is None
         and args.by is None
     ):
-        print("a plan needs at least one of --monthly/--priority/--target/--by")
+        print("a plan needs at least one of --monthly/--priority/--goal/--by")
         return 2
     day = args.date or date.today()  # noqa: DTZ011 - local today is intended
     entry = actions.plan(
@@ -765,8 +765,8 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         day,
         monthly=args.monthly,
         priority=args.priority,
-        target=args.target,
-        target_currency=_currency_of(args.ledger),
+        goal=args.goal,
+        goal_currency=_currency_of(args.ledger),
         by=args.by,
     )
     return _emit([entry], args)
@@ -971,9 +971,9 @@ def _plan_topup(
             continue
         need = plan_top_up(report, on)
         if need <= 0:
-            balance = report.funded_at(on)
-            excess = (balance - level).quantize(_CENT, rounding=ROUND_FLOOR)
-            if plan.target is not None and excess > 0:
+            credited = report.funded_at(on)
+            excess = (credited - level).quantize(_CENT, rounding=ROUND_FLOOR)
+            if plan.goal is not None and excess > 0:
                 overfunded.append((envelope.name, excess))
             continue
         rank = plan.priority if plan.priority is not None else Decimal(0)
@@ -1530,16 +1530,16 @@ def _suggest_rows(result: BudgetResult, latest: date) -> list[tuple[str, ...]]:
     for report in result.envelopes:
         envelope = report.envelope
         plan = envelope.effective(latest)
-        if plan.target is None or plan.by is None:
+        if plan.goal is None or plan.by is None:
             continue
-        balance = row_for(report.rows, anchor).closing
+        saved = report.funded_at(anchor)
         remaining = _months_remaining(anchor, plan.by)
-        need = _monthly_need(plan.target, balance, remaining)
+        need = _monthly_need(plan.goal, saved, remaining)
         rows.append(
             (
                 envelope.name,
-                _money(balance),
-                _money(plan.target),
+                _money(saved),
+                _money(plan.goal),
                 plan.by.isoformat(),
                 str(remaining),
                 _money(need),
@@ -1561,18 +1561,18 @@ def _months_remaining(anchor: date, by: date) -> int:
     return (by.year - anchor.year) * 12 + (by.month - anchor.month)
 
 
-def _monthly_need(target: Decimal, balance: Decimal, remaining: int) -> Decimal:
-    """Compute the monthly amount needed to reach a target.
+def _monthly_need(goal: Decimal, saved: Decimal, remaining: int) -> Decimal:
+    """Compute the monthly amount needed to reach a goal.
 
     Args:
-        target: The goal balance.
-        balance: The current balance.
+        goal: The goal total.
+        saved: The contributions made so far.
         remaining: The number of funding months left.
 
     Returns:
         The monthly amount, rounded up to the cent; zero when already met.
     """
-    shortfall = target - balance
+    shortfall = goal - saved
     if shortfall <= 0:
         return Decimal(0)
     if remaining <= 0:
@@ -1727,8 +1727,8 @@ def build_parser() -> argparse.ArgumentParser:
         "suggest",
         help="print the monthly amount goal envelopes need",
         description=(
-            "For envelopes with a `target` and a `by` date, print the monthly "
-            "amount needed to reach the target on time."
+            "For envelopes with a `goal` and a `by` date, print the monthly "
+            "amount needed to reach the goal on time."
         ),
     )
     _ledger_argument(suggest)
@@ -1932,7 +1932,7 @@ def _add_action_parsers(subparsers: argparse._SubParsersAction) -> None:
     )
     _ledger_argument(move)
     move.add_argument("source", help="the envelope to take money from")
-    move.add_argument("target", help="the envelope to give money to")
+    move.add_argument("destination", help="the envelope to give money to")
     move.add_argument(
         "amount",
         type=_parse_decimal,
@@ -1972,10 +1972,10 @@ def _add_action_parsers(subparsers: argparse._SubParsersAction) -> None:
         help="the funding priority, lower first",
     )
     plan.add_argument(
-        "--target",
+        "--goal",
         type=_parse_decimal,
         metavar="AMOUNT",
-        help="a goal balance, in the ledger's operating currency",
+        help="the goal total, in the ledger's operating currency",
     )
     plan.add_argument(
         "--by",

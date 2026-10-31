@@ -239,7 +239,7 @@ def test_up_to_cell_caps_the_level_and_reads_under() -> None:
     assert cell.opening == D("500")
     assert cell.level == D("600")
     assert cell.up_to == D("600")
-    assert cell.target is None
+    assert cell.goal is None
     assert cell.funding == "under"
     assert cell.fill == D("500") / D("600")
 

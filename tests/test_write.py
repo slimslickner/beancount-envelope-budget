@@ -60,7 +60,7 @@ def test_resolve_target_accepts_relative(tmp_path: Path) -> None:
 def test_directive_line_count_includes_metadata() -> None:
     lines = [
         '2024-01-31 custom "envelope" "plan" "Car"\n',
-        "  target: 15000.00 USD\n",
+        "  goal: 15000.00 USD\n",
         "  by: 2028-06-01\n",
         "\n",
         '2024-02-01 custom "envelope" "start"\n',

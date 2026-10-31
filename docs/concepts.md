@@ -18,7 +18,7 @@ existing postings.
 | **Allocation** | A dated amount moved from the pool into an envelope. |
 | **Activity** | The effect of postings on an envelope: spending lowers it, refunds and envelope-level income raise it. |
 | **Carryover** | An envelope's closing balance, positive or negative, becomes next month's opening balance. |
-| **Plan** | An envelope's funding parameters — `monthly`, `up-to`, `priority`, `target`, `by` — set on `open`, changed from a date with `plan`, and cleared with `unplan`. |
+| **Plan** | An envelope's funding parameters — `monthly`, `up-to`, `priority`, `goal`, `by` — set on `open`, changed from a date with `plan`, and cleared with `unplan`. |
 
 Months are calendar months, and everything is attributed by its date. Setting
 `cash-account: FALSE` is the same as omitting the key entirely.
@@ -184,9 +184,8 @@ One directive name, `"envelope"`, with a verb as the first argument. See
 2024-01-01 custom "envelope" "start"
 2024-01-01 custom "envelope" "open" "Groceries"
 2024-01-01 custom "envelope" "open" "Car"
-  target: 15000.00 USD
+  goal: 15000.00 USD
   by: 2028-06-01
-  monthly: 500.00
   priority: 1
 2024-01-01 custom "envelope" "open" "Car Repairs"
   monthly: 250.00
@@ -202,7 +201,7 @@ One directive name, `"envelope"`, with a verb as the first argument. See
 - `start` begins tracking. Earlier postings and allocations are ignored; the
   pool starts at the cash balance just before this date.
 - `open` declares an envelope. Its metadata keys — `monthly`, `up-to`,
-  `priority`, `target` and `by` — describe its **plan**: the funding parameters
+  `priority`, `goal` and `by` — describe its **plan**: the funding parameters
   that `fund --mode topup` and `suggest` read. With no metadata, the envelope
   exists but is never auto-funded.
 - `open` also accepts `parent`, a free-form grouping label. Envelopes sharing a
@@ -218,33 +217,41 @@ One directive name, `"envelope"`, with a verb as the first argument. See
 - `close` retires an envelope. Its balance must be zero.
 - `plan` changes an envelope's plan from its date. It takes the **same** metadata
   as `open` and changes only the fields it names, so `monthly: 2600.00` alone
-  leaves `priority`, `up-to`, `target` and `by` as they were. `open` and `plan`
+  leaves `priority`, `up-to`, `goal` and `by` as they were. `open` and `plan`
   therefore resolve to the same object.
 - A plan funds an envelope one of three ways: `monthly` holds about a month's
   spending, `monthly` with an `up-to` ceiling funds by that amount but stops at a
-  balance, or a `target` with a `by` date holds a goal. `monthly` and `target`
-  are mutually exclusive, and a `target` needs a `by`. A plan that names only one
-  half of a pair, combines `monthly` with `target`, sets an `up-to` without a
-  `monthly`, or combines `up-to` with `target`, is reported as `E010` rather than
-  being silently ignored.
+  balance, or a `goal` with a `by` date is a one-shot savings goal. A `goal` is
+  mutually exclusive with both `monthly` and `up-to`, and a `goal` needs a `by`.
+  A plan that names only one half of a pair, combines keys that cannot go
+  together, or sets an `up-to` without a `monthly`, is reported as `E010` rather
+  than being silently ignored.
 - An `up-to` envelope's `monthly` is a per-month contribution allowance: each
   month `fund` adds up to that amount, but never pushes the balance past the
   ceiling. Once the balance reaches the ceiling the allowance is left unspent and
   funding stops; spending re-opens room, but only the current month's remaining
   allowance can refill it. So an envelope that is full, or whose month's
   allowance is used up, reads as funded.
-- A goal envelope's **level** is the balance it should hold to stay on schedule:
-  its `target`, grown linearly from the month the target first took effect to
-  its `by` month, counting both ends, so the level is the full `target` once
-  `by` arrives. `fund --mode topup` funds up to that level, and the report shows
-  each envelope's level and whether it is under, on or over it.
-- An envelope's **funded amount** for a month is what its level is compared
-  against. A `monthly` envelope is funded by the money made available that month
-  — its opening balance plus the month's allocation — so receiving the planned
-  amount reads as funded even after the month's spending. An `up-to` or goal
-  envelope is funded by its closing balance, because a ceiling or a `target` is a
-  balance to hold. The report colours and rings envelopes by this comparison, and
-  `fund --mode topup` funds up to it.
+- A goal envelope's **level** is the contributions it should have made to stay
+  on schedule: its `goal`, grown linearly from the month the goal first took
+  effect to its `by` month, counting both ends, so the level is the full `goal`
+  once `by` arrives. `fund --mode topup` funds up to that level, and the report
+  shows each envelope's level and whether it is under, on or over it.
+- An envelope's **funded amount** is what its level is compared against. A
+  `monthly` envelope is funded by the money made available that month — its
+  opening balance plus the month's allocation — so receiving the planned amount
+  reads as funded even after the month's spending. An `up-to` envelope is funded
+  by its closing balance, the balance the ceiling caps. A goal envelope is funded
+  by its **cumulative contributions**: the goal month's opening balance plus every
+  allocation, move-in, income and refund since, with spending ignored. So a goal
+  that has been fully saved stays funded after the money is spent — take the trip
+  and the envelope still reads green, with a full ring. Only an explicit un-save
+  (a negative allocation, or a `move` out) reduces it. The report colours and
+  rings envelopes by this comparison, and `fund --mode topup` funds up to it.
+- To save for a second round from the same goal envelope, either **raise the
+  `goal`** — the contributions carry, so only the difference is saved — or
+  **`unplan` then `plan`** to restart the clock and re-seed with whatever balance
+  remains. A `close` followed by a fresh `open` starts over from zero.
 - `unplan` clears an envelope's plan from its date. The envelope keeps its
   balance and stays in reports, but nothing is planned for it and `topup` stops
   funding it.
@@ -425,7 +432,7 @@ Add the extension line and an **Envelopes** report appears in the sidebar:
 ```
 
 It is read-only unless you configure a write target; by default it shows one to
-three months and offers hover text for envelope targets. Hovering or focusing an activity figure reveals a popover listing the
+three months and offers hover text for envelope goals. Hovering or focusing an activity figure reveals a popover listing the
 postings behind it; each line links to that transaction in Fava's entry popup.
 The pool row's activity figure opens the same popover, showing the pool's ledger
 — activity and allocations both — with the running balance after each line.
@@ -448,11 +455,12 @@ colour-coded — red when overspent, green when funded to their plan, amber when
 underfunded — and an opening balance turns red when negative. Whether an
 envelope is funded is judged by its funded amount, as above: a `monthly`
 envelope stays green once it has received its month's money even if it has since
-been spent, while an `up-to` or goal envelope is measured by its balance. A
-planned envelope also carries a small ring beside its closing balance, filled in
-proportion to that funded amount against its goal (its `target`, its `up-to`
-ceiling, or its monthly `level` when it has neither); the ring takes the
-balance's colour. The colours come from Fava's own variables, so they follow its
+been spent, while an `up-to` envelope is measured by its balance and a goal
+envelope by its cumulative contributions, so it too stays green after the money
+is spent. A planned envelope also carries a small ring beside its closing
+balance, filled in proportion to that funded amount against its goal (its
+`goal`, its `up-to` ceiling, or its monthly `level` when it has neither); the
+ring takes the balance's colour. The colours come from Fava's own variables, so they follow its
 light and dark schemes.
 
 Set the default number of months (1 to 3) with an optional config, a

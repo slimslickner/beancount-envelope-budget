@@ -1,0 +1,23 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Equity:Opening-Balances USD
+2020-01-01 open Expenses:Repairs USD
+  envelope: "Emergency"
+
+2023-12-31 * "Opening balance"
+  Assets:Checking           100000.00 USD
+  Equity:Opening-Balances  -100000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Emergency"
+  goal: 6000.00 USD
+  by: 2024-06-30
+  priority: 1
+
+2024-01-15 custom "envelope" "allocate" "Emergency" 1000.00 USD
+
+2024-02-10 * "Repair"
+  Assets:Checking   -500.00 USD
+  Expenses:Repairs   500.00 USD

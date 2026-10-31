@@ -1,0 +1,39 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Equity:Opening-Balances USD
+2020-01-01 open Expenses:Travel:Flights USD
+  envelope: "Disney 2028"
+2020-01-01 open Expenses:Travel:Hotels USD
+  envelope: "Disney 2028"
+2020-01-01 open Expenses:Travel:Tickets USD
+  envelope: "Disney 2028"
+2020-01-01 open Expenses:Travel:Food USD
+  envelope: "Disney 2028"
+
+2026-09-30 * "Opening balance"
+  Assets:Checking           100000.00 USD
+  Equity:Opening-Balances  -100000.00 USD
+
+2026-10-01 custom "envelope" "start"
+2026-10-30 custom "envelope" "open" "Disney 2028"
+  goal: 10000.00 USD
+  by: 2028-06-15
+
+2026-12-31 custom "envelope" "allocate" "Disney 2028" 3000.00 USD
+2027-06-30 custom "envelope" "allocate" "Disney 2028" 3000.00 USD
+2027-12-31 custom "envelope" "allocate" "Disney 2028" 4000.00 USD
+
+2028-01-15 * "Flights and hotels"
+  Assets:Checking           -2000.00 USD
+  Expenses:Travel:Flights    1200.00 USD
+  Expenses:Travel:Hotels      800.00 USD
+
+2028-03-15 * "Park tickets"
+  Assets:Checking           -3000.00 USD
+  Expenses:Travel:Tickets    3000.00 USD
+
+2028-07-15 * "Trip spending"
+  Assets:Checking           -5000.00 USD
+  Expenses:Travel:Food       5000.00 USD

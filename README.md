@@ -96,7 +96,7 @@ Add `include "envelope_backfill.bean"` to your ledger and re-run `check`.
 
 ### Planning envelopes
 
-An envelope's **plan** is its `monthly`, `priority`, `target` and `by` metadata.
+An envelope's **plan** is its `monthly`, `priority`, `goal` and `by` metadata.
 Set it on `open`, change it from a date with `plan`, or clear it with `unplan`:
 
 ```beancount
@@ -115,23 +115,24 @@ Set it on `open`, change it from a date with `plan`, or clear it with `unplan`:
 `"avgN"` — the average of the last N completed months of spending — so `"avg3"`
 tracks spending without a fixed figure. A plan funds an envelope one of three
 ways: `monthly` holds about a month's spending, `monthly` with an `up-to` ceiling
-funds by that amount each month but stops at a balance, or a `target` with a `by`
-date holds a goal. `monthly` and `target` are mutually exclusive and a `target`
-needs a `by`; an `up-to` needs its `monthly` and cannot be combined with a
-`target`. A plan that names only one half of a pair, or conflicts, is reported as
-`E010` rather than silently ignored. `unplan` stops `fund --mode topup` funding
-the envelope while it keeps its balance.
+funds by that amount each month but stops at a balance, or a `goal` with a `by`
+date is a one-shot savings goal. A `goal` is mutually exclusive with `monthly`
+and with `up-to`, and a `goal` needs a `by`. A plan that names only one half of a
+pair, or conflicts, is reported as `E010` rather than silently ignored. `unplan`
+stops `fund --mode topup` funding the envelope while it keeps its balance.
 
 An `up-to` envelope treats `monthly` as a per-month contribution allowance: each
 month `fund` adds up to that amount, but never past the ceiling. Once it is full
 the allowance goes unspent and funding stops; spending re-opens room, but only the
 current month's remaining allowance can refill it.
 
-A goal envelope's **level** is the balance it should hold to stay on schedule —
-its `target`, grown linearly from the month the target took effect to its `by`
-month, counting both ends. `fund --mode topup` funds up to that level and reports
-`; OVERFUNDED <name>: ... above plan` when a reduced plan leaves the envelope
-above it; `suggest` prints the monthly pace to reach the goal on time.
+A goal envelope's **level** is the contributions it should have made to stay on
+schedule — its `goal`, grown linearly from the month the goal took effect to its
+`by` month, counting both ends. `fund --mode topup` funds up to that level and
+reports `; OVERFUNDED <name>: ... above plan` when a reduced plan leaves the
+envelope above it; `suggest` prints the monthly pace to reach the goal on time. A
+goal is funded by cumulative contributions, so spending before `by` — even paying
+for the thing you saved for — never un-funds it.
 
 ## Commands
 

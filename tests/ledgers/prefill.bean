@@ -22,7 +22,7 @@ option "operating_currency" "USD"
   monthly: 3000.00
   priority: 1
 2024-01-01 custom "envelope" "open" "Car"
-  target: 12000.00 USD
+  goal: 12000.00 USD
   by: 2025-01-01
 2024-01-01 custom "envelope" "open" "Utilities"
   monthly: 1000.00

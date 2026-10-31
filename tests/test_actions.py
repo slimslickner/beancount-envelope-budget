@@ -40,20 +40,20 @@ def test_plan_with_target_and_by() -> None:
     entry = actions.plan(
         "Car",
         date(2024, 1, 31),
-        target=Decimal(15000),
-        target_currency="USD",
+        goal=Decimal(15000),
+        goal_currency="USD",
         by=date(2028, 6, 1),
     )
     assert actions.render(entry) == (
         '2024-01-31 custom "envelope" "plan" "Car"\n'
-        "  target: 15000.00 USD\n"
+        "  goal: 15000.00 USD\n"
         "  by: 2028-06-01"
     )
 
 
 def test_plan_target_needs_currency() -> None:
-    with pytest.raises(ValueError, match="target_currency"):
-        actions.plan("Car", date(2024, 1, 31), target=Decimal(15000))
+    with pytest.raises(ValueError, match="goal_currency"):
+        actions.plan("Car", date(2024, 1, 31), goal=Decimal(15000))
 
 
 def test_plan_with_up_to_ceiling() -> None:

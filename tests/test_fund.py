@@ -355,6 +355,18 @@ def test_topup_goal_proration(capsys: pytest.CaptureFixture[str]) -> None:
     ]
 
 
+def test_topup_goal_spend_is_not_refunded(capsys: pytest.CaptureFixture[str]) -> None:
+    """Topup funds contributions, so spending before the deadline is not topped
+    up again (the Disney-style goal)."""
+    args = ["fund", _ledger("topup_goal_spend.bean"), "--mode", "topup"]
+    assert cli.main([*args, "--date", "2024-02-29"]) == 0
+    # Contributions are $1000; the level is $2000; the $500 repair is spent,
+    # not re-funded, so the gap is the February schedule only.
+    assert _lines(capsys) == [
+        '2024-02-29 custom "envelope" "allocate" "Emergency" 1000.00 USD',
+    ]
+
+
 def test_topup_goal_rerun(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """A goal envelope tops up only the remainder when rerun."""
     ledger = tmp_path / "main.bean"
@@ -368,7 +380,7 @@ def test_topup_goal_rerun(tmp_path: Path, capsys: pytest.CaptureFixture[str]) ->
         "  Equity:Opening-Balances -100000.00 USD\n"
         '2024-01-01 custom "envelope" "start"\n'
         '2024-01-01 custom "envelope" "open" "Emergency"\n'
-        "  target: 6000.00 USD\n"
+        "  goal: 6000.00 USD\n"
         "  by: 2024-06-30\n"
         '2024-03-15 custom "envelope" "allocate" "Emergency" 3000.00 USD\n',
         encoding="utf-8",

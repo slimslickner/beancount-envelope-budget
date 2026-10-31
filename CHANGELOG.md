@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** a plan's `target` + `by` is now `goal` + `by`, and is a one-shot
+  savings goal funded by **cumulative contributions** rather than a balance. A
+  goal envelope is credited with its goal month's opening balance plus every
+  allocation, move-in, income and refund since, and spending is ignored — so a
+  goal that has been fully saved stays funded after the money is spent (save for
+  a trip, take the trip, and the envelope stays green). `fund --mode topup` and
+  `suggest` follow the same contributions measure, so they no longer re-fund
+  spending. To hold and refill a balance instead, use `monthly` with `up-to`
+  (#22). Update ledgers to the new key; there are no users before 1.0.
+
 ### Added
 
 - An `up-to` metadata key on a plan pairs with `monthly` to cap a balance: fund
@@ -22,8 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a fixed shared width sized to the longest name they hold, with each row's
   title pinned as the months scroll past (#42).
 
-- `E010` reports a plan whose metadata has no effect: `target` without `by`,
-  `by` without `target`, or `monthly` with `target`.
+- `E010` reports a plan whose metadata has no effect: `goal` without `by`,
+  `by` without `goal`, or `monthly` with `goal`.
 - The report view exposes each envelope's funding `level` and whether it is
   under, on or over it, for the CLI and Fava.
 - The Fava report reveals the postings behind an activity figure in a popover on
@@ -31,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The activity drill-down reads `payee - narration`, preferring a posting's
   `narration` metadata (the `autobean.narration` convention) and falling back to
   the transaction's narration, so the line items of one transaction read apart.
-- The report view exposes each envelope's goal `target` and how full it is toward
+- The report view exposes each envelope's goal `goal` and how full it is toward
   it (`fill`), for the CLI and Fava.
 - A planned envelope in the Fava report carries a ring beside its closing
   balance, filled in proportion to its goal (or its monthly level) and coloured

@@ -23,7 +23,7 @@ Declares an envelope.
 | `envelope` | string | yes | The name of the envelope to declare. |
 
 
-Metadata: `monthly`, `up-to`, `priority`, `target`, `by`, `parent`.
+Metadata: `monthly`, `up-to`, `priority`, `goal`, `by`, `parent`.
 
 ### `allocate`
 
@@ -74,7 +74,7 @@ Changes an envelope's plan from that date. It takes the same metadata as `open` 
 | `envelope` | string | yes | The envelope the plan applies to. |
 
 
-Metadata: `monthly`, `up-to`, `priority`, `target`, `by`.
+Metadata: `monthly`, `up-to`, `priority`, `goal`, `by`.
 
 ### `unplan`
 
@@ -96,9 +96,9 @@ Metadata: none.
 | `cash-account` | boolean | no | — | account open | TRUE marks an Assets or Liabilities account as spendable cash whose balance counts toward the pool. FALSE is the same as leaving the key out. |
 | `monthly` | number or "avgN" | no | — | envelope open, envelope plan | The planned monthly funding amount, or "avgN" for the average of the last N completed months of spending. |
 | `priority` | decimal | no | — | envelope open, envelope plan | Lower numbers fund first during topup. Ties fund in declaration order; envelopes without a priority fund last. |
-| `target` | amount (number and currency) | no | — | envelope open, envelope plan | A goal balance for the envelope, e.g. 15000.00 USD. |
-| `by` | date | no | — | envelope open, envelope plan | The date by which the target should be reached, e.g. 2028-06-01. |
-| `up-to` | decimal | no | — | envelope open, envelope plan | A balance ceiling paired with `monthly`: fund by the monthly amount each month, but never above this balance. Requires `monthly` and is mutually exclusive with `target`. |
+| `goal` | amount (number and currency) | no | — | envelope open, envelope plan | A savings goal: the total to contribute by its `by` date, e.g. 15000.00 USD. Funded by cumulative contributions, not the balance, so spending does not un-fund it. |
+| `by` | date | no | — | envelope open, envelope plan | The date by which the goal should be reached, e.g. 2028-06-01. |
+| `up-to` | decimal | no | — | envelope open, envelope plan | A balance ceiling paired with `monthly`: fund by the monthly amount each month, but never above this balance. Requires `monthly` and is mutually exclusive with `goal`. |
 | `parent` | string | no | — | envelope open | A grouping label. Envelopes with the same parent are shown together under a heading, with a subtotal of their balances. |
 
 

@@ -326,7 +326,7 @@ def test_report_goal_fill() -> None:
     view = _extension("savings_goal.bean").report("2024-01", "1")
     car = next(e for e in view.envelopes if e.name == "Car")
     cell = car.cells[0]
-    assert cell.target == D("15000")
+    assert cell.goal == D("15000")
     assert cell.fill is not None
     assert D("0") < cell.fill < D("1")
 
@@ -365,7 +365,7 @@ def test_report_no_fill_without_a_plan() -> None:
     view = _extension("basic.bean").report("2024-01", "1")
     groceries = next(e for e in view.envelopes if e.name == "Groceries")
     assert groceries.cells[0].fill is None
-    assert groceries.cells[0].target is None
+    assert groceries.cells[0].goal is None
 
 
 def test_template_renders_funding_ring() -> None:
@@ -431,7 +431,7 @@ def test_template_closing_popover_links_the_active_plan() -> None:
     """A goal envelope's closing popover names its target and links its plan."""
     html = _render(_extension("savings_goal.bean"), {"month": "2024-02", "months": "1"})
     car = _closing_pop(html, ">Car<")
-    assert "target 15000.00" in car
+    assert "goal 15000.00" in car
     assert "2028-06-01" in car
     assert "#context-" in car
 
@@ -991,7 +991,7 @@ def test_plan_fields_open_on_the_current_plan() -> None:
         "monthly": "",
         "up_to": "",
         "priority": "",
-        "target": "",
+        "goal": "",
         "by": "",
     }
 
@@ -1159,7 +1159,7 @@ def test_action_entry_covers_every_verb() -> None:
         {
             "action": "move",
             "source": "Groceries",
-            "target": "Gifts",
+            "destination": "Gifts",
             "amount": "5",
             "date": "2024-02-01",
         },
