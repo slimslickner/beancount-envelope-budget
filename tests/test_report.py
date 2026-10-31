@@ -19,6 +19,8 @@ from beancount_envelope_budget.report import (
     build_view,
     pool_ledger,
     pool_ledger_json,
+    prepare_view,
+    to_jsonable,
 )
 
 D = Decimal
@@ -37,9 +39,7 @@ def _compute(name: str, *, collect_activity: bool = True) -> BudgetResult:
         The computed :class:`BudgetResult`.
     """
     entries, _errors, options = loader.load_file(_LEDGERS / name)
-    return compute(
-        entries, options, collect_activity=collect_activity, collect_hashes=True
-    )
+    return compute(entries, options, collect_activity=collect_activity)
 
 
 def test_pool_ledger_matches_the_warning() -> None:
@@ -253,3 +253,13 @@ def test_up_to_cell_reads_on_at_the_ceiling() -> None:
     assert cell.closing == D("600")
     assert cell.funding == "on"
     assert cell.fill == D("1")
+
+
+def test_build_view_with_a_prepared_index_matches() -> None:
+    """A view built from a prepared index is identical to one built afresh."""
+    result = _compute("parent_groups.bean")
+    index = prepare_view(result)
+    for count in (1, 2, 3):
+        view = build_view(result, result.months[0], count)
+        cached = build_view(result, result.months[0], count, index=index)
+        assert to_jsonable(view) == to_jsonable(cached)

@@ -22,7 +22,9 @@ in [`docs/original_design.md`](docs/original_design.md).
 | `src/beancount_envelope_budget/plugin.py` | Beancount plugin: runs the core, returns entries plus diagnostics. |
 | `src/beancount_envelope_budget/cli.py` | `beancount-envelope-budget`: check, report, suggest, fund, pin, schema, docs, completion. |
 | `src/beancount_envelope_budget/fava_ext.py` + `templates/` | The read-only Fava report. Only module that imports Fava. |
-| `tests/` | pytest; `tests/ledgers/` has one fixture per case. |
+| `tests/` | pytest; `tests/ledgers/` has one fixture per case, plus the generated all-features `sample.bean`. |
+| `scripts/sample_ledger.py` | Generates `tests/ledgers/sample.bean`; `--check` fails when it is stale. |
+| `scripts/benchmark.py` | Times the loader and the budget over the sample at scale; also a smoke test. |
 | `docs/` | `concepts.md`, `style-guide.md`, `original_design.md`; generated `cli.md`, `schema.md`, `errors.md`. |
 | `examples/household.bean` | Complete example ledger; also an integration test. |
 | `.opencode/skills/` | The CLI-usage skill. |
@@ -32,7 +34,7 @@ in [`docs/original_design.md`](docs/original_design.md).
 A change is complete when this passes — it is the same command CI runs:
 
 ```sh
-uv run ruff format --check && uv run ruff check && uv run ty check && uv run pytest && uv run beancount-envelope-budget docs --check
+uv run ruff format --check && uv run ruff check && uv run ty check && uv run pytest && uv run beancount-envelope-budget docs --check && uv run python scripts/sample_ledger.py --check
 ```
 
 - **ruff** (format + lint, `select = ["ALL"]`, commented ignores) and **ty** must
@@ -40,6 +42,9 @@ uv run ruff format --check && uv run ruff check && uv run ty check && uv run pyt
 - `pytest` runs doctests and enforces a coverage floor on `core.py`.
 - `docs --check` fails if a generated doc is stale; regenerate with
   `uv run beancount-envelope-budget docs`.
+- `sample_ledger.py --check` fails if `tests/ledgers/sample.bean` is stale;
+  regenerate it with `uv run python scripts/sample_ledger.py` after adding a
+  feature to the generator.
 
 ## Conventions
 
@@ -69,5 +74,7 @@ subject imperative and under about 72 characters.
   insertion using each posting's `filename`/`lineno`.
 - `docs/cli.md`, `docs/schema.md` and `docs/errors.md` are generated — edit the
   parser or the registry, then run `docs`.
+- `tests/ledgers/sample.bean` is generated too — add the feature to
+  `scripts/sample_ledger.py`, regenerate, and keep `test_sample.py` green.
 - The `report`/`fava_ext` numbers must come from `report.build_view`, not be
   recomputed, so the CLI and the web report never disagree.

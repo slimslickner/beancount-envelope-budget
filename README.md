@@ -189,11 +189,13 @@ See `docs/cli.md` for the full reference and `beancount-envelope-budget --help`.
 A change is complete when the gate passes:
 
 ```sh
-uv run ruff format --check && uv run ruff check && uv run ty check && uv run pytest && uv run beancount-envelope-budget docs --check
+uv run ruff format --check && uv run ruff check && uv run ty check && uv run pytest && uv run beancount-envelope-budget docs --check && uv run python scripts/sample_ledger.py --check
 ```
 
 `pytest` runs the doctests, enforces a coverage floor on the core, and the
-fixture ledgers double as tests.
+fixture ledgers double as tests. `scripts/benchmark.py` times the loader and the
+budget over a generated ledger at scale; `scripts/sample_ledger.py` produces it,
+and the gate keeps the committed instance current with `--check`.
 
 ### Commit messages
 

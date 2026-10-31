@@ -54,6 +54,7 @@ from beancount_envelope_budget.report import (
     PlanLine,
     PoolEntry,
     Reports,
+    ViewIndex,
     active_plan,
     build_reports,
     build_view,
@@ -61,6 +62,7 @@ from beancount_envelope_budget.report import (
     overspend_cover,
     plan_top_up,
     pool_entry_text,
+    prepare_view,
     today_month,
 )
 
@@ -107,6 +109,7 @@ class Envelopes(FavaExtensionBase):
         """
         super().__init__(ledger, config)
         self.result: BudgetResult | None = None
+        self._index: ViewIndex | None = None
         try:
             self.default_months = _default_months(self.config)
             self.write_target = self._resolve_write(_write_setting(self.config))
@@ -144,6 +147,7 @@ class Envelopes(FavaExtensionBase):
         """
         if self.result is None:
             self.result = _compute(self.ledger, self._entries())
+            self._index = prepare_view(self.result)
         return self.result
 
     def prefill(self, envelope: str, month: date) -> str:
@@ -355,6 +359,7 @@ class Envelopes(FavaExtensionBase):
     def after_load_file(self) -> None:
         """Recompute the budget once the ledger has been loaded."""
         self.result = _compute(self.ledger, self._entries())
+        self._index = prepare_view(self.result)
 
     def _entries(self) -> list[Directive]:
         """Return the ledger's entries as Beancount directives.
@@ -383,6 +388,7 @@ class Envelopes(FavaExtensionBase):
             self._result(),
             _parse_month(month) or self.today_month(),
             _parse_count(months, self.default_months),
+            index=self._index,
         )
 
     def reports(self) -> Reports:
@@ -579,9 +585,10 @@ def _compute(ledger: FavaLedger, entries: list[Directive]) -> BudgetResult:
     """Compute the budget, reusing the plugin's result when it fits.
 
     The plugin runs during the load and leaves its (validation-only) budget
-    pending. The report needs activity detail and hashes, so it cannot reuse
-    that one, but consuming it here clears the pending budget; otherwise the
-    budget is computed with the collection the report requires.
+    pending. The report needs activity detail, so it cannot reuse that one, but
+    consuming it here clears the pending budget; otherwise the budget is
+    computed with the collection the report requires. Hashes are not collected
+    here either: the view derives them for the detail lines it shows.
 
     Args:
         ledger: The Fava ledger, for its options and entries.
@@ -594,7 +601,6 @@ def _compute(ledger: FavaLedger, entries: list[Directive]) -> BudgetResult:
         ledger.options,
         collect_resolved=False,
         collect_activity=True,
-        collect_hashes=True,
     )
     if result is not None:
         return result
@@ -602,7 +608,6 @@ def _compute(ledger: FavaLedger, entries: list[Directive]) -> BudgetResult:
         entries,
         ledger.options,
         collect_activity=True,
-        collect_hashes=True,
     )
 
 

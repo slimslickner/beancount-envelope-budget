@@ -238,6 +238,30 @@ def test_goal_progress_seeds_with_existing_balance() -> None:
     assert report.funded_at(date(2026, 2, 28)) == D("4000")
 
 
+def test_goal_progress_ignores_later_months() -> None:
+    """Contributions after the evaluated month are not credited."""
+    rows = (
+        MonthRow(date(2026, 1, 1), D("0"), D("100"), D("0")),
+        MonthRow(date(2026, 2, 1), D("100"), D("100"), D("-50")),
+        MonthRow(date(2026, 3, 1), D("150"), D("100"), D("0")),
+    )
+    report = EnvelopeReport(
+        Envelope(
+            "Trip",
+            date(2026, 1, 1),
+            None,
+            Plan(goal=D("1000"), goal_currency="USD", by=date(2026, 12, 31)),
+            (),
+        ),
+        rows,
+    )
+    # Each month's progress stops at that month: January's opening plus every
+    # allocation through it, with spending ignored.
+    assert report.funded_at(date(2026, 1, 31)) == D("100")
+    assert report.funded_at(date(2026, 2, 28)) == D("200")
+    assert report.funded_at(date(2026, 3, 31)) == D("300")
+
+
 def test_cash_only_move(load_budget) -> None:
     """A move between two cash accounts changes nothing."""
     result = load_budget("cash_only_move.bean")

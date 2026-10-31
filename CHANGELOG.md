@@ -104,9 +104,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (#29).
 - The shared report view exposes `pool_ledger`, the pool's ledger, so the CLI,
   the Fava popover and a future dashboard read one source (#29, #42).
+- A generated benchmark ledger at `tests/ledgers/sample.bean`, produced by
+  `scripts/sample_ledger.py` and kept current by a `--check` in the gate, that
+  exercises every feature; and `scripts/benchmark.py`, which times the loader and
+  the budget over it at scale. A test runs the benchmark as a smoke test (#57).
 
 ### Changed
 
+- The budget computation no longer hashes the ledger. Each activity, allocation
+  and pool event keeps its source directive and the report derives the hash only
+  for the detail lines it shows, so `compute` no longer takes `collect_hashes`
+  and hashing is paid per displayed line rather than per posting (#57).
+- The Fava report builds its history-wide lookups (the activity and allocation
+  indexes and the pool ledger) once per ledger load and slices only the shown
+  months on each request, instead of rebuilding them on every page load, and the
+  pool ledger no longer rebuilds a line per entry to fill in its running balance
+  (#57).
 - The plugin no longer computes Beancount entry hashes it never uses, and the
   CLI reuses the budget the plugin already computed instead of scanning the
   ledger a second time, so loading a year of transactions is materially faster
@@ -146,6 +159,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A goal envelope's progress is now judged only up to the month being shown, so
+  a month is no longer credited with allocations, income or refunds made in
+  later months. The Fava report's funding ring and `fund`, `suggest` and the
+  report all follow the same bound (#57).
 - The Fava report now suggests funding for the month being actioned, not the
   current one: a form for a future month evaluates that month's plan and
   balances, and dates its new directive inside that month, instead of collapsing
