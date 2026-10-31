@@ -217,6 +217,17 @@ def test_goal_progress_survives_spending(load_budget) -> None:
     assert trip.envelope.funding_level(date(2028, 6, 15)) == D("10000")
 
 
+def test_goal_schedule_exposes_the_arithmetic(load_budget) -> None:
+    """A goal's schedule reports its start, deadline and elapsed/total months."""
+    car = _envelope(load_budget("savings_goal.bean"), "Car")
+    schedule = car.envelope.goal_schedule(date(2024, 3, 31))
+    assert schedule is not None
+    assert schedule.start == date(2024, 1, 15)
+    assert schedule.by == date(2028, 6, 1)
+    assert (schedule.elapsed, schedule.total) == (3, 54)
+    assert schedule.level == car.envelope.funding_level(date(2024, 3, 31))
+
+
 def test_goal_progress_seeds_with_existing_balance() -> None:
     """Adding a goal to an already-funded envelope credits the money there."""
     rows = (

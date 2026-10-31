@@ -41,6 +41,7 @@ from beancount_envelope_budget.core import (
 from beancount_envelope_budget.report import (
     PoolLedger,
     build_view,
+    funding_explanation_lines,
     month_funding,
     plan_level,
     plan_top_up,
@@ -62,7 +63,7 @@ if TYPE_CHECKING:
 
     from beancount.core.data import Custom, Directive
 
-    from beancount_envelope_budget.report import BudgetView, Cell
+    from beancount_envelope_budget.report import BudgetView, Cell, FundingExplanation
 
 __all__ = ["build_parser", "cli_markdown", "main", "render_docs"]
 
@@ -347,6 +348,111 @@ def _cmd_suggest(args: argparse.Namespace) -> int:
         return 0
     print(_table(("Envelope", "Saved", "Goal", "By", "Months", "Per month"), rows))
     return 0
+
+
+def _cmd_explain(args: argparse.Namespace) -> int:
+    """Print how each envelope's plan is evaluated for a month.
+
+    Args:
+        args: Parsed arguments; ``args.ledger``, the optional ``args.month``,
+            ``args.envelope`` filter and ``args.json``.
+
+    Returns:
+        The process exit status.
+    """
+    if not args.ledger.exists():
+        print(f"no such ledger: {args.ledger}", file=sys.stderr)
+        return 2
+    pattern = _compile_pattern(args.envelope, "--envelope")
+    if pattern is _INVALID_PATTERN:
+        return 2
+    loaded = _load(args.ledger)
+    result = loaded.result
+    if result.start is None:
+        print("there is no start directive; nothing to explain", file=sys.stderr)
+        return 0
+    if args.month is not None and args.month < result.months[0]:
+        print(
+            f"{args.month:%Y-%m} is before the first month; "
+            f"showing {result.months[0]:%Y-%m}",
+            file=sys.stderr,
+        )
+    view = build_view(result, args.month or today_month(), 1)
+    explanations = _month_explanations(view, pattern)
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "month": view.months[0].isoformat(),
+                    "currency": view.currency,
+                    "envelopes": [
+                        {
+                            "name": name,
+                            "lines": list(funding_explanation_lines(explanation)),
+                        }
+                        for name, explanation in explanations
+                    ],
+                },
+                indent=2,
+            )
+        )
+        return 0
+    if not explanations:
+        print("no envelope has a plan for this month", file=sys.stderr)
+        return 0
+    print(_format_explanations(view, explanations))
+    return 0
+
+
+def _month_explanations(
+    view: BudgetView,
+    pattern: re.Pattern[str] | None,
+) -> list[tuple[str, FundingExplanation]]:
+    """Collect the planned, visible envelopes' explanations for a month.
+
+    Args:
+        view: The single-month view.
+        pattern: An optional envelope-name filter.
+
+    Returns:
+        The ``(name, explanation)`` pairs, in the view's order, skipping
+        envelopes with no plan or filtered out.
+    """
+    explanations: list[tuple[str, FundingExplanation]] = []
+    for envelope in view.envelopes:
+        if not envelope.visible:
+            continue
+        if pattern is not None and not pattern.search(envelope.name):
+            continue
+        explanation = envelope.cells[0].explanation
+        if explanation is not None:
+            explanations.append((envelope.name, explanation))
+    return explanations
+
+
+def _format_explanations(
+    view: BudgetView,
+    explanations: list[tuple[str, FundingExplanation]],
+) -> str:
+    """Render the per-envelope plan evaluations as headed blocks.
+
+    Args:
+        view: The single-month view, for the month and currency.
+        explanations: The ``(name, explanation)`` pairs.
+
+    Returns:
+        The rendered explanations.
+    """
+    heading = f"Plan evaluation for {view.months[0]:%Y-%m}"
+    if view.currency:
+        heading += f"\nAmounts in {view.currency}"
+    blocks = [
+        "\n".join(
+            (name, *(f"  {line}" for line in funding_explanation_lines(explanation)))
+        )
+        for name, explanation in explanations
+    ]
+    return heading + "\n\n" + "\n\n".join(blocks)
 
 
 def _cmd_pool(args: argparse.Namespace) -> int:
@@ -1709,6 +1815,8 @@ def build_parser() -> argparse.ArgumentParser:
     _ledger_argument(suggest)
     suggest.set_defaults(func=_cmd_suggest)
 
+    _add_explain_parser(subparsers)
+
     pool = subparsers.add_parser(
         "pool",
         help="print the pool's ledger with a running balance",
@@ -1851,17 +1959,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pin.set_defaults(func=_cmd_pin)
 
-    completion = subparsers.add_parser(
-        "completion",
-        help="print the shell tab-completion snippet",
-        description="Print the snippet that enables tab completion.",
-    )
-    completion.add_argument(
-        "shell",
-        choices=("bash", "zsh"),
-        help="the shell to print a completion snippet for",
-    )
-    completion.set_defaults(func=_cmd_completion)
+    _add_completion_parser(subparsers)
 
     return parser
 
@@ -1959,6 +2057,63 @@ def _add_action_parsers(subparsers: argparse._SubParsersAction) -> None:
     )
     _write_argument(unplan)
     unplan.set_defaults(func=_cmd_unplan)
+
+
+def _add_completion_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``completion`` subcommand.
+
+    Args:
+        subparsers: The subparsers action to extend.
+    """
+    completion = subparsers.add_parser(
+        "completion",
+        help="print the shell tab-completion snippet",
+        description="Print the snippet that enables tab completion.",
+    )
+    completion.add_argument(
+        "shell",
+        choices=("bash", "zsh"),
+        help="the shell to print a completion snippet for",
+    )
+    completion.set_defaults(func=_cmd_completion)
+
+
+def _add_explain_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``explain`` subcommand.
+
+    Args:
+        subparsers: The subparsers action to extend.
+    """
+    explain = subparsers.add_parser(
+        "explain",
+        help="show how each envelope's plan is evaluated for a month",
+        description=(
+            "For a month, print how each planned envelope's funding is "
+            "evaluated: the resolved monthly amount (and the spending an avgN "
+            "averaged), the up-to ceiling or goal schedule, the funding level, "
+            "the amount credited toward it, whether the envelope is under, on "
+            "or over plan, and the top-up still needed."
+        ),
+    )
+    _ledger_argument(explain)
+    explain.add_argument(
+        "--month",
+        type=_parse_month,
+        metavar="YYYY-MM",
+        help="the month to explain; defaults to the current month",
+    )
+    explain_envelopes = explain.add_argument(
+        "--envelope",
+        metavar="REGEX",
+        help="only explain envelopes whose name matches this regular expression",
+    )
+    setattr(explain_envelopes, "completer", _complete_envelopes)  # noqa: B010
+    explain.add_argument(
+        "--json",
+        action="store_true",
+        help="print the explanation as JSON instead of text",
+    )
+    explain.set_defaults(func=_cmd_explain)
 
 
 def _add_schema_parser(subparsers: argparse._SubParsersAction) -> None:

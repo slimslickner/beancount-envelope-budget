@@ -17,6 +17,8 @@ from beancount_envelope_budget.report import (
     _top_entries,
     build_reports,
     build_view,
+    funding_explanation,
+    funding_explanation_lines,
     pool_ledger,
     pool_ledger_json,
     prepare_view,
@@ -263,3 +265,105 @@ def test_build_view_with_a_prepared_index_matches() -> None:
         view = build_view(result, result.months[0], count)
         cached = build_view(result, result.months[0], count, index=index)
         assert to_jsonable(view) == to_jsonable(cached)
+
+
+def test_funding_explanation_for_monthly() -> None:
+    """A monthly plan's explanation shows its level, funded amount and top-up."""
+    result = _compute("funding_colors.bean")
+    report = next(r for r in result.envelopes if r.name == "Under")
+    explanation = funding_explanation(report, date(2024, 1, 31))
+    assert explanation is not None
+    assert explanation.reference == "monthly"
+    assert explanation.monthly == D("100")
+    assert explanation.level == D("100.00")
+    assert explanation.funded == D("50")
+    assert explanation.top_up == D("50.00")
+    assert explanation.funding == "under"
+    assert funding_explanation_lines(explanation) == (
+        "monthly 100.00 = plan",
+        "level 100.00 = monthly 100.00",
+        "funded 50.00 = opening 0.00 + allocated 50.00",
+        "underfunded by 50.00",
+        "top up 50.00",
+    )
+
+
+def test_funding_explanation_for_avg() -> None:
+    """An avgN plan lists the completed months it averaged, oldest first."""
+    result = _compute("topup_avg3.bean")
+    report = next(r for r in result.envelopes if r.name == "Groceries")
+    explanation = funding_explanation(report, date(2024, 4, 30))
+    assert explanation is not None
+    assert explanation.monthly == D("520.00")
+    assert explanation.average_months == (
+        (date(2024, 1, 1), D("500")),
+        (date(2024, 2, 1), D("540")),
+        (date(2024, 3, 1), D("520")),
+    )
+    assert funding_explanation_lines(explanation)[0] == (
+        "monthly 520.00 = average of 2024-01 500.00, 2024-02 540.00, 2024-03 520.00"
+    )
+
+
+def test_funding_explanation_for_up_to() -> None:
+    """An up-to plan shows the ceiling formula, the closing balance and the room."""
+    result = _compute("up_to.bean")
+    report = next(r for r in result.envelopes if r.name == "Car")
+    explanation = funding_explanation(report, date(2024, 3, 31))
+    assert explanation is not None
+    assert explanation.reference == "up-to"
+    assert explanation.level == D("600.00")
+    assert explanation.funded == D("500")
+    assert explanation.top_up == D("100.00")
+    assert explanation.funding == "under"
+    assert funding_explanation_lines(explanation) == (
+        "level 600.00 = min(ceiling 600.00, opening 500.00 + monthly 250.00)",
+        "funded 500.00 = closing balance",
+        "underfunded by 100.00",
+        "top up 100.00",
+    )
+
+
+def test_funding_explanation_for_goal() -> None:
+    """A goal plan shows its schedule, cumulative contributions and surplus."""
+    result = _compute("savings_goal.bean")
+    report = next(r for r in result.envelopes if r.name == "Car")
+    explanation = funding_explanation(report, date(2024, 3, 31))
+    assert explanation is not None
+    assert explanation.reference == "goal"
+    assert explanation.goal == D("15000")
+    assert explanation.by == date(2028, 6, 1)
+    assert (explanation.months_elapsed, explanation.months_total) == (3, 54)
+    assert explanation.level == D("833.33")
+    assert explanation.funded == D("1000")
+    assert explanation.funding == "over"
+    assert funding_explanation_lines(explanation) == (
+        "level 833.33 = goal 15000.00 (3/54 months) to 2028-06-01",
+        "funded 1000.00 = cumulative contributions",
+        "over plan by 166.67",
+    )
+
+
+def test_funding_explanation_is_absent_without_a_plan() -> None:
+    """An unplanned envelope carries no funding explanation."""
+    view = build_view(_compute("basic.bean"), date(2024, 1, 1))
+    assert all(
+        cell.explanation is None
+        for envelope in view.envelopes
+        for cell in envelope.cells
+    )
+
+
+def test_explanation_is_serialised() -> None:
+    """``to_jsonable`` carries each cell's funding explanation."""
+    view = build_view(_compute("up_to.bean"), date(2024, 3, 1))
+    car = next(e for e in view.envelopes if e.name == "Car")
+    explanation = car.cells[0].explanation
+    assert explanation is not None
+    assert funding_explanation_lines(explanation)[0].startswith("level 600.00")
+    as_json = cast("list[dict[str, object]]", to_jsonable(view)["envelopes"])
+    car_json = next(entry for entry in as_json if entry["name"] == "Car")
+    cells = cast("list[dict[str, object]]", car_json["cells"])
+    cell_json = cast("dict[str, object]", cells[0]["explanation"])
+    assert cell_json["reference"] == "up-to"
+    assert cell_json["top_up"] == "100.00"

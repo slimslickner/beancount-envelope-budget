@@ -115,6 +115,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scripts/sample_ledger.py` and kept current by a `--check` in the gate, that
   exercises every feature; and `scripts/benchmark.py`, which times the loader and
   the budget over it at scale. A test runs the benchmark as a smoke test (#57).
+- An `explain` command shows how each planned envelope is evaluated for a month:
+  the resolved `monthly` and the completed months an `avgN` averaged, the
+  `up-to` ceiling formula, or the goal schedule, plus the funding level, the
+  amount credited toward it, the under/on/over verdict and the suggested
+  top-up. The Fava closing popover shows the same derivation, the "add
+  allocation" form explains the amount it prefills, and the report view carries
+  it as a `FundingExplanation` on each cell (#62).
 
 ### Changed
 

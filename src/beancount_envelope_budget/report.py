@@ -43,6 +43,7 @@ __all__ = [
     "Cell",
     "EnvelopeGroup",
     "EnvelopeView",
+    "FundingExplanation",
     "MonthReport",
     "PlanLine",
     "PoolEntry",
@@ -55,6 +56,8 @@ __all__ = [
     "build_reports",
     "build_view",
     "envelope_need",
+    "funding_explanation",
+    "funding_explanation_lines",
     "month_funding",
     "overspend_cover",
     "plan_level",
@@ -270,6 +273,59 @@ class PlanLine:
     base: bool = False
 
 
+#: How each funding status reads in an explanation.
+_FUNDING_TEXT = {"under": "underfunded", "on": "on plan", "over": "over plan"}
+
+
+@dataclass(frozen=True, slots=True)
+class FundingExplanation:
+    """Why an envelope reads under, on or over its plan in a month.
+
+    The report computes an envelope's funding level, the amount credited toward
+    it, and the top-up still needed, and classifies it. This records the
+    arithmetic behind those figures — the resolved ``monthly`` and its samples,
+    the ``up-to`` ceiling, or the goal schedule — so the CLI and Fava can show
+    *how* a plan was evaluated, not just the verdict.
+
+    Attributes:
+        reference: What the plan is measured against: ``"monthly"``,
+            ``"up-to"`` or ``"goal"``.
+        level: The figure the envelope should reach this month, or ``None``.
+        funded: The amount credited toward the plan.
+        top_up: The amount ``fund`` or the prefill would still allocate, never
+            negative.
+        funding: ``"under"``, ``"on"`` or ``"over"`` the plan, or ``None``.
+        opening: The month's opening balance, or ``None``.
+        allocated: The money assigned this month, or ``None``.
+        closing: The month's closing balance, or ``None``.
+        monthly: The resolved ``monthly`` amount — a number, or an ``avgN``
+            average — or ``None``.
+        up_to: The ``up-to`` balance ceiling, or ``None``.
+        goal: The goal total, or ``None``.
+        by: The goal deadline, or ``None``.
+        months_elapsed: The goal months counted so far, or ``None``.
+        months_total: The goal months in total, or ``None``.
+        average_months: The ``(month, spending)`` samples an ``avgN`` monthly
+            amount averaged, in date order; empty for a plain ``monthly``.
+    """
+
+    reference: str
+    level: Decimal | None
+    funded: Decimal
+    top_up: Decimal
+    funding: str | None = None
+    opening: Decimal | None = None
+    allocated: Decimal | None = None
+    closing: Decimal | None = None
+    monthly: Decimal | None = None
+    up_to: Decimal | None = None
+    goal: Decimal | None = None
+    by: date | None = None
+    months_elapsed: int | None = None
+    months_total: int | None = None
+    average_months: tuple[tuple[date, Decimal], ...] = ()
+
+
 @dataclass(frozen=True, slots=True)
 class Cell:
     """One envelope's or the pool's figures for one month.
@@ -303,6 +359,9 @@ class Cell:
             linking back to its source directive.
         pool: For the pool row, the pool's ledger lines in this month, each on
             its own date with the running balance; empty for envelopes.
+        explanation: The arithmetic behind the month's plan verdict — its level,
+            funded amount and top-up — or ``None`` when the envelope has no
+            plan.
     """
 
     month: date
@@ -321,6 +380,7 @@ class Cell:
     fill: Decimal | None = None
     allocations: tuple[AllocationLine, ...] = ()
     pool: tuple[PoolEntry, ...] = ()
+    explanation: FundingExplanation | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -562,6 +622,35 @@ def _avg_window(monthly: str) -> int:
     return int(monthly[3:])
 
 
+def _average_samples(
+    report: EnvelopeReport, on: date, window: int
+) -> tuple[tuple[date, Decimal], ...]:
+    """Collect an envelope's spending over the last ``window`` completed months.
+
+    Each sample is a completed month and the spending charged to the envelope in
+    it, oldest first, so an ``avgN`` plan's arithmetic can be shown as well as
+    evaluated.
+
+    Args:
+        report: The envelope's report.
+        on: The date to evaluate.
+        window: How many completed months to collect.
+
+    Returns:
+        The ``(month, spending)`` samples in date order, omitting months with no
+        row.
+    """
+    anchor = month_of(on)
+    samples: list[tuple[date, Decimal]] = []
+    for offset in range(1, window + 1):
+        row = _maybe_row(report.rows, _shift(anchor, -offset))
+        if row is None:
+            continue
+        samples.append((row.month, -row.activity))
+    samples.reverse()
+    return tuple(samples)
+
+
 def _average_spend(report: EnvelopeReport, on: date, window: int) -> Decimal | None:
     """Average an envelope's spending over the last ``window`` completed months.
 
@@ -573,16 +662,10 @@ def _average_spend(report: EnvelopeReport, on: date, window: int) -> Decimal | N
     Returns:
         The average spending, or ``None`` when there is no history.
     """
-    anchor = month_of(on)
-    total = Decimal(0)
-    count = 0
-    for offset in range(1, window + 1):
-        row = _maybe_row(report.rows, _shift(anchor, -offset))
-        if row is None:
-            continue
-        total += -row.activity
-        count += 1
-    return total / count if count else None
+    samples = _average_samples(report, on, window)
+    if not samples:
+        return None
+    return sum((spend for _month, spend in samples), Decimal(0)) / len(samples)
 
 
 def _monthly_amount(report: EnvelopeReport, on: date) -> Decimal | None:
@@ -824,6 +907,177 @@ def envelope_need(report: EnvelopeReport, on: date) -> Decimal:
         Decimal('550.00')
     """
     return max(plan_top_up(report, on), overspend_cover(report, on))
+
+
+def funding_explanation(
+    report: EnvelopeReport,
+    on: date,
+) -> FundingExplanation | None:
+    """Explain how an envelope's plan is evaluated in a month.
+
+    Gathers the arithmetic behind the month's verdict: the resolved
+    ``monthly`` amount (and the spending an ``avgN`` averaged), the ``up-to``
+    ceiling or the goal schedule, the funding level, the amount credited toward
+    it, and the top-up still needed. Pure, so the CLI and Fava render one
+    explanation. Returns ``None`` when the envelope has no plan.
+
+    Args:
+        report: The envelope's report.
+        on: A date in the month to evaluate.
+
+    Returns:
+        The :class:`FundingExplanation`, or ``None`` when the envelope has no
+        ``monthly``, ``up-to`` or ``goal`` plan.
+
+    Examples:
+        >>> row = MonthRow(date(2026, 10, 1), Decimal(0), Decimal(300), Decimal("-100"))
+        >>> report = EnvelopeReport(
+        ...     Envelope(
+        ...         "Groceries",
+        ...         date(2026, 10, 1),
+        ...         None,
+        ...         Plan(monthly=Decimal("550")),
+        ...         (),
+        ...     ),
+        ...     (row,),
+        ... )
+        >>> explanation = funding_explanation(report, date(2026, 10, 31))
+        >>> explanation.reference, explanation.funded, explanation.top_up
+        ('monthly', Decimal('300'), Decimal('250.00'))
+    """
+    plan = report.envelope.effective(on)
+    if plan.up_to is not None:
+        reference = "up-to"
+    elif plan.monthly is not None:
+        reference = "monthly"
+    elif plan.goal is not None:
+        reference = "goal"
+    else:
+        return None
+    row = row_for(report.rows, on)
+    level = plan_level(report, on)
+    funded = report.funded_at(on)
+    top_up = plan_top_up(report, on)
+    if reference == "up-to":
+        funding = "on" if top_up == 0 else "under"
+    else:
+        funding = _funding(level, funded)
+    schedule = report.envelope.goal_schedule(on) if reference == "goal" else None
+    return FundingExplanation(
+        reference=reference,
+        level=level,
+        funded=funded,
+        top_up=top_up,
+        funding=funding,
+        opening=row.opening,
+        allocated=row.allocated,
+        closing=row.closing,
+        monthly=_monthly_amount(report, on),
+        up_to=plan.up_to,
+        goal=plan.goal,
+        by=plan.by,
+        months_elapsed=schedule.elapsed if schedule is not None else None,
+        months_total=schedule.total if schedule is not None else None,
+        average_months=(
+            _average_samples(report, on, _avg_window(plan.monthly))
+            if isinstance(plan.monthly, str)
+            else ()
+        ),
+    )
+
+
+def funding_explanation_lines(
+    explanation: FundingExplanation,
+    currency: str = "",
+) -> tuple[str, ...]:
+    """Render a funding explanation as labelled derivation lines.
+
+    The lines spell out the level's formula, what the funded amount is measured
+    from, whether the envelope is under, on or over plan, and the top-up the
+    plan still needs. Shared by the CLI's ``explain`` command and the Fava
+    closing popover, so the two cannot disagree.
+
+    Args:
+        explanation: The explanation to render.
+        currency: The operating currency, appended to each amount when given.
+
+    Returns:
+        The derivation lines.
+
+    Examples:
+        >>> from decimal import Decimal
+        >>> explanation = FundingExplanation(
+        ...     reference="monthly",
+        ...     level=Decimal("550"),
+        ...     funded=Decimal("500"),
+        ...     top_up=Decimal("50"),
+        ...     funding="under",
+        ...     opening=Decimal(0),
+        ...     allocated=Decimal("500"),
+        ...     monthly=Decimal("550"),
+        ... )
+        >>> funding_explanation_lines(explanation)
+        ('monthly 550.00 = plan', 'level 550.00 = monthly 550.00', 'funded 500.00 = opening 0.00 + allocated 500.00', 'underfunded by 50.00', 'top up 50.00')
+    """
+
+    def money(value: Decimal | None) -> str:
+        suffix = f" {currency}" if currency else ""
+        return "-" if value is None else f"{value:.2f}{suffix}"
+
+    lines: list[str] = []
+    if explanation.reference == "goal":
+        window = ""
+        if explanation.months_elapsed is not None and explanation.months_total:
+            window = (
+                f" ({explanation.months_elapsed}/{explanation.months_total} months)"
+            )
+        deadline = f" to {explanation.by}" if explanation.by is not None else ""
+        lines.append(
+            f"level {money(explanation.level)} = goal {money(explanation.goal)}"
+            f"{window}{deadline}"
+        )
+        lines.append(f"funded {money(explanation.funded)} = cumulative contributions")
+    elif explanation.reference == "up-to":
+        lines.append(
+            f"level {money(explanation.level)} = min(ceiling "
+            f"{money(explanation.up_to)}, opening {money(explanation.opening)}"
+            f" + monthly {money(explanation.monthly)})"
+        )
+        lines.append(f"funded {money(explanation.funded)} = closing balance")
+    else:
+        if explanation.average_months:
+            samples = ", ".join(
+                f"{month:%Y-%m} {spend:.2f}"
+                for month, spend in explanation.average_months
+            )
+            lines.append(f"monthly {money(explanation.monthly)} = average of {samples}")
+        else:
+            lines.append(f"monthly {money(explanation.monthly)} = plan")
+        lines.append(
+            f"level {money(explanation.level)} = monthly {money(explanation.monthly)}"
+        )
+        lines.append(
+            f"funded {money(explanation.funded)} = opening "
+            f"{money(explanation.opening)} + allocated {money(explanation.allocated)}"
+        )
+
+    if explanation.funding is not None:
+        label = _FUNDING_TEXT[explanation.funding]
+        difference = (
+            None
+            if explanation.level is None
+            else explanation.funded - explanation.level
+        )
+        if explanation.funding == "under" and difference is not None:
+            lines.append(f"{label} by {money(-difference)}")
+        elif explanation.funding == "over" and difference is not None:
+            lines.append(f"{label} by {money(difference)}")
+        else:
+            lines.append(label)
+
+    if explanation.top_up > 0:
+        lines.append(f"top up {money(explanation.top_up)}")
+    return tuple(lines)
 
 
 def month_funding(
@@ -1609,6 +1863,7 @@ def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
     fill: Decimal | None = None,
     allocations: Sequence[AllocationEvent] = (),
     pool: tuple[PoolEntry, ...] = (),
+    explanation: FundingExplanation | None = None,
 ) -> Cell:
     """Build a cell from a monthly row and its detail.
 
@@ -1624,6 +1879,7 @@ def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
         fill: How full the envelope is toward its goal, or ``None``.
         allocations: The month's ``allocate`` directives.
         pool: The pool row's ledger lines for the month, if any.
+        explanation: The arithmetic behind the month's plan verdict, or ``None``.
 
     Returns:
         The :class:`Cell`. Its detail lines and allocations are built, and their
@@ -1647,6 +1903,7 @@ def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
         fill=fill,
         allocations=tuple(_allocation_line(event) for event in allocations),
         pool=pool,
+        explanation=explanation,
     )
 
 
@@ -1700,6 +1957,7 @@ def _envelope_view(
                 up_to=up_to,
                 fill=_fill(reference, funded),
                 allocations=allocations.get((report.name, month), []),
+                explanation=funding_explanation(report, on),
             )
         )
     return EnvelopeView(
@@ -1984,6 +2242,42 @@ def _cell_json(cell: Cell) -> dict[str, object]:
             for line in cell.allocations
         ],
         "pool": [_pool_entry_json(entry) for entry in cell.pool],
+        "explanation": _explanation_json(cell.explanation),
+    }
+
+
+def _explanation_json(
+    explanation: FundingExplanation | None,
+) -> dict[str, object] | None:
+    """Serialise a funding explanation.
+
+    Args:
+        explanation: The explanation, or ``None``.
+
+    Returns:
+        A JSON-compatible dictionary, or ``None``.
+    """
+    if explanation is None:
+        return None
+    return {
+        "reference": explanation.reference,
+        "level": _money_json(explanation.level),
+        "funded": f"{explanation.funded:.2f}",
+        "top_up": f"{explanation.top_up:.2f}",
+        "funding": explanation.funding,
+        "opening": _money_json(explanation.opening),
+        "allocated": _money_json(explanation.allocated),
+        "closing": _money_json(explanation.closing),
+        "monthly": _money_json(explanation.monthly),
+        "up_to": _money_json(explanation.up_to),
+        "goal": _money_json(explanation.goal),
+        "by": explanation.by.isoformat() if explanation.by is not None else None,
+        "months_elapsed": explanation.months_elapsed,
+        "months_total": explanation.months_total,
+        "average_months": [
+            {"month": month.isoformat(), "spending": f"{spend:.2f}"}
+            for month, spend in explanation.average_months
+        ],
     }
 
 

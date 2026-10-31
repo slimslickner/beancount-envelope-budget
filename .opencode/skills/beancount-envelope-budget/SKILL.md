@@ -34,6 +34,7 @@ When working inside this repository, prefix commands with `uv run`.
 | --- | --- |
 | `check LEDGER` | Validate and check the invariant. Exits non-zero on any error. |
 | `report LEDGER [--month YYYY-MM] [--months N] [--json]` | One table spanning one to three months: a row per envelope (opening once, then allocated / activity / closing per month) plus pool and cash. |
+| `explain LEDGER [--month YYYY-MM] [--envelope REGEX] [--json]` | How each planned envelope is evaluated for a month: the level's formula (the resolved `monthly`, an `avgN`'s averaged months, the `up-to` ceiling, or the goal schedule), the funded amount, the under/on/over verdict and the suggested top-up. |
 | `pool LEDGER [--all\|--month YYYY-MM\|--date YYYY-MM-DD] [--json]` | The pool's per-transaction ledger with the running balance after each line; a bare run opens on the pool's lowest month (or the latest when it never went negative). |
 | `suggest LEDGER` | The monthly amount each goal envelope (`target` + `by`) needs. |
 | `fund LEDGER --from YYYY-MM --to YYYY-MM [--mode actuals\|overspend\|copy] [--envelopes REGEX] [--force]` | Print `allocate` directives to backfill or roll a range forward. |
