@@ -1,7 +1,7 @@
 option "operating_currency" "USD"
 
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Income:Bonus USD
   envelope: "Bonus"
 2020-01-01 open Equity:Opening-Balances USD

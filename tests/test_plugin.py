@@ -31,7 +31,7 @@ def _ledger(plugin_line: str, *, enveloped: bool) -> str:
 {plugin_line}
 
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Expenses:Groceries USD
 {envelope_meta}
 2020-01-01 open Equity:Opening-Balances USD
@@ -76,7 +76,7 @@ def test_plugin_accepts_security_at_cost() -> None:
 {_PLUGIN}
 
 2020-01-01 open Assets:Brokerage:Cash USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Assets:Brokerage:VTI VTI
   envelope: "Taxable Investments"
 2020-01-01 open Equity:Opening-Balances USD
@@ -133,7 +133,7 @@ option "plugin_processing_mode" "raw"
 {_PLUGIN}
 
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Equity:Opening-Balances USD
 2020-01-01 open Expenses:Groceries USD
   envelope: "Groceries"

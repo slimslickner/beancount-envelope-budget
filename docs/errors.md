@@ -7,7 +7,7 @@
 | `E001` | error | Envelope {name} is used but was never declared. |
 | `E002` | error | Account {account} has no envelope metadata and posts in a cash-moving transaction. |
 | `E003` | error | Envelope {name} is declared twice, or used outside its open-to-close dates. |
-| `E004` | error | `cash-account` is set on {account}, which is not valid there. |
+| `E004` | error | `on-budget` is set on {account}, which is not valid there. |
 | `E005` | error | Envelope {name} is closed with a non-zero balance of {balance}. |
 | `E006` | error | Currency {currency} on {date} is not the operating currency {operating_currency}. |
 | `E007` | error | Invariant fails for {month}: pool plus envelopes is {actual} but cash is {expected} (difference {difference}). |
@@ -42,9 +42,9 @@ Declare each envelope exactly once, and only use it between its `open` and its `
 
 ## E004
 
-**Error:** `cash-account` is set on {account}, which is not valid there.
+**Error:** `on-budget` is set on {account}, which is not valid there.
 
-`cash-account` marks spendable cash and may only be boolean `TRUE` on an Assets or Liabilities account. `FALSE` is accepted anywhere and means the same as omitting the key. Remove a non-boolean value, or set it to `TRUE` on a valid account.
+`on-budget` marks spendable cash and may only be boolean `TRUE` on an Assets or Liabilities account. `FALSE` is accepted anywhere and means the same as omitting the key. Remove a non-boolean value, or set it to `TRUE` on a valid account.
 
 
 ## E005

@@ -3,7 +3,7 @@ option "operating_currency" "USD"
 ; "Late" is declared six months in and used only from its open date, so the
 ; report should hide it for the months before it was opened.
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Expenses:Groceries USD
   envelope: "Groceries"
 2020-01-01 open Expenses:Late USD

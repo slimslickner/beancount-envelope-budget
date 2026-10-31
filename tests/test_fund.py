@@ -236,7 +236,7 @@ def test_topup_up_to_uses_the_monthly_allowance(
     ledger.write_text(
         'option "operating_currency" "USD"\n'
         "2020-01-01 open Assets:Checking USD\n"
-        "  cash-account: TRUE\n"
+        "  on-budget: TRUE\n"
         "2020-01-01 open Expenses:Car USD\n"
         '  envelope: "Car"\n'
         "2020-01-01 open Equity:Opening-Balances USD\n"
@@ -373,7 +373,7 @@ def test_topup_goal_rerun(tmp_path: Path, capsys: pytest.CaptureFixture[str]) ->
     ledger.write_text(
         'option "operating_currency" "USD"\n'
         "2020-01-01 open Assets:Checking USD\n"
-        "  cash-account: TRUE\n"
+        "  on-budget: TRUE\n"
         "2020-01-01 open Equity:Opening-Balances USD\n"
         '2023-12-31 * "Opening"\n'
         "  Assets:Checking           100000.00 USD\n"
@@ -498,7 +498,7 @@ def test_topup_rerun(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None
     ledger.write_text(
         'option "operating_currency" "USD"\n'
         "2020-01-01 open Assets:Checking USD\n"
-        "  cash-account: TRUE\n"
+        "  on-budget: TRUE\n"
         "2020-01-01 open Income:Salary USD\n"
         '2024-01-01 custom "envelope" "start"\n'
         '2024-01-01 custom "envelope" "open" "Mortgage"\n'

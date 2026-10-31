@@ -3,7 +3,7 @@ option "operating_currency" "USD"
 ; The security has no envelope, so the purchase is an error (E002). The cash
 ; leg is still counted, so the invariant holds and no E006 or E007 appears.
 2020-01-01 open Assets:Brokerage:Cash USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Assets:Brokerage:VTI VTI
 2020-01-01 open Equity:Opening-Balances USD
 

@@ -91,7 +91,7 @@ def test_transaction_override_does_not_redirect_pool() -> None:
     ledger = """
 option "operating_currency" "USD"
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Expenses:Taxes USD
   envelope: "pool"
 2020-01-01 open Equity:Opening-Balances USD
@@ -117,7 +117,7 @@ def test_posting_before_open_is_reported() -> None:
     ledger = """
 option "operating_currency" "USD"
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Expenses:Late USD
   envelope: "Late"
 2020-01-01 open Equity:Opening-Balances USD
@@ -314,7 +314,7 @@ def test_pool_floor_names_the_low_date() -> None:
     ledger = """
 option "operating_currency" "USD"
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Income:Salary USD
 2024-01-01 custom "envelope" "start"
 2024-01-01 custom "envelope" "open" "A"
@@ -389,7 +389,7 @@ option "operating_currency" "USD"
 2020-01-01 open Assets:Brokerage:VTI VTI
   envelope: "Taxable Investments"
 2020-01-01 open Assets:Brokerage:Cash USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Income:Gains USD
 2020-01-01 open Equity:Opening-Balances USD
 2025-12-31 * "Opening balance"
@@ -417,14 +417,14 @@ def test_no_start(load_budget) -> None:
 
 
 def test_bad_metadata(load_budget) -> None:
-    """Invalid cash-account and tuning metadata are reported with their codes."""
+    """Invalid on-budget and tuning metadata are reported with their codes."""
     result = load_budget("bad_metadata.bean")
     cash_errors = [d for d in result.diagnostics if d.code == "E004"]
     assert {d.entry.account for d in cash_errors if d.entry is not None} == {
         "Income:Salary",
         "Equity:Opening-Balances",
     }
-    # cash-account: FALSE is the same as omitting the key, so Assets:401k is
+    # on-budget: FALSE is the same as omitting the key, so Assets:401k is
     # absent from the diagnostics above.
     assert len([code for code in _codes(result) if code == "E008"]) == 3
     groceries = _envelope(result, "Groceries")
@@ -458,7 +458,7 @@ def test_move_directive_is_unknown() -> None:
     ledger = """
 option "operating_currency" "USD"
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Equity:Opening-Balances USD
 2023-12-31 * "Opening"
   Assets:Checking            1000.00 USD
@@ -546,7 +546,7 @@ def test_up_to_plan_merges_and_clears() -> None:
     ledger = """
 option "operating_currency" "USD"
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2024-01-01 custom "envelope" "start"
 2024-01-01 custom "envelope" "open" "Car"
   monthly: 250.00
@@ -569,7 +569,7 @@ def test_up_to_plan_errors() -> None:
     ledger = """
 option "operating_currency" "USD"
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2024-01-01 custom "envelope" "start"
 2024-01-01 custom "envelope" "open" "NeedsMonthly"
   up-to: 600.00

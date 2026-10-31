@@ -1,7 +1,7 @@
 option "operating_currency" "USD"
 
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Expenses:Mortgage:Principal USD
   envelope: "Housing"
 2020-01-01 open Expenses:Mortgage:Escrow USD

@@ -3,7 +3,7 @@ option "operating_currency" "USD"
 ; Two parents: "Living" keeps Rent open after Groceries closes, while "Gone"
 ; closes both its members, so its heading disappears once nothing is left.
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Expenses:Grocery USD
   envelope: "Groceries"
 2020-01-01 open Expenses:Rent USD

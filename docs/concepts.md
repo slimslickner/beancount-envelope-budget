@@ -13,7 +13,7 @@ existing postings.
 | Term | Meaning |
 | --- | --- |
 | **Envelope** | A named bucket with a running balance, declared once with a directive. |
-| **Cash account** | An `Assets` or `Liabilities` account whose balance counts as spendable money — checking, savings, credit cards. Marked `cash-account: TRUE` on its `open`. |
+| **Cash account** | An `Assets` or `Liabilities` account whose balance counts as spendable money — checking, savings, credit cards. Marked `on-budget: TRUE` on its `open`. |
 | **Pool** | Cash not assigned to any envelope ("to be budgeted"). |
 | **Allocation** | A dated amount moved from the pool into an envelope. |
 | **Activity** | The effect of postings on an envelope: spending lowers it, refunds and envelope-level income raise it. |
@@ -21,7 +21,7 @@ existing postings.
 | **Plan** | An envelope's funding parameters — `monthly`, `up-to`, `priority`, `goal`, `by` — set on `open`, changed from a date with `plan`, and cleared with `unplan`. |
 
 Months are calendar months, and everything is attributed by its date. Setting
-`cash-account: FALSE` is the same as omitting the key entirely.
+`on-budget: FALSE` is the same as omitting the key entirely.
 
 ## Cash vs. pool
 
@@ -59,11 +59,11 @@ and the pool. Cash is therefore net spendable money including card debt.
 Moving money between two cash accounts is neutral: cash-to-cash transactions
 change neither the pool nor any envelope. When the two legs land on different
 days — a transfer in progress — route them through a **clearing account** and
-mark it `cash-account: TRUE`:
+mark it `on-budget: TRUE`:
 
 ```beancount
 2020-01-01 open Assets:Transfers:Clearing USD
-  cash-account: TRUE
+  on-budget: TRUE
 
 2026-01-30 * "Move to savings"        ; the checking side clears immediately
   Assets:Checking                -500.00 USD
@@ -103,15 +103,15 @@ investment accounts are "tracking" accounts whose value never enters the budget.
 
 A brokerage usually has two parts:
 
-- **Cash** (the sweep) may be on-budget with `cash-account: TRUE`; it is as
+- **Cash** (the sweep) may be on-budget with `on-budget: TRUE`; it is as
   liquid as a savings account.
-- **Securities** are off-budget. Do not mark them `cash-account`; instead give
+- **Securities** are off-budget. Do not mark them `on-budget`; instead give
   each one `envelope: "<name>"`, so buying spends from that envelope and selling
   refunds it.
 
 ```beancount
 2020-01-01 open Assets:Brokerage:Cash USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Assets:Brokerage:VTI VTI
   envelope: "Taxable Investments"
 2024-01-01 custom "envelope" "open" "Taxable Investments"
@@ -142,14 +142,14 @@ A posting already in the operating currency is unchanged. A currency with no
 cost or price in the operating currency is still a foreign currency (`E006`),
 and a security with no envelope is `E002` — the cash has to go somewhere.
 
-To keep the whole brokerage out of the budget instead, leave `cash-account` off
+To keep the whole brokerage out of the budget instead, leave `on-budget` off
 the sweep too. Then none of its transactions move budget cash, so none are
 reported.
 
 Treating a *stable* cash equivalent — a money-market fund, or T-bills pegged
 near 1.00 — as budget cash is conceivable, but volatile securities are not. If
 that ever lands it should be a separate notion (a commodity account valued at
-cost or mark), not `cash-account: TRUE`.
+cost or mark), not `on-budget: TRUE`.
 
 ## Ledger syntax
 
@@ -159,9 +159,9 @@ Accounts opt in explicitly; nothing is inherited from parent accounts.
 
 ```beancount
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Liabilities:CreditCard:Visa USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Expenses:Groceries USD
   envelope: "Groceries"
 2020-01-01 open Assets:401k USD
@@ -293,7 +293,7 @@ Every transaction on or after the start date is processed in four steps:
    no cash moved. Clearing and transfer accounts must therefore be classified
    deliberately — see [Transfers and clearing accounts](#transfers-and-clearing-accounts).
 2. **Classify postings.** A posting is cash if its account has
-   `cash-account: TRUE`, otherwise non-cash. A `FALSE` value is the same as
+   `on-budget: TRUE`, otherwise non-cash. A `FALSE` value is the same as
    leaving the key out.
 3. **Resolve the envelope** of each non-cash posting, first match wins:
    1. `envelope` metadata on the posting.

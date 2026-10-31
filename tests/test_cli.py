@@ -385,7 +385,7 @@ def test_check_dedupes_plugin_errors(
         'plugin "beancount_envelope_budget.plugin"\n'
         "\n"
         "2020-01-01 open Assets:Checking USD\n"
-        "  cash-account: TRUE\n"
+        "  on-budget: TRUE\n"
         "2020-01-01 open Expenses:Groceries USD\n"
         "2020-01-01 open Equity:Opening-Balances USD\n"
         "\n"

@@ -11,11 +11,11 @@
 option "operating_currency" "USD"
 
 2020-01-01 open Assets:Checking USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Assets:Savings USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Liabilities:CreditCard:Visa USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Assets:401k USD
   envelope: "Retirement"
 2020-01-01 open Income:Salary USD

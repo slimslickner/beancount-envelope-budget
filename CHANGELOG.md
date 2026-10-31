@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** the `cash-account` account metadata key is now `on-budget`, to
+  match the on-budget/off-budget language used elsewhere. It marks an `Assets`
+  or `Liabilities` account whose balance counts as spendable cash; `FALSE` is
+  still the same as leaving it out. Update existing `open` metadata
+  (`cash-account: TRUE` → `on-budget: TRUE`); there are no users before 1.0
+  (#27).
 - **Breaking:** a plan's `target` + `by` is now `goal` + `by`, and is a one-shot
   savings goal funded by **cumulative contributions** rather than a balance. A
   goal envelope is credited with its goal month's opening balance plus every

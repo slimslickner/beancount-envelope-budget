@@ -3,7 +3,7 @@ option "operating_currency" "USD"
 ; A brokerage: cash is on-budget, the security is off-budget but enveloped, so
 ; buys and sells move money between the "Taxable Investments" goal and cash.
 2020-01-01 open Assets:Brokerage:Cash USD
-  cash-account: TRUE
+  on-budget: TRUE
 2020-01-01 open Assets:Brokerage:VTI VTI
   envelope: "Taxable Investments"
 2020-01-01 open Equity:Opening-Balances USD

@@ -275,7 +275,7 @@ METADATA_KEYS: tuple[MetadataKey, ...] = (
         ),
     ),
     MetadataKey(
-        key="cash-account",
+        key="on-budget",
         kind=ValueKind.BOOLEAN,
         required=False,
         default=None,
@@ -407,9 +407,9 @@ DIAGNOSTIC_CODES: tuple[DiagnosticCode, ...] = (
     DiagnosticCode(
         code="E004",
         severity=Severity.ERROR,
-        summary="`cash-account` is set on {account}, which is not valid there.",
+        summary="`on-budget` is set on {account}, which is not valid there.",
         explanation=(
-            "`cash-account` marks spendable cash and may only be boolean `TRUE` "
+            "`on-budget` marks spendable cash and may only be boolean `TRUE` "
             "on an Assets or Liabilities account. `FALSE` is accepted anywhere "
             "and means the same as omitting the key. Remove a non-boolean value, "
             "or set it to `TRUE` on a valid account."
