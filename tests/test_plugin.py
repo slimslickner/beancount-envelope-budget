@@ -153,6 +153,68 @@ option "plugin_processing_mode" "raw"
     assert any("pool is negative" in error.message for error in errors)
 
 
+def test_plugin_leaves_a_reusable_result() -> None:
+    """The plugin caches its budget for a matching consumer, then consumes it."""
+    _entries, _errors, options = loader.load_string(_ledger(_PLUGIN, enveloped=True))
+    cached = plugin.cached_result(
+        options,
+        collect_resolved=False,
+        collect_activity=False,
+        collect_hashes=False,
+    )
+    assert cached is not None
+    assert cached.months
+    # The cache is consumed, so a second reader must compute for itself.
+    assert (
+        plugin.cached_result(
+            options,
+            collect_resolved=False,
+            collect_activity=False,
+            collect_hashes=False,
+        )
+        is None
+    )
+
+
+def test_plugin_cache_is_not_reused_for_a_different_collection() -> None:
+    """A consumer wanting activity detail does not get the validation-only budget."""
+    _entries, _errors, options = loader.load_string(_ledger(_PLUGIN, enveloped=True))
+    assert (
+        plugin.cached_result(
+            options,
+            collect_resolved=False,
+            collect_activity=True,
+            collect_hashes=True,
+        )
+        is None
+    )
+
+
+def test_cached_result_absent_without_the_plugin() -> None:
+    """A ledger that does not load the plugin leaves nothing to reuse."""
+    _entries, _errors, options = loader.load_string(_ledger("", enveloped=True))
+    assert (
+        plugin.cached_result(
+            options,
+            collect_resolved=False,
+            collect_activity=False,
+            collect_hashes=False,
+        )
+        is None
+    )
+
+
+def test_collect_hashes_gates_the_hashes() -> None:
+    """Hashes are computed only when asked for, and empty otherwise."""
+    entries, _errors, options = loader.load_string(_ledger("", enveloped=True))
+    without = compute(entries, options, collect_activity=True)
+    with_hashes = compute(entries, options, collect_activity=True, collect_hashes=True)
+    assert [event.entry_hash for event in without.activity] == [""]
+    assert all(len(event.entry_hash) == 32 for event in with_hashes.activity)
+    assert without.envelopes[0].envelope.source_hash == ""
+    assert len(with_hashes.envelopes[0].envelope.source_hash) == 32
+
+
 def test_envelope_resolved_annotation() -> None:
     """The ``resolved`` config writes the resolved envelope onto postings."""
     entries, errors, _options = loader.load_string(

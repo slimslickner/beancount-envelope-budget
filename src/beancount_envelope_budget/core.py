@@ -1208,6 +1208,8 @@ def _handle_open(
     drafts: dict[str, _Draft],
     order: list[str],
     diagnostics: list[Diagnostic],
+    *,
+    collect_hashes: bool,
 ) -> None:
     """Handle an ``open`` directive.
 
@@ -1216,6 +1218,7 @@ def _handle_open(
         drafts: The in-progress envelopes, keyed by name.
         order: Declaration order, extended in place.
         diagnostics: The list to append diagnostics to.
+        collect_hashes: Whether to compute the source directive's hash.
     """
     name = raw.args[0] if raw.args else None
     if not isinstance(name, str) or not name:
@@ -1257,7 +1260,7 @@ def _handle_open(
         opened=raw.date,
         plan=plan,
         parent=parent,
-        source_hash=compare.hash_entry(raw.entry),
+        source_hash=compare.hash_entry(raw.entry) if collect_hashes else "",
     )
     order.append(name)
 
@@ -1266,6 +1269,8 @@ def _handle_plan(
     raw: _RawDirective,
     drafts: dict[str, _Draft],
     diagnostics: list[Diagnostic],
+    *,
+    collect_hashes: bool,
 ) -> None:
     """Handle a ``plan`` directive.
 
@@ -1273,6 +1278,7 @@ def _handle_plan(
         raw: The parsed directive.
         drafts: The in-progress envelopes, keyed by name.
         diagnostics: The list to append diagnostics to.
+        collect_hashes: Whether to compute the source directive's hash.
     """
     name = raw.args[0] if raw.args else None
     if not isinstance(name, str) or name not in drafts:
@@ -1291,7 +1297,7 @@ def _handle_plan(
             target=target[0] if target is not None else None,
             target_currency=target[1] if target is not None else None,
             by=_parse_by(raw.meta.get("by"), name, raw.entry, diagnostics),
-            entry_hash=compare.hash_entry(raw.entry),
+            entry_hash=compare.hash_entry(raw.entry) if collect_hashes else "",
         )
     )
     _validate_plan(drafts[name].effective(raw.date), name, raw.entry, diagnostics)
@@ -1301,6 +1307,8 @@ def _handle_unplan(
     raw: _RawDirective,
     drafts: dict[str, _Draft],
     diagnostics: list[Diagnostic],
+    *,
+    collect_hashes: bool,
 ) -> None:
     """Handle an ``unplan`` directive.
 
@@ -1311,13 +1319,18 @@ def _handle_unplan(
         raw: The parsed directive.
         drafts: The in-progress envelopes, keyed by name.
         diagnostics: The list to append diagnostics to.
+        collect_hashes: Whether to compute the source directive's hash.
     """
     name = raw.args[0] if raw.args else None
     if not isinstance(name, str) or name not in drafts:
         diagnostics.append(_diag("E001", entry=raw.entry, name=name))
         return
     drafts[name].plans.append(
-        PlanChange(date=raw.date, clears=True, entry_hash=compare.hash_entry(raw.entry))
+        PlanChange(
+            date=raw.date,
+            clears=True,
+            entry_hash=compare.hash_entry(raw.entry) if collect_hashes else "",
+        )
     )
 
 
@@ -1378,6 +1391,8 @@ def _process_declarations(
     start: date,
     operating_currency: str,
     diagnostics: list[Diagnostic],
+    *,
+    collect_hashes: bool,
 ) -> _Declarations:
     """Process every envelope directive on or after the start date.
 
@@ -1386,6 +1401,7 @@ def _process_declarations(
         start: The start date.
         operating_currency: The single operating currency.
         diagnostics: The list to append diagnostics to.
+        collect_hashes: Whether to compute source directive hashes.
 
     Returns:
         The declared envelopes and the allocation and move events.
@@ -1408,13 +1424,15 @@ def _process_declarations(
         if not _directive_currency_ok(raw, operating_currency, diagnostics):
             continue
         if raw.verb == "open":
-            _handle_open(raw, drafts, order, diagnostics)
+            _handle_open(raw, drafts, order, diagnostics, collect_hashes=collect_hashes)
         elif raw.verb == "plan":
-            _handle_plan(raw, drafts, diagnostics)
+            _handle_plan(raw, drafts, diagnostics, collect_hashes=collect_hashes)
         elif raw.verb == "unplan":
-            _handle_unplan(raw, drafts, diagnostics)
+            _handle_unplan(raw, drafts, diagnostics, collect_hashes=collect_hashes)
         elif raw.verb == "allocate":
-            _handle_allocate(raw, drafts, allocate, diagnostics)
+            _handle_allocate(
+                raw, drafts, allocate, diagnostics, collect_hashes=collect_hashes
+            )
         elif raw.verb == "move":
             _handle_move(raw, drafts, move, diagnostics)
         elif raw.verb == "close":
@@ -1505,6 +1523,8 @@ def _handle_allocate(
     drafts: dict[str, _Draft],
     allocate: list[AllocationEvent],
     diagnostics: list[Diagnostic],
+    *,
+    collect_hashes: bool,
 ) -> None:
     """Handle an ``allocate`` directive.
 
@@ -1513,6 +1533,7 @@ def _handle_allocate(
         drafts: The declared envelopes, keyed by name.
         allocate: The allocation events, extended in place.
         diagnostics: The list to append diagnostics to.
+        collect_hashes: Whether to compute the source directive's hash.
     """
     name = raw.args[0] if raw.args else None
     amount = _parse_amount(
@@ -1527,7 +1548,7 @@ def _handle_allocate(
             date=raw.date,
             envelope=target,
             amount=number,
-            entry_hash=compare.hash_entry(raw.entry),
+            entry_hash=compare.hash_entry(raw.entry) if collect_hashes else "",
         )
     )
 
@@ -1722,30 +1743,43 @@ class _Valuation:
 
 
 @dataclass(frozen=True, slots=True)
+class _Collect:
+    """What the transaction scan should record alongside the balances.
+
+    Attributes:
+        resolved: Whether to record each posting's resolved envelope.
+        activity: Whether to record per-posting activity detail.
+        hashes: Whether to compute entry hashes for detail events.
+    """
+
+    resolved: bool = False
+    activity: bool = False
+    hashes: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class _Scan:
     """The state a transaction scan accumulates into.
 
     Attributes:
         valuation: The operating currency and display context.
         accounts: The account metadata.
-        declarations: The declared envelopes.
+        envelopes: The declared envelopes, keyed by name, for live lookups.
         diagnostics: The list to append diagnostics to.
         activity: The ``(destination, date, amount)`` events, extended in place.
         details: The per-posting detail events, extended in place.
         resolved: The ``(id(posting), envelope)`` pairs, extended in place.
-        collect_resolved: Whether to record each posting's resolved envelope.
-        collect_activity: Whether to record per-posting activity detail.
+        collect: What to record alongside the balances.
     """
 
     valuation: _Valuation
     accounts: dict[str, AccountInfo]
-    declarations: _Declarations
+    envelopes: dict[str, Envelope]
     diagnostics: list[Diagnostic]
     activity: list[tuple[str, date, Decimal]]
     details: list[ActivityEvent]
     resolved: list[tuple[int, str]]
-    collect_resolved: bool
-    collect_activity: bool
+    collect: _Collect
 
 
 def _process_transactions(
@@ -1755,9 +1789,7 @@ def _process_transactions(
     start: date,
     valuation: _Valuation,
     diagnostics: list[Diagnostic],
-    *,
-    collect_resolved: bool = False,
-    collect_activity: bool = False,
+    collect: _Collect,
 ) -> _Effects:
     """Gather envelope effects and cash changes from cash-moving transactions.
 
@@ -1768,8 +1800,7 @@ def _process_transactions(
         start: The start date.
         valuation: The operating currency and tolerance options.
         diagnostics: The list to append diagnostics to.
-        collect_resolved: Whether to record each posting's resolved envelope.
-        collect_activity: Whether to record per-posting activity detail.
+        collect: What to record alongside the balances.
 
     Returns:
         The gathered :class:`_Effects`.
@@ -1781,23 +1812,29 @@ def _process_transactions(
     scan = _Scan(
         valuation,
         accounts,
-        declarations,
+        {envelope.name: envelope for envelope in declarations.envelopes},
         diagnostics,
         activity,
         details,
         resolved,
-        collect_resolved,
-        collect_activity,
+        collect,
     )
+    operating_currency = valuation.currency
     for entry in entries:
         if not isinstance(entry, Transaction) or entry.date < start:
             continue
         cash_postings = _cash_postings(entry, accounts)
         if not cash_postings:
             continue
-        if _has_foreign_currency(entry, valuation.currency, diagnostics):
+        raw_values = {
+            id(posting): _operating_value(posting, operating_currency)
+            for posting in entry.postings
+        }
+        if _has_foreign_currency(entry, raw_values, operating_currency, diagnostics):
             continue
-        cash.append((entry.date, _gather_transaction(entry, cash_postings, scan)))
+        cash.append(
+            (entry.date, _gather_transaction(entry, cash_postings, raw_values, scan))
+        )
     return _Effects(
         activity=tuple(activity),
         cash=tuple(cash),
@@ -1809,6 +1846,7 @@ def _process_transactions(
 def _gather_transaction(
     entry: Transaction,
     cash_postings: list[Posting],
+    raw_values: dict[int, Decimal | None],
     scan: _Scan,
 ) -> Decimal:
     """Record one cash-moving transaction and return its cash change.
@@ -1819,40 +1857,52 @@ def _gather_transaction(
     Args:
         entry: The transaction.
         cash_postings: Its postings to cash accounts.
+        raw_values: Each posting's ``id`` mapped to its raw operating value.
         scan: The state to accumulate into.
 
     Returns:
         The transaction's signed cash change in the operating currency.
     """
-    cash_total = Decimal(0)
-    for posting in cash_postings:
-        cash_total += scan.valuation.value(posting) or Decimal(0)
+    display = {
+        key: None if value is None else scan.valuation.quantize(value)
+        for key, value in raw_values.items()
+    }
+    cash_ids = {id(posting) for posting in cash_postings}
+    cash_total = sum(
+        (display[id(posting)] or Decimal(0) for posting in cash_postings), Decimal(0)
+    )
     _absorb_rounding(
         entry,
         scan.valuation,
+        raw_values,
+        display,
         scan.activity,
         scan.details,
-        collect_activity=scan.collect_activity,
+        scan.collect,
     )
-    cash_ids = {id(posting) for posting in cash_postings}
     txn_meta = _meta(entry)
     payee, narration = _txn_parts(entry)
-    entry_hash = compare.hash_entry(entry)
+    entry_hash = compare.hash_entry(entry) if scan.collect.hashes else ""
     pool_net = Decimal(0)
     for posting in entry.postings:
-        number = scan.valuation.value(posting)
+        number = display[id(posting)]
         if number is None or id(posting) in cash_ids:
             continue
         dest = _resolve_destination(
-            posting, txn_meta, scan.accounts, scan.declarations, entry, scan.diagnostics
+            posting,
+            txn_meta,
+            scan.accounts,
+            scan.envelopes,
+            entry,
+            scan.diagnostics,
         )
-        if scan.collect_resolved:
+        if scan.collect.resolved:
             scan.resolved.append((id(posting), dest))
         amount = -number
         if dest == POOL:
             pool_net += amount
             continue
-        if scan.collect_activity:
+        if scan.collect.activity:
             scan.details.append(
                 ActivityEvent(
                     dest,
@@ -1867,7 +1917,7 @@ def _gather_transaction(
         scan.activity.append((dest, entry.date, amount))
     if pool_net != 0:
         scan.activity.append((POOL, entry.date, pool_net))
-        if scan.collect_activity:
+        if scan.collect.activity:
             scan.details.append(
                 ActivityEvent(POOL, entry.date, pool_net, entry_hash, payee, narration)
             )
@@ -1933,27 +1983,6 @@ def _posting_narration(posting: Posting) -> str | None:
     return value.strip() or None
 
 
-def _transaction_residual(entry: Transaction, operating_currency: str) -> Decimal:
-    """Return the sum of a transaction's postings in the operating currency.
-
-    Every posting is valued at its Beancount weight, so a transaction Beancount
-    considers balanced sums to zero, up to Beancount's inferred tolerance.
-
-    Args:
-        entry: The transaction.
-        operating_currency: The single operating currency.
-
-    Returns:
-        The signed residual: zero when the postings balance exactly.
-    """
-    residual = Decimal(0)
-    for posting in entry.postings:
-        value = _operating_value(posting, operating_currency)
-        if value is not None:
-            residual += value
-    return residual
-
-
 def _tolerance_options(options: Mapping[str, object]) -> Mapping[str, object]:
     """Return the option subset Beancount needs to infer a tolerance.
 
@@ -1973,33 +2002,14 @@ def _tolerance_options(options: Mapping[str, object]) -> Mapping[str, object]:
     }
 
 
-def _display_residual(entry: Transaction, valuation: _Valuation) -> Decimal:
-    """Return the sum of a transaction's postings at display precision.
-
-    Every posting is valued at its display-precision operating amount, the same
-    figure :meth:`_Valuation.value` gives. The result is what the budget's cash
-    and envelope effects leave unaccounted for, in whole display units.
-
-    Args:
-        entry: The transaction.
-        valuation: The operating currency and display context.
-
-    Returns:
-        The signed sum of the postings' display amounts.
-    """
-    total = Decimal(0)
-    for posting in entry.postings:
-        total += valuation.value(posting) or Decimal(0)
-    return total
-
-
 def _absorb_rounding(
     entry: Transaction,
     valuation: _Valuation,
+    raw_values: dict[int, Decimal | None],
+    display_values: dict[int, Decimal | None],
     activity: list[tuple[str, date, Decimal]],
     details: list[ActivityEvent],
-    *,
-    collect_activity: bool,
+    collect: _Collect,
 ) -> None:
     """Fold a sub-tolerance residual into the pool so the invariant stays exact.
 
@@ -2018,16 +2028,21 @@ def _absorb_rounding(
     Args:
         entry: The transaction.
         valuation: The operating currency and tolerance options.
+        raw_values: Each posting's ``id`` mapped to its raw operating value.
+        display_values: Each posting's ``id`` mapped to its display value.
         activity: The activity events, extended in place.
-        details: The detail events, extended in place when ``collect_activity``.
-        collect_activity: Whether to record the fold as a detail event too, so a
-            per-transaction pool ledger includes the same rounding the warning sees.
+        details: The detail events, extended in place when ``collect.activity``.
+        collect: What to record alongside the balances.
     """
     operating_currency = valuation.currency
     if not operating_currency:
         return
-    rounded = _display_residual(entry, valuation)
-    residual = _transaction_residual(entry, operating_currency)
+    residual = sum(
+        (value for value in raw_values.values() if value is not None), Decimal(0)
+    )
+    rounded = sum(
+        (value for value in display_values.values() if value is not None), Decimal(0)
+    )
     if residual == 0 and rounded == 0:
         return
     tolerance = interpolate.infer_tolerances(
@@ -2035,14 +2050,14 @@ def _absorb_rounding(
     ).get(operating_currency, Decimal(0))
     if abs(residual) <= tolerance and rounded != 0:
         activity.append((POOL, entry.date, rounded))
-        if collect_activity:
+        if collect.activity:
             payee, narration = _txn_parts(entry)
             details.append(
                 ActivityEvent(
                     POOL,
                     entry.date,
                     rounded,
-                    compare.hash_entry(entry),
+                    compare.hash_entry(entry) if collect.hashes else "",
                     payee,
                     narration,
                 )
@@ -2078,6 +2093,7 @@ def _cash_postings(
 
 def _has_foreign_currency(
     entry: Transaction,
+    raw_values: dict[int, Decimal | None],
     operating_currency: str,
     diagnostics: list[Diagnostic],
 ) -> bool:
@@ -2091,6 +2107,7 @@ def _has_foreign_currency(
 
     Args:
         entry: The transaction.
+        raw_values: Each posting's ``id`` mapped to its raw operating value.
         operating_currency: The single operating currency.
         diagnostics: The list to append diagnostics to.
 
@@ -2103,7 +2120,7 @@ def _has_foreign_currency(
         units = posting.units
         if units is None or units.number is None:
             continue
-        if _operating_value(posting, operating_currency) is not None:
+        if raw_values[id(posting)] is not None:
             continue
         weight = convert.get_weight(posting)
         diagnostics.append(
@@ -2123,7 +2140,7 @@ def _resolve_destination(
     posting: Posting,
     txn_meta: dict[str, object],
     accounts: dict[str, AccountInfo],
-    declarations: _Declarations,
+    envelopes: dict[str, Envelope],
     entry: Transaction,
     diagnostics: list[Diagnostic],
 ) -> str:
@@ -2136,7 +2153,7 @@ def _resolve_destination(
         posting: The posting.
         txn_meta: The transaction's metadata.
         accounts: The account metadata.
-        declarations: The declared envelopes.
+        envelopes: The declared envelopes, keyed by name.
         entry: The source transaction.
         diagnostics: The list to append diagnostics to.
 
@@ -2149,8 +2166,7 @@ def _resolve_destination(
     )
     if name == POOL:
         return POOL
-    live = {envelope.name: envelope for envelope in declarations.envelopes}
-    envelope = live.get(name)
+    envelope = envelopes.get(name)
     if envelope is None:
         diagnostics.append(_diag("E001", entry=entry, name=name))
         return POOL
@@ -2221,6 +2237,7 @@ def compute(
     *,
     collect_resolved: bool = False,
     collect_activity: bool = False,
+    collect_hashes: bool = False,
 ) -> BudgetResult:
     """Compute envelope balances, the pool and the cash balance.
 
@@ -2231,6 +2248,11 @@ def compute(
             envelope in :attr:`BudgetResult.resolved`.
         collect_activity: Whether to record per-posting activity detail in
             :attr:`BudgetResult.activity`.
+        collect_hashes: Whether to compute Beancount entry hashes for linking
+            back to source directives. Only the report view consumes them, so
+            the plugin and the validation-only CLI commands leave this off and
+            skip the (comparatively expensive) hashing. The hash fields are
+            empty strings when this is ``False``.
 
     Returns:
         The :class:`BudgetResult`, including every diagnostic.
@@ -2256,7 +2278,9 @@ def compute(
         )
 
     raw = _custom_directives(entries, diagnostics)
-    declarations = _process_declarations(raw, start, operating_currency, diagnostics)
+    declarations = _process_declarations(
+        raw, start, operating_currency, diagnostics, collect_hashes=collect_hashes
+    )
     valuation = _Valuation(operating_currency, options)
     effects = _process_transactions(
         entries,
@@ -2265,8 +2289,7 @@ def compute(
         start,
         valuation,
         diagnostics,
-        collect_resolved=collect_resolved,
-        collect_activity=collect_activity,
+        _Collect(collect_resolved, collect_activity, collect_hashes),
     )
     pre_start_cash = _pre_start_cash(entries, accounts, start, valuation)
     return _build_result(
