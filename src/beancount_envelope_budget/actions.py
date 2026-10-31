@@ -96,7 +96,7 @@ def allocate(envelope: str, amount: Decimal, day: date, currency: str) -> Custom
 
 def move(
     source: str,
-    target: str,
+    destination: str,
     amount: Decimal,
     day: date,
     currency: str,
@@ -105,7 +105,7 @@ def move(
 
     Args:
         source: The envelope to take money from.
-        target: The envelope to give money to.
+        destination: The envelope to give money to.
         amount: The amount to move.
         day: The directive's date.
         currency: The operating currency.
@@ -117,14 +117,14 @@ def move(
         >>> render(move("Groceries", "Gifts", Decimal("50"), date(2024, 2, 1), "USD"))
         '2024-02-01 custom "envelope" "move" "Groceries" "Gifts" 50.00 USD'
     """
-    return _custom(day, ["move", source, target, _amount(amount, currency)])
+    return _custom(day, ["move", source, destination, _amount(amount, currency)])
 
 
 def _plan_meta(
     monthly: Decimal | str | None,
     priority: Decimal | None,
-    target: Decimal | None,
-    target_currency: str | None,
+    goal: Decimal | None,
+    goal_currency: str | None,
     by: date | None,
     up_to: Decimal | None,
 ) -> dict[str, object]:
@@ -133,8 +133,8 @@ def _plan_meta(
     Args:
         monthly: The planned monthly amount, a number or ``"avgN"``.
         priority: The funding priority, lower first.
-        target: A goal balance.
-        target_currency: The currency of the goal.
+        goal: The goal total.
+        goal_currency: The currency of the goal.
         by: The date the goal should be reached by.
         up_to: A balance ceiling paired with ``monthly``.
 
@@ -142,7 +142,7 @@ def _plan_meta(
         The metadata, omitting the fields that are ``None``.
 
     Raises:
-        ValueError: If a target is given without its currency.
+        ValueError: If a goal is given without its currency.
     """
     meta: dict[str, object] = {}
     if monthly is not None:
@@ -151,11 +151,11 @@ def _plan_meta(
         meta["up-to"] = up_to
     if priority is not None:
         meta["priority"] = priority
-    if target is not None:
-        if target_currency is None:
-            message = "a target needs a target_currency"
+    if goal is not None:
+        if goal_currency is None:
+            message = "a goal needs a goal_currency"
             raise ValueError(message)
-        meta["target"] = _amount(target, target_currency)
+        meta["goal"] = _amount(goal, goal_currency)
     if by is not None:
         meta["by"] = by
     return meta
@@ -167,8 +167,8 @@ def plan(
     *,
     monthly: Decimal | str | None = None,
     priority: Decimal | None = None,
-    target: Decimal | None = None,
-    target_currency: str | None = None,
+    goal: Decimal | None = None,
+    goal_currency: str | None = None,
     by: date | None = None,
     up_to: Decimal | None = None,
 ) -> Custom:
@@ -179,8 +179,8 @@ def plan(
         day: The directive's date.
         monthly: The planned monthly amount, a number or ``"avgN"``.
         priority: The funding priority, lower first.
-        target: A goal balance.
-        target_currency: The currency of the goal.
+        goal: The goal total.
+        goal_currency: The currency of the goal.
         by: The date the goal should be reached by.
         up_to: A balance ceiling paired with ``monthly``.
 
@@ -192,7 +192,7 @@ def plan(
         2024-01-31 custom "envelope" "plan" "Car"
           monthly: 500
     """
-    meta = _plan_meta(monthly, priority, target, target_currency, by, up_to)
+    meta = _plan_meta(monthly, priority, goal, goal_currency, by, up_to)
     return _custom(day, ["plan", envelope], meta)
 
 
@@ -219,8 +219,8 @@ def open_envelope(  # noqa: PLR0913 - the plan fields share one builder
     *,
     monthly: Decimal | str | None = None,
     priority: Decimal | None = None,
-    target: Decimal | None = None,
-    target_currency: str | None = None,
+    goal: Decimal | None = None,
+    goal_currency: str | None = None,
     by: date | None = None,
     up_to: Decimal | None = None,
     parent: str | None = None,
@@ -232,8 +232,8 @@ def open_envelope(  # noqa: PLR0913 - the plan fields share one builder
         day: The directive's date.
         monthly: The planned monthly amount, a number or ``"avgN"``.
         priority: The funding priority, lower first.
-        target: A goal balance.
-        target_currency: The currency of the goal.
+        goal: The goal total.
+        goal_currency: The currency of the goal.
         by: The date the goal should be reached by.
         up_to: A balance ceiling paired with ``monthly``.
         parent: A grouping label.
@@ -245,7 +245,7 @@ def open_envelope(  # noqa: PLR0913 - the plan fields share one builder
         >>> render(open_envelope("Groceries", date(2024, 1, 1)))
         '2024-01-01 custom "envelope" "open" "Groceries"'
     """
-    meta = _plan_meta(monthly, priority, target, target_currency, by, up_to)
+    meta = _plan_meta(monthly, priority, goal, goal_currency, by, up_to)
     if parent is not None:
         meta["parent"] = parent
     return _custom(day, ["open", envelope], meta)

@@ -10,7 +10,9 @@ from beancount import loader
 
 from beancount_envelope_budget.core import (
     BudgetResult,
+    Envelope,
     EnvelopeReport,
+    MonthRow,
     Plan,
     compute,
 )
@@ -195,9 +197,45 @@ def test_savings_goal(load_budget) -> None:
     car = _envelope(load_budget("savings_goal.bean"), "Car")
     assert car.closing == D("1000")
     plan = car.envelope.effective(date(2024, 2, 1))
-    assert plan.target == D("15000")
-    assert plan.target_currency == "USD"
+    assert plan.goal == D("15000")
+    assert plan.goal_currency == "USD"
     assert plan.by == date(2028, 6, 1)
+
+
+def test_goal_progress_survives_spending(load_budget) -> None:
+    """A goal is funded by contributions, so spending before its deadline does
+    not un-fund it (the Disney 2028 case)."""
+    trip = _envelope(load_budget("disney_2028.bean"), "Disney 2028")
+    # The goal is met once the total is contributed, and stays met as the trip
+    # is paid for: only the balance moves, never the progress.
+    assert trip.funded_at(date(2028, 1, 31)) == D("10000")
+    assert trip.closing_at(date(2028, 1, 31)) == D("8000")
+    assert trip.funded_at(date(2028, 3, 31)) == D("10000")
+    assert trip.closing_at(date(2028, 3, 31)) == D("5000")
+    assert trip.funded_at(date(2028, 7, 31)) == D("10000")
+    assert trip.closing_at(date(2028, 7, 31)) == D("0")
+    assert trip.envelope.funding_level(date(2028, 6, 15)) == D("10000")
+
+
+def test_goal_progress_seeds_with_existing_balance() -> None:
+    """Adding a goal to an already-funded envelope credits the money there."""
+    rows = (
+        MonthRow(date(2026, 1, 1), D("0"), D("4000"), D("0")),
+        MonthRow(date(2026, 2, 1), D("4000"), D("0"), D("0")),
+    )
+    report = EnvelopeReport(
+        Envelope(
+            "Car",
+            date(2026, 2, 1),
+            None,
+            Plan(goal=D("15000"), goal_currency="USD", by=date(2028, 6, 1)),
+            (),
+        ),
+        rows,
+    )
+    # The goal's clock starts in its open month; the $4000 built beforehand
+    # seeds the count, so only $11000 remains to save.
+    assert report.funded_at(date(2026, 2, 28)) == D("4000")
 
 
 def test_cash_only_move(load_budget) -> None:
@@ -364,8 +402,8 @@ def test_plan_with_no_effect_is_reported(load_budget) -> None:
     result = load_budget("bad_plan.bean")
     messages = [d.message for d in result.diagnostics if d.code == "E010"]
     assert len(messages) == 3
-    assert any("target requires by" in message for message in messages)
-    assert any("by requires target" in message for message in messages)
+    assert any("goal requires by" in message for message in messages)
+    assert any("by requires goal" in message for message in messages)
     assert any("mutually exclusive" in message for message in messages)
 
 
@@ -395,15 +433,15 @@ def test_plan_merges_only_named_fields(load_budget) -> None:
     before = envelope.effective(date(2024, 1, 1))
     assert before == Plan(
         priority=D("2"),
-        target=D("15000"),
-        target_currency="USD",
+        goal=D("15000"),
+        goal_currency="USD",
         by=date(2028, 6, 1),
     )
     after = envelope.effective(date(2024, 6, 1))
     assert after == Plan(
         priority=D("1"),
-        target=D("15000"),
-        target_currency="USD",
+        goal=D("15000"),
+        goal_currency="USD",
         by=date(2028, 6, 1),
     )
 
@@ -481,7 +519,7 @@ option "operating_currency" "USD"
   up-to: 600.00
 2024-01-01 custom "envelope" "open" "Conflicts"
   up-to: 600.00
-  target: 5000.00 USD
+  goal: 5000.00 USD
   by: 2025-01-01
 2024-01-01 custom "envelope" "open" "Negative"
   monthly: 250.00
@@ -492,7 +530,7 @@ option "operating_currency" "USD"
     messages = [d.message for d in result.diagnostics]
     assert any("up-to requires monthly" in message for message in messages)
     assert any(
-        "up-to and target are mutually exclusive" in message for message in messages
+        "up-to and goal are mutually exclusive" in message for message in messages
     )
     assert any(
         "up-to for Negative must be a positive number" in message

@@ -72,7 +72,7 @@ At each month end the pool plus all envelope balances must equal the ledger's ca
 
 **Error:** Invalid envelope metadata: {detail}.
 
-Check the types: `monthly` must be a number or "avgN", `up-to` a positive number, `priority` a number, `target` an amount, `by` a date and `parent` a string.
+Check the types: `monthly` must be a number or "avgN", `up-to` a positive number, `priority` a number, `goal` an amount, `by` a date and `parent` a string.
 
 
 ## E009
@@ -86,7 +86,7 @@ Set `option "operating_currency" "USD"` (or your own currency). Envelope budgeti
 
 **Error:** Envelope {name} has a plan that has no effect: {detail}.
 
-A plan funds an envelope either by `monthly` or by a `target` with a `by` date, never both. `target` without `by`, `by` without `target`, and `monthly` with `target` are all errors because the ignored key would otherwise have no effect. An `up-to` ceiling needs the `monthly` it caps and cannot be combined with a `target`. Remove the unused or conflicting key, or start a fresh plan with `unplan`.
+A plan funds an envelope either by `monthly` (with an optional `up-to` ceiling) or by a savings `goal` with a `by` date, never both. `goal` without `by`, `by` without `goal`, `monthly` with `goal`, and `up-to` with `goal` are all errors because the ignored key would otherwise have no effect. A goal is funded by cumulative contributions, so once the total is saved it stays met even after the money is spent. Remove the unused or conflicting key, or start a fresh plan with `unplan`.
 
 
 ## W001

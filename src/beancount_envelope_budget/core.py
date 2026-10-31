@@ -162,20 +162,20 @@ class Plan:
     Attributes:
         monthly: The planned monthly amount, a number or ``"avgN"``, or ``None``.
         priority: The funding priority, lower first, or ``None``.
-        target: A goal balance, if any.
-        target_currency: The currency of the target, if any.
-        by: The date the target should be reached by, if any.
+        goal: A savings goal — the total to contribute by ``by`` — or ``None``.
+        goal_currency: The currency of the goal, if any.
+        by: The date the goal should be reached by, if any.
         up_to: A balance ceiling paired with ``monthly``, if any.
 
     Examples:
         >>> Plan()
-        Plan(monthly=None, priority=None, target=None, target_currency=None, by=None, up_to=None)
+        Plan(monthly=None, priority=None, goal=None, goal_currency=None, by=None, up_to=None)
     """
 
     monthly: Monthly | None = None
     priority: Decimal | None = None
-    target: Decimal | None = None
-    target_currency: str | None = None
+    goal: Decimal | None = None
+    goal_currency: str | None = None
     by: date | None = None
     up_to: Decimal | None = None
 
@@ -192,8 +192,8 @@ class PlanChange:
         date: The date the change takes effect.
         monthly: The new monthly amount, or ``None`` when unchanged.
         priority: The new priority, or ``None`` when unchanged.
-        target: The new goal balance, or ``None`` when unchanged.
-        target_currency: The currency of the new target, or ``None``.
+        goal: The new goal total, or ``None`` when unchanged.
+        goal_currency: The currency of the new goal, or ``None``.
         by: The new deadline, or ``None`` when unchanged.
         up_to: The new balance ceiling, or ``None`` when unchanged.
         clears: Whether applying the change resets the plan to defaults.
@@ -204,8 +204,8 @@ class PlanChange:
     date: date
     monthly: Monthly | None = None
     priority: Decimal | None = None
-    target: Decimal | None = None
-    target_currency: str | None = None
+    goal: Decimal | None = None
+    goal_currency: str | None = None
     by: date | None = None
     up_to: Decimal | None = None
     clears: bool = False
@@ -260,11 +260,11 @@ class Envelope:
                 priority=(
                     change.priority if change.priority is not None else plan.priority
                 ),
-                target=change.target if change.target is not None else plan.target,
-                target_currency=(
-                    change.target_currency
-                    if change.target_currency is not None
-                    else plan.target_currency
+                goal=change.goal if change.goal is not None else plan.goal,
+                goal_currency=(
+                    change.goal_currency
+                    if change.goal_currency is not None
+                    else plan.goal_currency
                 ),
                 by=change.by if change.by is not None else plan.by,
                 up_to=change.up_to if change.up_to is not None else plan.up_to,
@@ -272,19 +272,21 @@ class Envelope:
         return plan
 
     def funding_level(self, on: date) -> Decimal | None:
-        """Return the on-track balance for a goal envelope on a date.
+        """Return the on-track contribution level for a goal envelope.
 
-        A goal envelope is one funded by a ``target``. Its level is the balance
-        it should hold at ``on`` to be on schedule: ``target`` grown linearly
-        from the month the target first took effect to its ``by`` month, both
-        ends inclusive, so the level is ``target`` once ``by`` arrives and a
-        fraction of it before.
+        A goal envelope is one funded by a ``goal``. Its level is the total it
+        should have contributed at ``on`` to be on schedule: ``goal`` grown
+        linearly from the month the goal first took effect to its ``by`` month,
+        both ends inclusive, so the level is ``goal`` once ``by`` arrives and a
+        fraction of it before. It is compared against the envelope's cumulative
+        contributions (see
+        :meth:`EnvelopeReport.funded_at`), not its balance.
 
         Args:
             on: The date to evaluate.
 
         Returns:
-            The level, or ``None`` when the envelope has no target (or no
+            The level, or ``None`` when the envelope has no goal (or no
             ``by``).
 
         Examples:
@@ -293,8 +295,8 @@ class Envelope:
             ...     date(2026, 1, 1),
             ...     None,
             ...     Plan(
-            ...         target=Decimal("6000"),
-            ...         target_currency="USD",
+            ...         goal=Decimal("6000"),
+            ...         goal_currency="USD",
             ...         by=date(2026, 12, 31),
             ...     ),
             ...     (),
@@ -309,39 +311,39 @@ class Envelope:
             True
         """
         plan = self.effective(on)
-        if plan.target is None or plan.by is None:
+        if plan.goal is None or plan.by is None:
             return None
         start = _goal_start(self, on)
         if start is None:
             return None
         total = _months_inclusive(start, plan.by)
         if total <= 0:
-            return plan.target
+            return plan.goal
         elapsed = max(0, min(_months_inclusive(start, on), total))
-        return plan.target * elapsed / total
+        return plan.goal * elapsed / total
 
 
 def _goal_start(envelope: Envelope, on: date) -> date | None:
-    """Return the date an envelope's current target first took effect.
+    """Return the date an envelope's current goal first took effect.
 
     Args:
         envelope: The envelope.
         on: The date to evaluate.
 
     Returns:
-        The ``open`` date when the base plan sets a target, the date of the
+        The ``open`` date when the base plan sets a goal, the date of the
         first ``plan`` on or before ``on`` that introduced one otherwise, or
-        ``None`` when no target is in effect. A clearing ``unplan`` drops the
-        target, so a later plan that sets one starts the clock again; changing
-        ``target`` or ``by`` does not.
+        ``None`` when no goal is in effect. A clearing ``unplan`` drops the
+        goal, so a later plan that sets one starts the clock again; changing
+        ``goal`` or ``by`` does not.
     """
-    start = envelope.opened if envelope.plan.target is not None else None
+    start = envelope.opened if envelope.plan.goal is not None else None
     for change in envelope.plans:
         if change.date > on:
             break
         if change.clears:
             start = None
-        elif change.target is not None and start is None:
+        elif change.goal is not None and start is None:
             start = change.date
     return start
 
@@ -420,18 +422,20 @@ class EnvelopeReport:
             The closing balance for that month, or zero when the month is out
             of range.
         """
-        target = month_of(month)
+        goal = month_of(month)
         for row in self.rows:
-            if row.month == target:
+            if row.month == goal:
                 return row.closing
         return Decimal(0)
 
     def funded_at(self, on: date) -> Decimal:
         """Return the amount credited toward the envelope's plan on a date.
 
-        A goal envelope — one with a ``target`` and no ``monthly`` — is funded by
-        its closing balance, because a ``target`` is a balance to hold and
-        spending draws it down. An envelope with an ``up-to`` ceiling is likewise
+        A goal envelope — one with a ``goal`` and no ``monthly`` — is funded by
+        its cumulative contributions, not its balance: the goal-start month's
+        opening balance plus allocations, moves-in, income and refunds since.
+        Spending is ignored, so a goal that has been fully saved still reads as
+        funded after the money is spent. An envelope with an ``up-to`` ceiling is
         measured by its closing balance, the balance the ceiling caps. A
         ``monthly`` envelope is funded by the money made available that month:
         the opening balance plus the month's allocation (its closing balance less
@@ -466,10 +470,70 @@ class EnvelopeReport:
             Decimal('146.31')
         """
         plan = self.envelope.effective(on)
+        if plan.up_to is not None:
+            return row_for(self.rows, on).closing
+        if plan.monthly is None and plan.goal is not None:
+            return self._goal_progress(on)
         row = row_for(self.rows, on)
-        if plan.up_to is not None or (plan.monthly is None and plan.target is not None):
-            return row.closing
         return row.opening + row.allocated
+
+    def _goal_progress(self, on: date) -> Decimal:
+        """Return the cumulative contributions toward a goal envelope.
+
+        The goal-start month's opening balance seeds the count, so a goal added
+        to an already-funded envelope credits the money already there; then every
+        allocation, move-in, income and refund since is added, while spending and
+        other outflows are ignored. It equals the balance at ``on`` plus
+        everything spent since the goal began, and it is what a goal's funding
+        level is compared against. Month granularity matches the rest of the
+        budget.
+
+        Args:
+            on: A date in the month to evaluate.
+
+        Returns:
+            The cumulative contributions, never reduced by spending.
+
+        Examples:
+            >>> rows = (
+            ...     MonthRow(date(2026, 1, 1), Decimal(0), Decimal(500), Decimal(0)),
+            ...     MonthRow(
+            ...         date(2026, 2, 1), Decimal(500), Decimal(0), Decimal("-400")
+            ...     ),
+            ... )
+            >>> report = EnvelopeReport(
+            ...     Envelope(
+            ...         "Trip",
+            ...         date(2026, 1, 1),
+            ...         None,
+            ...         Plan(
+            ...             goal=Decimal("1000"),
+            ...             goal_currency="USD",
+            ...             by=date(2026, 3, 31),
+            ...         ),
+            ...         (),
+            ...     ),
+            ...     rows,
+            ... )
+            >>> report.funded_at(date(2026, 2, 28))
+            Decimal('500')
+            >>> report.closing_at(date(2026, 2, 28))
+            Decimal('100')
+        """
+        start = _goal_start(self.envelope, on)
+        if start is None:
+            return row_for(self.rows, on).closing
+        start_month = month_of(start)
+        progress = Decimal(0)
+        seeded = False
+        for row in self.rows:
+            if row.month < start_month:
+                continue
+            if not seeded:
+                progress += row.opening
+                seeded = True
+            progress += row.allocated + max(row.activity, Decimal(0))
+        return progress
 
 
 @dataclass(frozen=True, slots=True)
@@ -840,17 +904,17 @@ def row_for(rows: Sequence[MonthRow], month: date) -> MonthRow:
         The row for that month; before the range it is all zeros, and after the
         range it carries the final closing balance forward with no activity.
     """
-    target = month_of(month)
-    if not rows or target < rows[0].month:
-        return MonthRow(target, Decimal(0), Decimal(0), Decimal(0))
+    goal = month_of(month)
+    if not rows or goal < rows[0].month:
+        return MonthRow(goal, Decimal(0), Decimal(0), Decimal(0))
     for index, row in enumerate(rows):
-        if row.month == target:
+        if row.month == goal:
             return row
-        if row.month > target:
+        if row.month > goal:
             previous = rows[index - 1]
-            return MonthRow(target, previous.closing, Decimal(0), Decimal(0))
+            return MonthRow(goal, previous.closing, Decimal(0), Decimal(0))
     last = rows[-1]
-    return MonthRow(target, last.closing, Decimal(0), Decimal(0))
+    return MonthRow(goal, last.closing, Decimal(0), Decimal(0))
 
 
 def format_amount(value: Decimal, currency: str = "") -> str:
@@ -1149,7 +1213,7 @@ def _parse_target(
     entry: Directive,
     diagnostics: list[Diagnostic],
 ) -> tuple[Decimal, str] | None:
-    """Parse a ``target`` metadata value.
+    """Parse a ``goal`` metadata value.
 
     Args:
         value: The raw metadata value, expected to be an amount.
@@ -1167,7 +1231,7 @@ def _parse_target(
         if number is not None:
             return number, value.currency
     diagnostics.append(
-        _diag("E008", entry=entry, detail=f"target for {name} must be an amount")
+        _diag("E008", entry=entry, detail=f"goal for {name} must be an amount")
     )
     return None
 
@@ -1209,7 +1273,7 @@ class _Declarations:
     Attributes:
         envelopes: Declared envelopes, in declaration order.
         allocate: The ``allocate`` directives.
-        move: ``(date, source, target, amount)`` move events.
+        move: ``(date, source, goal, amount)`` move events.
     """
 
     envelopes: tuple[Envelope, ...]
@@ -1232,14 +1296,14 @@ def _validate_plan(
         diagnostics: The list to append diagnostics to.
     """
     detail: str | None = None
-    if plan.monthly is not None and plan.target is not None:
-        detail = "monthly and target are mutually exclusive"
-    elif plan.target is not None and plan.by is None:
-        detail = "target requires by"
-    elif plan.by is not None and plan.target is None:
-        detail = "by requires target"
-    elif plan.up_to is not None and plan.target is not None:
-        detail = "up-to and target are mutually exclusive"
+    if plan.monthly is not None and plan.goal is not None:
+        detail = "monthly and goal are mutually exclusive"
+    elif plan.goal is not None and plan.by is None:
+        detail = "goal requires by"
+    elif plan.by is not None and plan.goal is None:
+        detail = "by requires goal"
+    elif plan.up_to is not None and plan.goal is not None:
+        detail = "up-to and goal are mutually exclusive"
     elif plan.up_to is not None and plan.monthly is None:
         detail = "up-to requires monthly"
     if detail is not None:
@@ -1277,7 +1341,7 @@ def _handle_open(
     if name in drafts:
         diagnostics.append(_diag("E003", entry=raw.entry, name=name))
         return
-    target = _parse_target(raw.meta.get("target"), name, raw.entry, diagnostics)
+    goal = _parse_target(raw.meta.get("goal"), name, raw.entry, diagnostics)
     parent = raw.meta.get("parent")
     if parent is not None and not isinstance(parent, str):
         diagnostics.append(
@@ -1293,8 +1357,8 @@ def _handle_open(
         priority=_parse_priority(
             raw.meta.get("priority"), name, raw.entry, diagnostics
         ),
-        target=target[0] if target is not None else None,
-        target_currency=target[1] if target is not None else None,
+        goal=goal[0] if goal is not None else None,
+        goal_currency=goal[1] if goal is not None else None,
         by=_parse_by(raw.meta.get("by"), name, raw.entry, diagnostics),
         up_to=_parse_up_to(raw.meta.get("up-to"), name, raw.entry, diagnostics),
     )
@@ -1328,7 +1392,7 @@ def _handle_plan(
     if not isinstance(name, str) or name not in drafts:
         diagnostics.append(_diag("E001", entry=raw.entry, name=name))
         return
-    target = _parse_target(raw.meta.get("target"), name, raw.entry, diagnostics)
+    goal = _parse_target(raw.meta.get("goal"), name, raw.entry, diagnostics)
     drafts[name].plans.append(
         PlanChange(
             date=raw.date,
@@ -1338,8 +1402,8 @@ def _handle_plan(
             priority=_parse_priority(
                 raw.meta.get("priority"), name, raw.entry, diagnostics
             ),
-            target=target[0] if target is not None else None,
-            target_currency=target[1] if target is not None else None,
+            goal=goal[0] if goal is not None else None,
+            goal_currency=goal[1] if goal is not None else None,
             by=_parse_by(raw.meta.get("by"), name, raw.entry, diagnostics),
             up_to=_parse_up_to(raw.meta.get("up-to"), name, raw.entry, diagnostics),
             entry_hash=compare.hash_entry(raw.entry) if collect_hashes else "",
@@ -1541,9 +1605,9 @@ def _directive_currency_ok(
         ``True`` when every amount is in the operating currency.
     """
     amounts = [arg for arg in raw.args if isinstance(arg, Amount)]
-    target = raw.meta.get("target")
-    if isinstance(target, Amount):
-        amounts.append(target)
+    goal = raw.meta.get("goal")
+    if isinstance(goal, Amount):
+        amounts.append(goal)
     return all(
         _check_currency(amount, raw.entry, operating_currency, diagnostics)
         for amount in amounts
@@ -1584,14 +1648,14 @@ def _handle_allocate(
     amount = _parse_amount(
         raw.args[1] if len(raw.args) > 1 else None, raw.entry, diagnostics
     )
-    target = _valid_target(name, drafts, raw.date, raw.entry, diagnostics)
+    envelope_name = _valid_target(name, drafts, raw.date, raw.entry, diagnostics)
     number = _amount_number(amount)
-    if target is None or number is None:
+    if envelope_name is None or number is None:
         return
     allocate.append(
         AllocationEvent(
             date=raw.date,
-            envelope=target,
+            envelope=envelope_name,
             amount=number,
             entry_hash=compare.hash_entry(raw.entry) if collect_hashes else "",
         )

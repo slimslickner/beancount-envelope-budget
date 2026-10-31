@@ -10,6 +10,6 @@ option "operating_currency" "USD"
 
 2024-01-01 custom "envelope" "start"
 2024-01-01 custom "envelope" "open" "Goal"
-  target: 1000.00 USD
+  goal: 1000.00 USD
   by: 2024-07-31
 2024-01-15 custom "envelope" "allocate" "Goal" 142.86 USD

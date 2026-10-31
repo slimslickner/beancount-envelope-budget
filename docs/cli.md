@@ -59,7 +59,7 @@ Print opening, allocated, activity and closing for every envelope, plus the pool
 
 ## `beancount-envelope-budget suggest`
 
-For envelopes with a `target` and a `by` date, print the monthly amount needed to reach the target on time.
+For envelopes with a `goal` and a `by` date, print the monthly amount needed to reach the goal on time.
 
 
 | Option | Help |
@@ -124,7 +124,7 @@ Print a single move directive, dated --date (today by default), or append it to 
 | `-h, --help` | show this help message and exit |
 | `ledger` | path to the Beancount ledger (.bean or .beancount) |
 | `source` | the envelope to take money from |
-| `target` | the envelope to give money to |
+| `destination` | the envelope to give money to |
 | `amount` | the amount to move between the envelopes |
 | `--date` | the directive's date; defaults to today |
 | `--write` | append the directive(s) to this file (relative to the ledger's directory) instead of printing them; the ledger is reloaded after |
@@ -141,7 +141,7 @@ Print a single plan directive, dated --date (today by default), or append it to 
 | `envelope` | the envelope the plan applies to |
 | `--monthly` | the planned monthly amount, a number or "avgN" |
 | `--priority` | the funding priority, lower first |
-| `--target` | a goal balance, in the ledger's operating currency |
+| `--goal` | the goal total, in the ledger's operating currency |
 | `--by` | the date the goal should be reached by |
 | `--date` | the directive's date; defaults to today |
 | `--write` | append the directive(s) to this file (relative to the ledger's directory) instead of printing them; the ledger is reloaded after |

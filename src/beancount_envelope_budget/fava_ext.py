@@ -11,7 +11,7 @@ Set the default number of months shown (1 to
 
 The ``months`` query parameter overrides it.
 
-The report is **read-only unless a write target is configured**. Add a ``write``
+The report is **read-only unless a write goal is configured**. Add a ``write``
 key naming a Beancount file, relative to the ledger's directory, to let the
 report append ``custom "envelope"`` directives::
 
@@ -102,7 +102,7 @@ class Envelopes(FavaExtensionBase):
                 the month count.
 
         Raises:
-            ExtensionConfigError: If the config is not valid, or the write target
+            ExtensionConfigError: If the config is not valid, or the write goal
                 escapes the ledger directory or is not a Beancount source file.
         """
         super().__init__(ledger, config)
@@ -114,13 +114,13 @@ class Envelopes(FavaExtensionBase):
             raise ExtensionConfigError(SyntaxError(str(error)), config or "") from error
 
     def _resolve_write(self, value: str | None) -> Path | None:
-        """Resolve the configured write target, refusing an unsafe path.
+        """Resolve the configured write goal, refusing an unsafe path.
 
         Args:
             value: The configured ``write`` path, or ``None``.
 
         Returns:
-            The absolute target path, or ``None`` when writing is not configured.
+            The absolute goal path, or ``None`` when writing is not configured.
         """
         if value is None:
             return None
@@ -129,7 +129,7 @@ class Envelopes(FavaExtensionBase):
 
     @property
     def writable(self) -> bool:
-        """Whether a write target is configured, so the report can edit.
+        """Whether a write goal is configured, so the report can edit.
 
         Returns:
             True when the report may append directives.
@@ -190,7 +190,7 @@ class Envelopes(FavaExtensionBase):
         return f"{overspend_cover(report, _fill_day(month)):.2f}"
 
     def envelope_names(self) -> list[str]:
-        """Return every envelope's name, for a move form's target picker.
+        """Return every envelope's name, for a move form's destination picker.
 
         Returns:
             The envelope names.
@@ -204,7 +204,7 @@ class Envelopes(FavaExtensionBase):
             line: The plan line.
 
         Returns:
-            A short description, such as ``target 15000.00 USD · by 2028-06-01``.
+            A short description, such as ``goal 15000.00 USD · by 2028-06-01``.
         """
         if line.clears:
             return "clear plan"
@@ -215,9 +215,9 @@ class Envelopes(FavaExtensionBase):
             parts.append(f"up to {line.up_to:.2f}")
         if line.priority is not None:
             parts.append(f"priority {line.priority}")
-        if line.target is not None:
-            currency = f" {line.target_currency}" if line.target_currency else ""
-            parts.append(f"target {line.target:.2f}{currency}")
+        if line.goal is not None:
+            currency = f" {line.goal_currency}" if line.goal_currency else ""
+            parts.append(f"goal {line.goal:.2f}{currency}")
         if line.by is not None:
             parts.append(f"by {line.by.isoformat()}")
         label = " · ".join(parts) if parts else "no plan"
@@ -293,7 +293,7 @@ class Envelopes(FavaExtensionBase):
             month: The month the plan is being set in.
 
         Returns:
-            ``monthly``, ``up_to``, ``priority``, ``target`` and ``by`` as
+            ``monthly``, ``up_to``, ``priority``, ``goal`` and ``by`` as
             strings, each empty when the plan does not set it.
         """
         report = self._result().envelope(envelope)
@@ -302,7 +302,7 @@ class Envelopes(FavaExtensionBase):
             "monthly": "" if plan.monthly is None else str(plan.monthly),
             "up_to": "" if plan.up_to is None else f"{plan.up_to}",
             "priority": "" if plan.priority is None else str(plan.priority),
-            "target": "" if plan.target is None else f"{plan.target}",
+            "goal": "" if plan.goal is None else f"{plan.goal}",
             "by": "" if plan.by is None else plan.by.isoformat(),
         }
 
@@ -462,7 +462,7 @@ class Envelopes(FavaExtensionBase):
         full it is toward it, and whether it is under, on or over plan. Each part
         is omitted when the cell does not carry it, so a monthly envelope reads
         ``50.0% funded · underfunded``, an ``up-to`` envelope ``up to 600.00 ·
-        50.0% funded · underfunded`` and a goal ``target 15000.00 · 3.3%
+        50.0% funded · underfunded`` and a goal ``goal 15000.00 · 3.3%
         funded · underfunded``.
 
         Args:
@@ -474,8 +474,8 @@ class Envelopes(FavaExtensionBase):
         parts: list[str] = []
         if cell.up_to is not None:
             parts.append(f"up to {cell.up_to:.2f}")
-        if cell.target is not None:
-            parts.append(f"target {cell.target:.2f}")
+        if cell.goal is not None:
+            parts.append(f"goal {cell.goal:.2f}")
         if cell.fill is not None:
             parts.append(f"{cell.fill * 100:.1f}% funded")
         if cell.funding is not None:
@@ -901,7 +901,7 @@ def _action_entry(params: Mapping[str, str], result: BudgetResult) -> Custom:
     if action == "move":
         return actions.move(
             params["source"],
-            params["target"],
+            params["destination"],
             _form_decimal(params["amount"]),
             day,
             currency,
@@ -912,8 +912,8 @@ def _action_entry(params: Mapping[str, str], result: BudgetResult) -> Custom:
             day,
             monthly=_form_monthly(params.get("monthly")),
             priority=_form_optional_decimal(params.get("priority")),
-            target=_form_optional_decimal(params.get("target")),
-            target_currency=currency,
+            goal=_form_optional_decimal(params.get("goal")),
+            goal_currency=currency,
             by=_form_optional_day(params.get("by")),
             up_to=_form_optional_decimal(params.get("up_to")),
         )
@@ -927,7 +927,7 @@ def _insert(ledger: FavaLedger, path: Path, entry: Custom) -> None:
     """Append a directive through Fava's own file API.
 
     Reuses Fava's lock, watcher and printer, so its editor and this report stay
-    consistent. The target is the configured file, not Fava's default.
+    consistent. The goal is the configured file, not Fava's default.
 
     Args:
         ledger: The Fava ledger.

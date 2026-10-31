@@ -305,7 +305,7 @@ def test_report_json(capsys: pytest.CaptureFixture[str]) -> None:
     # The detail carries the transaction's identity so Fava can link to it.
     assert len(detail["entry_hash"]) == 32
     # The cell carries its goal figures for the funding ring.
-    assert groceries["cells"][0]["target"] is None
+    assert groceries["cells"][0]["goal"] is None
     assert groceries["cells"][0]["fill"] is None
 
 
@@ -346,7 +346,7 @@ def test_suggest(capsys: pytest.CaptureFixture[str]) -> None:
 def test_suggest_no_goals(capsys: pytest.CaptureFixture[str]) -> None:
     """A ledger without goal envelopes says so."""
     assert cli.main(["suggest", _ledger("basic.bean")]) == 0
-    assert "no goal envelopes" in capsys.readouterr().out
+    assert "no envelopes with a `goal` and a `by` date" in capsys.readouterr().out
 
 
 def test_completion_bash(capsys: pytest.CaptureFixture[str]) -> None:

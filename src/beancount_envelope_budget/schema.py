@@ -179,7 +179,7 @@ DIRECTIVE_VERBS: tuple[DirectiveVerb, ...] = (
                 description="The name of the envelope to declare.",
             ),
         ),
-        metadata=("monthly", "up-to", "priority", "target", "by", "parent"),
+        metadata=("monthly", "up-to", "priority", "goal", "by", "parent"),
         description="Declares an envelope.",
     ),
     DirectiveVerb(
@@ -258,7 +258,7 @@ DIRECTIVE_VERBS: tuple[DirectiveVerb, ...] = (
                 description="The envelope the plan applies to.",
             ),
         ),
-        metadata=("monthly", "up-to", "priority", "target", "by"),
+        metadata=("monthly", "up-to", "priority", "goal", "by"),
         description=(
             "Changes an envelope's plan from that date. It takes the same "
             "metadata as `open` and changes only the fields it names; the "
@@ -334,12 +334,16 @@ METADATA_KEYS: tuple[MetadataKey, ...] = (
         ),
     ),
     MetadataKey(
-        key="target",
+        key="goal",
         kind=ValueKind.AMOUNT,
         required=False,
         default=None,
         applies_to=(AppliesTo.ENVELOPE_OPEN, AppliesTo.ENVELOPE_PLAN),
-        description="A goal balance for the envelope, e.g. 15000.00 USD.",
+        description=(
+            "A savings goal: the total to contribute by its `by` date, e.g. "
+            "15000.00 USD. Funded by cumulative contributions, not the balance, "
+            "so spending does not un-fund it."
+        ),
     ),
     MetadataKey(
         key="by",
@@ -347,9 +351,7 @@ METADATA_KEYS: tuple[MetadataKey, ...] = (
         required=False,
         default=None,
         applies_to=(AppliesTo.ENVELOPE_OPEN, AppliesTo.ENVELOPE_PLAN),
-        description=(
-            "The date by which the target should be reached, e.g. 2028-06-01."
-        ),
+        description=("The date by which the goal should be reached, e.g. 2028-06-01."),
     ),
     MetadataKey(
         key="up-to",
@@ -360,7 +362,7 @@ METADATA_KEYS: tuple[MetadataKey, ...] = (
         description=(
             "A balance ceiling paired with `monthly`: fund by the monthly amount "
             "each month, but never above this balance. Requires `monthly` and is "
-            "mutually exclusive with `target`."
+            "mutually exclusive with `goal`."
         ),
     ),
     MetadataKey(
@@ -480,7 +482,7 @@ DIAGNOSTIC_CODES: tuple[DiagnosticCode, ...] = (
         summary="Invalid envelope metadata: {detail}.",
         explanation=(
             'Check the types: `monthly` must be a number or "avgN", `up-to` a '
-            "positive number, `priority` a number, `target` an amount, `by` a "
+            "positive number, `priority` a number, `goal` an amount, `by` a "
             "date and `parent` a string."
         ),
     ),
@@ -498,13 +500,14 @@ DIAGNOSTIC_CODES: tuple[DiagnosticCode, ...] = (
         severity=Severity.ERROR,
         summary="Envelope {name} has a plan that has no effect: {detail}.",
         explanation=(
-            "A plan funds an envelope either by `monthly` or by a `target` with "
-            "a `by` date, never both. `target` without `by`, `by` without "
-            "`target`, and `monthly` with `target` are all errors because the "
-            "ignored key would otherwise have no effect. An `up-to` ceiling "
-            "needs the `monthly` it caps and cannot be combined with a `target`. "
-            "Remove the unused or conflicting key, or start a fresh plan with "
-            "`unplan`."
+            "A plan funds an envelope either by `monthly` (with an optional "
+            "`up-to` ceiling) or by a savings `goal` with a `by` date, never "
+            "both. `goal` without `by`, `by` without `goal`, `monthly` with "
+            "`goal`, and `up-to` with `goal` are all errors because the ignored "
+            "key would otherwise have no effect. A goal is funded by cumulative "
+            "contributions, so once the total is saved it stays met even after "
+            "the money is spent. Remove the unused or conflicting key, or start "
+            "a fresh plan with `unplan`."
         ),
     ),
     DiagnosticCode(
