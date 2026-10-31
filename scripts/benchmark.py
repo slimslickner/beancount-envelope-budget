@@ -1,8 +1,8 @@
-"""Time the loader and the envelope budget on a synthetic year of transactions.
+"""Time the loader and the envelope budget on the sample ledger.
 
-This is a development aid, not part of the test suite or the CI gate. It builds
-a ledger with one month of plans and a configurable number of monthly
-household transactions, then reports the wall-clock cost of each phase:
+This is a development aid and a smoke test, not a CI timing gate. It generates a
+ledger from :mod:`sample_ledger` — the same feature mix as the committed sample,
+scaled up — and reports the wall-clock cost of each phase:
 
 * parsing the ledger without booking or plugins,
 * loading it end to end with the plugin enabled,
@@ -13,9 +13,12 @@ Run it with::
 
     uv run python scripts/benchmark.py
 
-Options let you scale the ledger and repeat the timings::
+Options scale the ledger and repeat the timings::
 
-    uv run python scripts/benchmark.py --months 24 --per-month 40 --repeat 15
+    uv run python scripts/benchmark.py --months 120 --per-month 400 --repeat 5
+
+The generator keeps the sample and the benchmark in step: when a feature is
+added to ``sample_ledger.py``, both grow it.
 """
 
 from __future__ import annotations
@@ -23,84 +26,54 @@ from __future__ import annotations
 import argparse
 import tempfile
 import time
-from datetime import date, timedelta
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from beancount import loader
 from beancount.parser import parser
+from sample_ledger import build
 
 from beancount_envelope_budget import __version__
 from beancount_envelope_budget.core import compute
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
-_ENVELOPES = ("Groceries", "Dining", "Utilities", "Transport", "Health", "Fun")
-_MONTH_LENGTH = 30
+#: The plugin line, so the benchmark measures the plugin too.
+_PLUGIN = 'plugin "beancount_envelope_budget.plugin"'
 
 
-def build_ledger(months: int, per_month: int) -> str:
-    """Build a synthetic ledger: a year of a household budget.
+@dataclass(frozen=True, slots=True)
+class Measurement:
+    """The phase timings for one generated ledger.
+
+    Attributes:
+        months: The months generated.
+        per_month: The purchases generated per month.
+        transactions: The transactions the loaded ledger holds.
+        directives: The directives the loaded ledger holds.
+        rows: The ``(phase, milliseconds)`` timings, in display order.
+    """
+
+    months: int
+    per_month: int
+    transactions: int
+    directives: int
+    rows: tuple[tuple[str, float], ...]
+
+
+def _with_plugin(source: str) -> str:
+    """Return the source with the plugin enabled, for the load phase.
 
     Args:
-        months: How many months of transactions to generate.
-        per_month: How many expense transactions to generate per month.
+        source: The generated ledger source.
 
     Returns:
-        The ledger source, with the plugin enabled and one month of plans.
+        The source with a ``plugin`` line after the operating-currency option.
     """
-    lines = [
-        'option "operating_currency" "USD"',
-        'plugin "beancount_envelope_budget.plugin"',
-        "",
-    ]
-    lines += [
-        "2020-01-01 open Assets:Checking USD",
-        "  cash-account: TRUE",
-        "2020-01-01 open Liabilities:CreditCard:Visa USD",
-        "  cash-account: TRUE",
-        "2020-01-01 open Income:Salary USD",
-        "2020-01-01 open Equity:Opening-Balances USD",
-    ]
-    for envelope in _ENVELOPES:
-        lines += [
-            f"2020-01-01 open Expenses:{envelope} USD",
-            f'  envelope: "{envelope}"',
-        ]
-    lines += [
-        "",
-        '2023-12-31 * "Opening"',
-        "  Assets:Checking 4000.00 USD",
-        "  Equity:Opening-Balances -4000.00 USD",
-        "",
-        '2024-01-01 custom "envelope" "start"',
-    ]
-    for envelope in _ENVELOPES:
-        lines.append(f'2024-01-01 custom "envelope" "open" "{envelope}"')
-        lines.append(f'2024-01-01 custom "envelope" "plan" "{envelope}"')
-        lines.append("  monthly: 200.00")
-    lines.append("")
-
-    day = date(2024, 1, 1)
-    for _ in range(months):
-        for index in range(per_month):
-            when = day + timedelta(days=index % _MONTH_LENGTH)
-            envelope = _ENVELOPES[index % len(_ENVELOPES)]
-            amount = 20 + index
-            lines += [
-                f'{when.isoformat()} * "Store" "Purchase"',
-                f"  Expenses:{envelope} {amount}.00 USD",
-                f"  Liabilities:CreditCard:Visa -{amount}.00 USD",
-            ]
-        lines += [
-            f'{day.isoformat()} * "Employer" "Payroll"',
-            "  Assets:Checking 3500.00 USD",
-            "  Income:Salary -3500.00 USD",
-            "",
-        ]
-        day = (day + timedelta(days=_MONTH_LENGTH + 1)).replace(day=1)
-    return "\n".join(lines) + "\n"
+    marker = 'option "operating_currency" "USD"'
+    return source.replace(marker, f"{marker}\n{_PLUGIN}", 1)
 
 
 def _time(call: Callable[[], object], repeat: int) -> float:
@@ -121,26 +94,31 @@ def _time(call: Callable[[], object], repeat: int) -> float:
     return min(timings)
 
 
-def main() -> None:
-    """Build a synthetic ledger and print the phase timings."""
-    args = _parse_args()
-    source = build_ledger(args.months, args.per_month)
+def measure(months: int = 12, per_month: int = 30, repeat: int = 9) -> Measurement:
+    """Generate a ledger and time each phase over it.
+
+    Args:
+        months: How many months of activity to generate.
+        per_month: How many purchases to generate per month.
+        repeat: How many times to run each phase, keeping the fastest.
+
+    Returns:
+        The :class:`Measurement`.
+    """
+    source = _with_plugin(build(months, per_month))
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "benchmark.bean"
         path.write_text(source, encoding="utf-8")
-
         entries, _errors, options = loader.load_file(path)
-        transactions = sum(1 for entry in entries if hasattr(entry, "postings"))
-
-        rows = [
+        rows = (
             (
                 "parse (no booking/plugins)",
-                _time(lambda: parser.parse_file(str(path)), args.repeat),
+                _time(lambda: parser.parse_file(str(path)), repeat),
             ),
-            ("load (with plugin)", _time(lambda: loader.load_file(path), args.repeat)),
+            ("load (with plugin)", _time(lambda: loader.load_file(path), repeat)),
             (
                 "compute (validation only)",
-                _time(lambda: compute(entries, options), args.repeat),
+                _time(lambda: compute(entries, options), repeat),
             ),
             (
                 "compute (activity + hashes)",
@@ -148,23 +126,24 @@ def main() -> None:
                     lambda: compute(
                         entries, options, collect_activity=True, collect_hashes=True
                     ),
-                    args.repeat,
+                    repeat,
                 ),
             ),
-        ]
-
-    print(f"beancount-envelope-budget {__version__} benchmark")
-    print(
-        f"{args.months} months, {args.per_month} expenses/month "
-        f"({transactions} transactions, {len(entries)} directives)"
+        )
+    return Measurement(
+        months=months,
+        per_month=per_month,
+        transactions=sum(1 for entry in entries if hasattr(entry, "postings")),
+        directives=len(entries),
+        rows=rows,
     )
-    width = max(len(label) for label, _ in rows)
-    for label, milliseconds in rows:
-        print(f"{label:<{width}}  {milliseconds:8.1f} ms")
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse the command-line arguments.
+
+    Args:
+        argv: The arguments, or ``None`` for ``sys.argv``.
 
     Returns:
         The parsed arguments.
@@ -175,8 +154,30 @@ def _parse_args() -> argparse.Namespace:
         "--per-month", type=int, default=30, help="transactions per month"
     )
     parser_.add_argument("--repeat", type=int, default=9, help="timing repeats")
-    return parser_.parse_args()
+    return parser_.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Build the sample at scale and print the phase timings.
+
+    Args:
+        argv: The arguments, or ``None`` for ``sys.argv``.
+
+    Returns:
+        The process exit status, always zero.
+    """
+    args = _parse_args(argv)
+    result = measure(args.months, args.per_month, args.repeat)
+    print(f"beancount-envelope-budget {__version__} benchmark")
+    print(
+        f"{result.months} months, {result.per_month} expenses/month "
+        f"({result.transactions} transactions, {result.directives} directives)"
+    )
+    width = max(len(label) for label, _ in result.rows)
+    for label, milliseconds in result.rows:
+        print(f"{label:<{width}}  {milliseconds:8.1f} ms")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

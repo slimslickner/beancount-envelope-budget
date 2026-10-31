@@ -104,6 +104,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (#29).
 - The shared report view exposes `pool_ledger`, the pool's ledger, so the CLI,
   the Fava popover and a future dashboard read one source (#29, #42).
+- A generated benchmark ledger at `tests/ledgers/sample.bean`, produced by
+  `scripts/sample_ledger.py` and kept current by a `--check` in the gate, that
+  exercises every feature; and `scripts/benchmark.py`, which times the loader and
+  the budget over it at scale. A test runs the benchmark as a smoke test (#57).
 
 ### Changed
 

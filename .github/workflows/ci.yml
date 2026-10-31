@@ -24,3 +24,4 @@ jobs:
       - run: uv run ty check
       - run: uv run pytest
       - run: uv run beancount-envelope-budget docs --check
+      - run: uv run python scripts/sample_ledger.py --check
