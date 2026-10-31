@@ -1122,21 +1122,37 @@ def build_view(
     )
 
 
-def build_reports(result: BudgetResult) -> Reports:
-    """Build a full-history, table-only reports view of a budget.
+def build_reports(
+    result: BudgetResult,
+    *,
+    start: date | None = None,
+    end: date | None = None,
+) -> Reports:
+    """Build a table-only reports view of a budget over a month range.
 
     Unlike :func:`build_view`, which spans one to three months for the ledger
-    grid, this spans every computed month as report rows of month columns: the
-    cash and pool balances, then the per-month top spending, allocated and
+    grid, this spans a run of computed months as report rows of month columns:
+    the cash and pool balances, then the per-month top spending, allocated and
     ending-balance envelopes. It is pure and data only, so the Fava report and
     any future caller share the same numbers.
 
+    ``start`` and ``end`` narrow the months shown, for the Fava window's date
+    filter. They select whole months: a month is kept when its first day is on
+    or after ``start`` and on or before ``end``. The cash and pool balances are
+    cumulative, so they are still computed from the whole budget and only
+    *displayed* for the months in range, never recomputed from a truncated
+    history. The CLI, which has no window, passes neither and spans full
+    history.
+
     Args:
         result: The computed budget.
+        start: The first month to show, or ``None`` for the beginning.
+        end: The last month to show, or ``None`` for the end.
 
     Returns:
-        The :class:`Reports`. When tracking is not configured, it has
-        ``has_start = False`` and no rows.
+        The :class:`Reports`. When tracking is not configured it has
+        ``has_start = False`` and no rows; when the range excludes every month
+        it has ``has_start = True`` and no rows.
 
     Examples:
         >>> from beancount_envelope_budget.core import BudgetResult
@@ -1150,7 +1166,17 @@ def build_reports(result: BudgetResult) -> Reports:
             currency=result.operating_currency,
             rows=(),
         )
-    months = result.months
+    months = tuple(
+        month
+        for month in result.months
+        if (start is None or month >= start) and (end is None or month <= end)
+    )
+    if not months:
+        return Reports(
+            has_start=True,
+            currency=result.operating_currency,
+            rows=(),
+        )
     rows = (_balance_row(result, months), *_ranking_rows(result, months))
     return Reports(
         has_start=True,

@@ -461,6 +461,13 @@ envelopes. Every column is the same fixed width, and each row's title stays
 pinned as its months scroll past. The tab is plain tables — no JavaScript and no
 charting dependency.
 
+When a date filter is set at the top of the Fava window, the Reports tab narrows
+to the months that fall inside it, and shows only those columns. The balances
+are cumulative, so they are still drawn from the whole budget and simply
+*displayed* for the months in range, never recomputed from a truncated history.
+With no filter the tab spans full history, as does the CLI `report`, which has no
+window.
+
 ### Editing from the report
 
 Add a `write` key naming a Beancount file, relative to the ledger's directory, to
