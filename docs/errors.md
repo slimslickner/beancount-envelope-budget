@@ -51,7 +51,7 @@ Declare each envelope exactly once, and only use it between its `open` and its `
 
 **Error:** Envelope {name} is closed with a non-zero balance of {balance}.
 
-Move the remaining balance to another envelope with `move`, or allocate the difference back to the pool, before closing.
+Allocate the difference back to the pool, or allocate it out to another envelope, before closing.
 
 
 ## E006
@@ -100,7 +100,7 @@ More was allocated than the cash available at that point. Fund the envelope afte
 
 **Warning:** {kind} for {name} is dated before the start directive and is ignored.
 
-Allocations, moves and `open` directives dated before the `start` directive are ignored. Move them to on or after the start date.
+Allocations and `open` directives dated before the `start` directive are ignored. Move them to on or after the start date.
 
 
 ## W003

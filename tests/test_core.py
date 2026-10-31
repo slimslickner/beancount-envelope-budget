@@ -408,7 +408,7 @@ def test_plan_with_no_effect_is_reported(load_budget) -> None:
 
 
 def test_envelope_lifecycle(load_budget) -> None:
-    """Moves, plans, closes and their error cases behave as specified."""
+    """Allocations, plans, closes and their error cases behave as specified."""
     result = load_budget("envelope_lifecycle.bean")
     found = set(_codes(result))
     assert {"E001", "E003", "E005"} <= found
@@ -416,6 +416,27 @@ def test_envelope_lifecycle(load_budget) -> None:
     assert _envelope(result, "A").closing == D("80")
     assert _envelope(result, "B").closing == D("30")
     assert result.pool[-1].closing == D("890")
+
+
+def test_move_directive_is_unknown() -> None:
+    """The removed ``move`` verb is reported as an unknown verb."""
+    ledger = """
+option "operating_currency" "USD"
+2020-01-01 open Assets:Checking USD
+  cash-account: TRUE
+2020-01-01 open Equity:Opening-Balances USD
+2023-12-31 * "Opening"
+  Assets:Checking            1000.00 USD
+  Equity:Opening-Balances   -1000.00 USD
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "A"
+2024-01-01 custom "envelope" "open" "B"
+2024-01-05 custom "envelope" "allocate" "A" 100.00 USD
+2024-01-06 custom "envelope" "move" "A" "B" 30.00 USD
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    result = compute(entries, options)
+    assert "E008" in _codes(result)
 
 
 def test_plan_changes_effective_parameters(load_budget) -> None:

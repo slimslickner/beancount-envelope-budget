@@ -2,7 +2,7 @@
 
 The CLI and the Fava report both change a budget by appending, editing or
 removing a single ``custom "envelope"`` directive. This module turns an action —
-``allocate``, ``move``, ``plan``, ``unplan``, ``open`` or ``close`` — into the
+``allocate``, ``plan``, ``unplan``, ``open`` or ``close`` — into the
 Beancount directive that expresses it, and renders it with Beancount's own
 printer, so the CLI and the web report emit identical text. It performs no I/O
 and imports neither the CLI nor Fava.
@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 __all__ = [
     "allocate",
     "close",
-    "move",
     "open_envelope",
     "plan",
     "render",
@@ -92,32 +91,6 @@ def allocate(envelope: str, amount: Decimal, day: date, currency: str) -> Custom
         '2024-01-31 custom "envelope" "allocate" "Groceries" 600.00 USD'
     """
     return _custom(day, ["allocate", envelope, _amount(amount, currency)])
-
-
-def move(
-    source: str,
-    destination: str,
-    amount: Decimal,
-    day: date,
-    currency: str,
-) -> Custom:
-    """Build a ``move`` directive.
-
-    Args:
-        source: The envelope to take money from.
-        destination: The envelope to give money to.
-        amount: The amount to move.
-        day: The directive's date.
-        currency: The operating currency.
-
-    Returns:
-        The directive.
-
-    Examples:
-        >>> render(move("Groceries", "Gifts", Decimal("50"), date(2024, 2, 1), "USD"))
-        '2024-02-01 custom "envelope" "move" "Groceries" "Gifts" 50.00 USD'
-    """
-    return _custom(day, ["move", source, destination, _amount(amount, currency)])
 
 
 def _plan_meta(

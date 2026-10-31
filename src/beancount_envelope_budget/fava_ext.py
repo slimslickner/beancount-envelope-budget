@@ -189,14 +189,6 @@ class Envelopes(FavaExtensionBase):
             return "0.00"
         return f"{overspend_cover(report, _fill_day(month)):.2f}"
 
-    def envelope_names(self) -> list[str]:
-        """Return every envelope's name, for a move form's destination picker.
-
-        Returns:
-            The envelope names.
-        """
-        return [report.name for report in self._result().envelopes]
-
     def plan_text(self, line: PlanLine) -> str:
         """Describe one plan directive for the plan popover.
 
@@ -895,14 +887,6 @@ def _action_entry(params: Mapping[str, str], result: BudgetResult) -> Custom:
         return actions.allocate(
             params["envelope"],
             _form_decimal(params.get("amount") or "0"),
-            day,
-            currency,
-        )
-    if action == "move":
-        return actions.move(
-            params["source"],
-            params["destination"],
-            _form_decimal(params["amount"]),
             day,
             currency,
         )

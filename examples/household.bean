@@ -85,4 +85,5 @@ option "operating_currency" "USD"
   goal: 16000.00 USD
   priority: 1
 
-2024-02-01 custom "envelope" "move" "Groceries" "Gifts" 50.00 USD
+2024-02-01 custom "envelope" "allocate" "Groceries" -50.00 USD
+2024-02-01 custom "envelope" "allocate" "Gifts" 50.00 USD

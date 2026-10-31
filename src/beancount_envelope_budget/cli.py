@@ -718,27 +718,6 @@ def _cmd_allocate(args: argparse.Namespace) -> int:
     return _emit([entry], args)
 
 
-def _cmd_move(args: argparse.Namespace) -> int:
-    """Print or write one ``move`` directive.
-
-    Args:
-        args: Parsed arguments.
-
-    Returns:
-        The process exit status.
-    """
-    if not args.ledger.exists():
-        print(f"no such ledger: {args.ledger}", file=sys.stderr)
-        return 2
-    currency = _currency_of(args.ledger)
-    if currency is None:
-        print("the ledger has no operating currency", file=sys.stderr)
-        return 2
-    day = args.date or date.today()  # noqa: DTZ011 - local today is intended
-    entry = actions.move(args.source, args.destination, args.amount, day, currency)
-    return _emit([entry], args)
-
-
 def _cmd_plan(args: argparse.Namespace) -> int:
     """Print or write one ``plan`` directive.
 
@@ -1921,32 +1900,6 @@ def _add_action_parsers(subparsers: argparse._SubParsersAction) -> None:
     )
     _write_argument(allocate)
     allocate.set_defaults(func=_cmd_allocate)
-
-    move = subparsers.add_parser(
-        "move",
-        help="print or write one move directive",
-        description=(
-            "Print a single move directive, dated --date (today by default), or "
-            "append it to --write so the ledger itself is changed."
-        ),
-    )
-    _ledger_argument(move)
-    move.add_argument("source", help="the envelope to take money from")
-    move.add_argument("destination", help="the envelope to give money to")
-    move.add_argument(
-        "amount",
-        type=_parse_decimal,
-        metavar="AMOUNT",
-        help="the amount to move between the envelopes",
-    )
-    move.add_argument(
-        "--date",
-        type=_parse_day,
-        metavar="YYYY-MM-DD",
-        help="the directive's date; defaults to today",
-    )
-    _write_argument(move)
-    move.set_defaults(func=_cmd_move)
 
     plan = subparsers.add_parser(
         "plan",

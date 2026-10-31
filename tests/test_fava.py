@@ -1155,16 +1155,6 @@ def test_action_entry_covers_every_verb() -> None:
         },
         result,
     )
-    move = fava_ext._action_entry(
-        {
-            "action": "move",
-            "source": "Groceries",
-            "destination": "Gifts",
-            "amount": "5",
-            "date": "2024-02-01",
-        },
-        result,
-    )
     plan = fava_ext._action_entry(
         {
             "action": "plan",
@@ -1179,7 +1169,6 @@ def test_action_entry_covers_every_verb() -> None:
         {"action": "unplan", "envelope": "Groceries", "date": "2024-02-01"}, result
     )
     assert actions.render(allocate).endswith('"Groceries" 10.00 USD')
-    assert actions.render(move).endswith('"Groceries" "Gifts" 5.00 USD')
     assert actions.render(plan) == (
         '2024-02-01 custom "envelope" "plan" "Groceries"\n'
         '  monthly: "avg3"\n'
