@@ -39,9 +39,7 @@ def _compute(name: str, *, collect_activity: bool = True) -> BudgetResult:
         The computed :class:`BudgetResult`.
     """
     entries, _errors, options = loader.load_file(_LEDGERS / name)
-    return compute(
-        entries, options, collect_activity=collect_activity, collect_hashes=True
-    )
+    return compute(entries, options, collect_activity=collect_activity)
 
 
 def test_pool_ledger_matches_the_warning() -> None:

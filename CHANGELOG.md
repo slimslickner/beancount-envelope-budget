@@ -111,6 +111,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The budget computation no longer hashes the ledger. Each activity, allocation
+  and pool event keeps its source directive and the report derives the hash only
+  for the detail lines it shows, so `compute` no longer takes `collect_hashes`
+  and hashing is paid per displayed line rather than per posting (#57).
 - The Fava report builds its history-wide lookups (the activity and allocation
   indexes and the pool ledger) once per ledger load and slices only the shown
   months on each request, instead of rebuilding them on every page load, and the

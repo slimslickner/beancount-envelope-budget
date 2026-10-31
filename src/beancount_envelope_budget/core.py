@@ -44,6 +44,7 @@ __all__ = [
     "PlanChange",
     "Source",
     "compute",
+    "entry_hash",
     "existing_allocations",
     "format_amount",
     "iter_months",
@@ -112,9 +113,9 @@ class ActivityEvent:
         destination: An envelope name or :data:`POOL`.
         date: The transaction date.
         amount: The signed effect on the destination.
-        entry_hash: The Beancount hash of the transaction, for linking back to
-            it. It is the same value Beancount's ``compare.hash_entry`` yields,
-            so Fava can resolve it to the entry.
+        entry: The source transaction, for linking back to it (its Beancount
+            hash is derived from this when a view builds a detail line). It is
+            excluded from equality.
         payee: The transaction's payee, if any.
         transaction_narration: The transaction's narration, if any.
         posting_narration: The posting's ``narration`` metadata, if any. This is
@@ -125,7 +126,7 @@ class ActivityEvent:
     destination: str
     date: date
     amount: Decimal
-    entry_hash: str
+    entry: Directive | None = field(default=None, compare=False, repr=False)
     payee: str | None = None
     transaction_narration: str | None = None
     posting_narration: str | None = None
@@ -142,15 +143,15 @@ class AllocationEvent:
         date: The directive's date.
         envelope: The envelope that was funded.
         amount: The amount allocated; negative moves money back to the pool.
-        entry_hash: The Beancount hash of the source directive, for linking back
-            to it in Fava. It is the same value Beancount's
-            ``compare.hash_entry`` yields.
+        entry: The source directive, for linking back to it in Fava (its
+            Beancount hash is derived from this when a view builds an allocation
+            line). It is excluded from equality.
     """
 
     date: date
     envelope: str
     amount: Decimal
-    entry_hash: str
+    entry: Directive | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -958,6 +959,31 @@ def format_amount(value: Decimal, currency: str = "") -> str:
     return f"{text} {currency}" if currency else text
 
 
+def entry_hash(entry: Directive) -> str:
+    """Return Beancount's hash of a directive, for linking back to it.
+
+    The report stores the source directive on each activity, allocation and pool
+    event and derives its hash here when a view is built, so ``compute`` never
+    hashes the whole ledger. The value is the same Beancount's
+    ``compare.hash_entry`` yields, so Fava can resolve it to the entry.
+
+    Args:
+        entry: The source directive.
+
+    Returns:
+        The entry's hash.
+
+    Examples:
+        >>> from beancount.parser import parser
+        >>> entries, _errors, _options = parser.parse_string(
+        ...     '2024-01-01 custom "envelope" "open" "Groceries"'
+        ... )
+        >>> len(entry_hash(entries[0]))
+        32
+    """
+    return compare.hash_entry(entry)
+
+
 # --- Scanning ------------------------------------------------------------------
 
 
@@ -1334,8 +1360,6 @@ def _handle_open(
     drafts: dict[str, _Draft],
     order: list[str],
     diagnostics: list[Diagnostic],
-    *,
-    collect_hashes: bool,
 ) -> None:
     """Handle an ``open`` directive.
 
@@ -1344,7 +1368,6 @@ def _handle_open(
         drafts: The in-progress envelopes, keyed by name.
         order: Declaration order, extended in place.
         diagnostics: The list to append diagnostics to.
-        collect_hashes: Whether to compute the source directive's hash.
     """
     name = raw.args[0] if raw.args else None
     if not isinstance(name, str) or not name:
@@ -1387,7 +1410,7 @@ def _handle_open(
         opened=raw.date,
         plan=plan,
         parent=parent,
-        source_hash=compare.hash_entry(raw.entry) if collect_hashes else "",
+        source_hash=compare.hash_entry(raw.entry),
     )
     order.append(name)
 
@@ -1396,8 +1419,6 @@ def _handle_plan(
     raw: _RawDirective,
     drafts: dict[str, _Draft],
     diagnostics: list[Diagnostic],
-    *,
-    collect_hashes: bool,
 ) -> None:
     """Handle a ``plan`` directive.
 
@@ -1405,7 +1426,6 @@ def _handle_plan(
         raw: The parsed directive.
         drafts: The in-progress envelopes, keyed by name.
         diagnostics: The list to append diagnostics to.
-        collect_hashes: Whether to compute the source directive's hash.
     """
     name = raw.args[0] if raw.args else None
     if not isinstance(name, str) or name not in drafts:
@@ -1425,7 +1445,7 @@ def _handle_plan(
             goal_currency=goal[1] if goal is not None else None,
             by=_parse_by(raw.meta.get("by"), name, raw.entry, diagnostics),
             up_to=_parse_up_to(raw.meta.get("up-to"), name, raw.entry, diagnostics),
-            entry_hash=compare.hash_entry(raw.entry) if collect_hashes else "",
+            entry_hash=compare.hash_entry(raw.entry),
         )
     )
     _validate_plan(drafts[name].effective(raw.date), name, raw.entry, diagnostics)
@@ -1435,8 +1455,6 @@ def _handle_unplan(
     raw: _RawDirective,
     drafts: dict[str, _Draft],
     diagnostics: list[Diagnostic],
-    *,
-    collect_hashes: bool,
 ) -> None:
     """Handle an ``unplan`` directive.
 
@@ -1447,7 +1465,6 @@ def _handle_unplan(
         raw: The parsed directive.
         drafts: The in-progress envelopes, keyed by name.
         diagnostics: The list to append diagnostics to.
-        collect_hashes: Whether to compute the source directive's hash.
     """
     name = raw.args[0] if raw.args else None
     if not isinstance(name, str) or name not in drafts:
@@ -1457,7 +1474,7 @@ def _handle_unplan(
         PlanChange(
             date=raw.date,
             clears=True,
-            entry_hash=compare.hash_entry(raw.entry) if collect_hashes else "",
+            entry_hash=compare.hash_entry(raw.entry),
         )
     )
 
@@ -1519,8 +1536,6 @@ def _process_declarations(
     start: date,
     operating_currency: str,
     diagnostics: list[Diagnostic],
-    *,
-    collect_hashes: bool,
 ) -> _Declarations:
     """Process every envelope directive on or after the start date.
 
@@ -1529,7 +1544,6 @@ def _process_declarations(
         start: The start date.
         operating_currency: The single operating currency.
         diagnostics: The list to append diagnostics to.
-        collect_hashes: Whether to compute source directive hashes.
 
     Returns:
         The declared envelopes and the allocation events.
@@ -1551,15 +1565,13 @@ def _process_declarations(
         if not _directive_currency_ok(raw, operating_currency, diagnostics):
             continue
         if raw.verb == "open":
-            _handle_open(raw, drafts, order, diagnostics, collect_hashes=collect_hashes)
+            _handle_open(raw, drafts, order, diagnostics)
         elif raw.verb == "plan":
-            _handle_plan(raw, drafts, diagnostics, collect_hashes=collect_hashes)
+            _handle_plan(raw, drafts, diagnostics)
         elif raw.verb == "unplan":
-            _handle_unplan(raw, drafts, diagnostics, collect_hashes=collect_hashes)
+            _handle_unplan(raw, drafts, diagnostics)
         elif raw.verb == "allocate":
-            _handle_allocate(
-                raw, drafts, allocate, diagnostics, collect_hashes=collect_hashes
-            )
+            _handle_allocate(raw, drafts, allocate, diagnostics)
         elif raw.verb == "close":
             _handle_close(raw, drafts, diagnostics)
         else:
@@ -1647,8 +1659,6 @@ def _handle_allocate(
     drafts: dict[str, _Draft],
     allocate: list[AllocationEvent],
     diagnostics: list[Diagnostic],
-    *,
-    collect_hashes: bool,
 ) -> None:
     """Handle an ``allocate`` directive.
 
@@ -1657,7 +1667,6 @@ def _handle_allocate(
         drafts: The declared envelopes, keyed by name.
         allocate: The allocation events, extended in place.
         diagnostics: The list to append diagnostics to.
-        collect_hashes: Whether to compute the source directive's hash.
     """
     name = raw.args[0] if raw.args else None
     amount = _parse_amount(
@@ -1672,7 +1681,7 @@ def _handle_allocate(
             date=raw.date,
             envelope=envelope_name,
             amount=number,
-            entry_hash=compare.hash_entry(raw.entry) if collect_hashes else "",
+            entry=raw.entry,
         )
     )
 
@@ -1846,12 +1855,10 @@ class _Collect:
     Attributes:
         resolved: Whether to record each posting's resolved envelope.
         activity: Whether to record per-posting activity detail.
-        hashes: Whether to compute entry hashes for detail events.
     """
 
     resolved: bool = False
     activity: bool = False
-    hashes: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1979,7 +1986,6 @@ def _gather_transaction(
     )
     txn_meta = _meta(entry)
     payee, narration = _txn_parts(entry)
-    entry_hash = compare.hash_entry(entry) if scan.collect.hashes else ""
     pool_net = Decimal(0)
     for posting in entry.postings:
         number = display[id(posting)]
@@ -2005,7 +2011,7 @@ def _gather_transaction(
                     dest,
                     entry.date,
                     amount,
-                    entry_hash,
+                    entry,
                     payee,
                     narration,
                     _posting_narration(posting),
@@ -2016,7 +2022,7 @@ def _gather_transaction(
         scan.activity.append((POOL, entry.date, pool_net))
         if scan.collect.activity:
             scan.details.append(
-                ActivityEvent(POOL, entry.date, pool_net, entry_hash, payee, narration)
+                ActivityEvent(POOL, entry.date, pool_net, entry, payee, narration)
             )
     return cash_total
 
@@ -2154,7 +2160,7 @@ def _absorb_rounding(
                     POOL,
                     entry.date,
                     rounded,
-                    compare.hash_entry(entry) if collect.hashes else "",
+                    entry,
                     payee,
                     narration,
                 )
@@ -2334,7 +2340,6 @@ def compute(
     *,
     collect_resolved: bool = False,
     collect_activity: bool = False,
-    collect_hashes: bool = False,
 ) -> BudgetResult:
     """Compute envelope balances, the pool and the cash balance.
 
@@ -2345,14 +2350,12 @@ def compute(
             envelope in :attr:`BudgetResult.resolved`.
         collect_activity: Whether to record per-posting activity detail in
             :attr:`BudgetResult.activity`.
-        collect_hashes: Whether to compute Beancount entry hashes for linking
-            back to source directives. Only the report view consumes them, so
-            the plugin and the validation-only CLI commands leave this off and
-            skip the (comparatively expensive) hashing. The hash fields are
-            empty strings when this is ``False``.
 
     Returns:
-        The :class:`BudgetResult`, including every diagnostic.
+        The :class:`BudgetResult`, including every diagnostic. The activity and
+        allocation events carry their source directive rather than its hash; a
+        view derives the hash for the lines it shows (see
+        :func:`entry_hash`).
 
     Examples:
         >>> [d.code for d in compute([], {}).diagnostics]
@@ -2375,9 +2378,7 @@ def compute(
         )
 
     raw = _custom_directives(entries, diagnostics)
-    declarations = _process_declarations(
-        raw, start, operating_currency, diagnostics, collect_hashes=collect_hashes
-    )
+    declarations = _process_declarations(raw, start, operating_currency, diagnostics)
     valuation = _Valuation(operating_currency, options)
     effects = _process_transactions(
         entries,
@@ -2386,7 +2387,7 @@ def compute(
         start,
         valuation,
         diagnostics,
-        _Collect(collect_resolved, collect_activity, collect_hashes),
+        _Collect(collect_resolved, collect_activity),
     )
     pre_start_cash = _pre_start_cash(entries, accounts, start, valuation)
     return _build_result(

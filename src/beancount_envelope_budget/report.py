@@ -25,6 +25,7 @@ from beancount_envelope_budget.core import (
     EnvelopeReport,
     MonthRow,
     Plan,
+    entry_hash,
     month_of,
     row_for,
     row_index,
@@ -32,7 +33,7 @@ from beancount_envelope_budget.core import (
 from beancount_envelope_budget.schema import Severity
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
 __all__ = [
     "TOP_N",
@@ -1012,7 +1013,7 @@ def pool_ledger(
             event.date,
             POOL_ACTIVITY,
             event.amount,
-            event.entry_hash,
+            entry_hash(event.entry) if event.entry is not None else "",
             event.payee,
             event.transaction_narration,
             event.posting_narration,
@@ -1026,7 +1027,7 @@ def pool_ledger(
             event.date,
             POOL_ALLOCATION,
             -event.amount,
-            event.entry_hash,
+            entry_hash(event.entry) if event.entry is not None else "",
             None,
             None,
             None,
@@ -1040,7 +1041,7 @@ def pool_ledger(
 
     balance = result.pre_start_cash
     built: list[PoolEntry] = []
-    for when, kind, amount, entry_hash, payee, txn, post, envelope in staged:
+    for when, kind, amount, digest, payee, txn, post, envelope in staged:
         balance += amount
         built.append(
             PoolEntry(
@@ -1048,7 +1049,7 @@ def pool_ledger(
                 kind=kind,
                 amount=amount,
                 balance=balance,
-                entry_hash=entry_hash,
+                entry_hash=digest,
                 payee=payee,
                 transaction_narration=txn,
                 posting_narration=post,
@@ -1132,8 +1133,8 @@ class ViewIndex:
         ledger: The pool's full ledger.
     """
 
-    details: Mapping[tuple[str, date], list[ActivityLine]]
-    allocations: Mapping[tuple[str, date], list[AllocationLine]]
+    details: Mapping[tuple[str, date], list[ActivityEvent]]
+    allocations: Mapping[tuple[str, date], list[AllocationEvent]]
     ledger: PoolLedger
 
 
@@ -1485,53 +1486,77 @@ def _pool_entries(ledger: PoolLedger, month: date) -> tuple[PoolEntry, ...]:
 
 def _detail_index(
     events: tuple[ActivityEvent, ...],
-) -> dict[tuple[str, date], list[ActivityLine]]:
+) -> dict[tuple[str, date], list[ActivityEvent]]:
     """Group activity events by destination and month.
+
+    The events keep their source directive; a cell derives the hash of just the
+    lines it shows, so hashing the whole ledger is avoided.
 
     Args:
         events: The per-posting activity events.
 
     Returns:
-        A mapping from ``(destination, month)`` to its detail lines.
+        A mapping from ``(destination, month)`` to its detail events.
     """
-    index: dict[tuple[str, date], list[ActivityLine]] = {}
+    index: dict[tuple[str, date], list[ActivityEvent]] = {}
     for event in events:
-        key = (event.destination, month_of(event.date))
-        index.setdefault(key, []).append(
-            ActivityLine(
-                date=event.date,
-                amount=event.amount,
-                entry_hash=event.entry_hash,
-                payee=event.payee,
-                transaction_narration=event.transaction_narration,
-                posting_narration=event.posting_narration,
-            )
-        )
+        index.setdefault((event.destination, month_of(event.date)), []).append(event)
     return index
 
 
 def _allocation_index(
     events: tuple[AllocationEvent, ...],
-) -> dict[tuple[str, date], list[AllocationLine]]:
+) -> dict[tuple[str, date], list[AllocationEvent]]:
     """Group ``allocate`` directives by envelope and month.
+
+    The events keep their source directive, for the same reason as
+    :func:`_detail_index`.
 
     Args:
         events: The allocation events.
 
     Returns:
-        A mapping from ``(envelope, month)`` to its allocation lines.
+        A mapping from ``(envelope, month)`` to its allocation events.
     """
-    index: dict[tuple[str, date], list[AllocationLine]] = {}
+    index: dict[tuple[str, date], list[AllocationEvent]] = {}
     for event in events:
-        key = (event.envelope, month_of(event.date))
-        index.setdefault(key, []).append(
-            AllocationLine(
-                date=event.date,
-                amount=event.amount,
-                entry_hash=event.entry_hash,
-            )
-        )
+        index.setdefault((event.envelope, month_of(event.date)), []).append(event)
     return index
+
+
+def _activity_line(event: ActivityEvent) -> ActivityLine:
+    """Build an activity detail line, hashing its source transaction.
+
+    Args:
+        event: The activity event, carrying its source transaction.
+
+    Returns:
+        The :class:`ActivityLine`.
+    """
+    return ActivityLine(
+        date=event.date,
+        amount=event.amount,
+        entry_hash=entry_hash(event.entry) if event.entry is not None else "",
+        payee=event.payee,
+        transaction_narration=event.transaction_narration,
+        posting_narration=event.posting_narration,
+    )
+
+
+def _allocation_line(event: AllocationEvent) -> AllocationLine:
+    """Build an allocation line, hashing its source directive.
+
+    Args:
+        event: The allocation event, carrying its source directive.
+
+    Returns:
+        The :class:`AllocationLine`.
+    """
+    return AllocationLine(
+        date=event.date,
+        amount=event.amount,
+        entry_hash=entry_hash(event.entry) if event.entry is not None else "",
+    )
 
 
 def _plan_lines(envelope: Envelope) -> tuple[PlanLine, ...]:
@@ -1573,7 +1598,7 @@ def _plan_lines(envelope: Envelope) -> tuple[PlanLine, ...]:
 
 def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
     row: MonthRow,
-    detail: list[ActivityLine],
+    detail: Sequence[ActivityEvent],
     *,
     projected: bool,
     visible: bool = True,
@@ -1582,7 +1607,7 @@ def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
     goal: Decimal | None = None,
     up_to: Decimal | None = None,
     fill: Decimal | None = None,
-    allocations: tuple[AllocationLine, ...] = (),
+    allocations: Sequence[AllocationEvent] = (),
     pool: tuple[PoolEntry, ...] = (),
 ) -> Cell:
     """Build a cell from a monthly row and its detail.
@@ -1601,7 +1626,9 @@ def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
         pool: The pool row's ledger lines for the month, if any.
 
     Returns:
-        The :class:`Cell`.
+        The :class:`Cell`. Its detail lines and allocations are built, and their
+        source hashes derived, here — for the ``MAX_DETAIL`` lines it keeps, not
+        the whole index.
     """
     return Cell(
         month=row.month,
@@ -1610,7 +1637,7 @@ def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
         allocated=row.allocated,
         activity=row.activity,
         closing=row.closing,
-        detail=tuple(detail[:MAX_DETAIL]),
+        detail=tuple(_activity_line(event) for event in detail[:MAX_DETAIL]),
         detail_total=len(detail),
         visible=visible,
         level=level,
@@ -1618,7 +1645,7 @@ def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
         goal=goal,
         up_to=up_to,
         fill=fill,
-        allocations=allocations,
+        allocations=tuple(_allocation_line(event) for event in allocations),
         pool=pool,
     )
 
@@ -1627,8 +1654,8 @@ def _envelope_view(
     report: EnvelopeReport,
     months: tuple[date, ...],
     available: set[date],
-    details: Mapping[tuple[str, date], list[ActivityLine]],
-    allocations: Mapping[tuple[str, date], list[AllocationLine]],
+    details: Mapping[tuple[str, date], list[ActivityEvent]],
+    allocations: Mapping[tuple[str, date], list[AllocationEvent]],
 ) -> EnvelopeView:
     """Build an envelope view.
 
@@ -1672,7 +1699,7 @@ def _envelope_view(
                 goal=plan.goal,
                 up_to=up_to,
                 fill=_fill(reference, funded),
-                allocations=tuple(allocations.get((report.name, month), [])),
+                allocations=allocations.get((report.name, month), []),
             )
         )
     return EnvelopeView(

@@ -143,7 +143,6 @@ def _load(
     *,
     collect_resolved: bool = False,
     collect_activity: bool = False,
-    collect_hashes: bool = False,
 ) -> _Loaded:
     """Load a ledger and compute its budget.
 
@@ -158,7 +157,6 @@ def _load(
         path: The ledger path.
         collect_resolved: Whether to record each posting's resolved envelope.
         collect_activity: Whether to record per-posting activity detail.
-        collect_hashes: Whether to compute Beancount entry hashes.
 
     Returns:
         The loaded ledger and its budget.
@@ -171,7 +169,6 @@ def _load(
         options,
         collect_resolved=collect_resolved,
         collect_activity=collect_activity,
-        collect_hashes=collect_hashes,
     )
     if result is None:
         result = compute(
@@ -179,7 +176,6 @@ def _load(
             options,
             collect_resolved=collect_resolved,
             collect_activity=collect_activity,
-            collect_hashes=collect_hashes,
         )
     return _Loaded(path, entries, result, beancount_errors)
 
@@ -308,7 +304,7 @@ def _cmd_report(args: argparse.Namespace) -> int:
     if not args.ledger.exists():
         print(f"no such ledger: {args.ledger}", file=sys.stderr)
         return 2
-    loaded = _load(args.ledger, collect_activity=True, collect_hashes=True)
+    loaded = _load(args.ledger, collect_activity=True)
     result = loaded.result
     if result.start is None:
         print("there is no start directive; nothing to report", file=sys.stderr)
@@ -366,7 +362,7 @@ def _cmd_pool(args: argparse.Namespace) -> int:
     if not args.ledger.exists():
         print(f"no such ledger: {args.ledger}", file=sys.stderr)
         return 2
-    loaded = _load(args.ledger, collect_activity=True, collect_hashes=True)
+    loaded = _load(args.ledger, collect_activity=True)
     result = loaded.result
     if result.start is None:
         print("there is no start directive; nothing to show", file=sys.stderr)

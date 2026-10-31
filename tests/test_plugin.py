@@ -160,7 +160,6 @@ def test_plugin_leaves_a_reusable_result() -> None:
         options,
         collect_resolved=False,
         collect_activity=False,
-        collect_hashes=False,
     )
     assert cached is not None
     assert cached.months
@@ -170,7 +169,6 @@ def test_plugin_leaves_a_reusable_result() -> None:
             options,
             collect_resolved=False,
             collect_activity=False,
-            collect_hashes=False,
         )
         is None
     )
@@ -184,7 +182,6 @@ def test_plugin_cache_is_not_reused_for_a_different_collection() -> None:
             options,
             collect_resolved=False,
             collect_activity=True,
-            collect_hashes=True,
         )
         is None
     )
@@ -198,21 +195,19 @@ def test_cached_result_absent_without_the_plugin() -> None:
             options,
             collect_resolved=False,
             collect_activity=False,
-            collect_hashes=False,
         )
         is None
     )
 
 
-def test_collect_hashes_gates_the_hashes() -> None:
-    """Hashes are computed only when asked for, and empty otherwise."""
+def test_compute_carries_the_source_entry_not_a_hash() -> None:
+    """Activity events carry their source directive; a view derives the hash."""
     entries, _errors, options = loader.load_string(_ledger("", enveloped=True))
-    without = compute(entries, options, collect_activity=True)
-    with_hashes = compute(entries, options, collect_activity=True, collect_hashes=True)
-    assert [event.entry_hash for event in without.activity] == [""]
-    assert all(len(event.entry_hash) == 32 for event in with_hashes.activity)
-    assert without.envelopes[0].envelope.source_hash == ""
-    assert len(with_hashes.envelopes[0].envelope.source_hash) == 32
+    result = compute(entries, options, collect_activity=True)
+    assert result.activity
+    assert all(event.entry is not None for event in result.activity)
+    # The envelope's own source hash is still computed during the scan.
+    assert all(len(report.envelope.source_hash) == 32 for report in result.envelopes)
 
 
 def test_envelope_resolved_annotation() -> None:

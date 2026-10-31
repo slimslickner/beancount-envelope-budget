@@ -123,9 +123,7 @@ def measure(months: int = 12, per_month: int = 30, repeat: int = 9) -> Measureme
             (
                 "compute (activity + hashes)",
                 _time(
-                    lambda: compute(
-                        entries, options, collect_activity=True, collect_hashes=True
-                    ),
+                    lambda: compute(entries, options, collect_activity=True),
                     repeat,
                 ),
             ),

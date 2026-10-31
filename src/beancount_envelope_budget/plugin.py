@@ -57,13 +57,11 @@ class _Cache(NamedTuple):
         result: The computed budget.
         collect_resolved: Whether resolved postings were recorded.
         collect_activity: Whether activity detail was recorded.
-        collect_hashes: Whether entry hashes were computed.
     """
 
     result: BudgetResult
     collect_resolved: bool
     collect_activity: bool
-    collect_hashes: bool
 
 
 @dataclass(slots=True)
@@ -154,7 +152,6 @@ def _store(
         result=result,
         collect_resolved=collect_resolved,
         collect_activity=False,
-        collect_hashes=False,
     )
 
 
@@ -163,7 +160,6 @@ def cached_result(
     *,
     collect_resolved: bool,
     collect_activity: bool,
-    collect_hashes: bool,
 ) -> BudgetResult | None:
     """Return a budget the plugin computed for this load, when it fits.
 
@@ -176,7 +172,6 @@ def cached_result(
         options_map: The Beancount options map from the same load.
         collect_resolved: The resolved-postings collection requested.
         collect_activity: The activity-detail collection requested.
-        collect_hashes: The hash collection requested.
 
     Returns:
         The reusable budget, or ``None`` when there is none or it does not match.
@@ -186,11 +181,10 @@ def cached_result(
     cache = _PENDING.cache
     _PENDING.options = None
     _PENDING.cache = None
-    if (
-        cache.collect_resolved,
-        cache.collect_activity,
-        cache.collect_hashes,
-    ) != (collect_resolved, collect_activity, collect_hashes):
+    if (cache.collect_resolved, cache.collect_activity) != (
+        collect_resolved,
+        collect_activity,
+    ):
         return None
     return cache.result
 

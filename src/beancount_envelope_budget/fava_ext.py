@@ -585,9 +585,10 @@ def _compute(ledger: FavaLedger, entries: list[Directive]) -> BudgetResult:
     """Compute the budget, reusing the plugin's result when it fits.
 
     The plugin runs during the load and leaves its (validation-only) budget
-    pending. The report needs activity detail and hashes, so it cannot reuse
-    that one, but consuming it here clears the pending budget; otherwise the
-    budget is computed with the collection the report requires.
+    pending. The report needs activity detail, so it cannot reuse that one, but
+    consuming it here clears the pending budget; otherwise the budget is
+    computed with the collection the report requires. Hashes are not collected
+    here either: the view derives them for the detail lines it shows.
 
     Args:
         ledger: The Fava ledger, for its options and entries.
@@ -600,7 +601,6 @@ def _compute(ledger: FavaLedger, entries: list[Directive]) -> BudgetResult:
         ledger.options,
         collect_resolved=False,
         collect_activity=True,
-        collect_hashes=True,
     )
     if result is not None:
         return result
@@ -608,7 +608,6 @@ def _compute(ledger: FavaLedger, entries: list[Directive]) -> BudgetResult:
         entries,
         ledger.options,
         collect_activity=True,
-        collect_hashes=True,
     )
 
 
