@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The Fava report marks an **over-funded** closing balance — green, with a
+  filled dot in its ring — so a balance above its plan level reads apart from
+  one exactly on it. The marker is a shape cue rather than a second colour, the
+  amount above plan stays in the closing popover, and a small legend sits beside
+  the month strip (#17).
 - The Fava report's month navigation is a selectable strip of three-letter
   months, showing a sliding block of at most eight around the visible window
   with a marker whenever the year turns, so you can jump several months at once

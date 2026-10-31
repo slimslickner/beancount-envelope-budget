@@ -9,7 +9,7 @@
   <td class="num envelope-sep{{ ' envelope-neg' if cell.visible and cell.opening < 0 else '' }}">{% if cell.visible and not (blank and cell.opening == 0) %}{{ extension.money(cell.opening) }}{% endif %}</td>
 {%- endmacro %}
 {% macro closing_class(cell) -%}
-{%- if cell.visible and cell.closing < 0 %} envelope-neg{% elif cell.visible and cell.funding in ('on', 'over') %} envelope-funded{% elif cell.visible and cell.funding == 'under' %} envelope-partial{% endif -%}
+{%- if cell.visible and cell.closing < 0 %} envelope-neg{% elif cell.visible and cell.funding == 'over' %} envelope-funded envelope-over{% elif cell.visible and cell.funding == 'on' %} envelope-funded{% elif cell.visible and cell.funding == 'under' %} envelope-partial{% endif -%}
 {%- endmacro %}
 {% macro amounts(cell, sep=false, blank=false, name=none, plans=()) -%}
   {%- set editable = name is not none and extension.writable and cell.visible -%}
@@ -236,6 +236,36 @@
       .envelope-table .envelope-partial {
         color: var(--warning, #edd431);
       }
+      /* A small key for the one marker that is not a colour: the centre dot on
+         a planned envelope that is above its level. */
+      .envelope-legend {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3em;
+        white-space: nowrap;
+        color: rgba(128, 128, 128, 1);
+      }
+      .envelope-legend-swatch {
+        position: relative;
+        display: inline-block;
+        width: 0.75em;
+        height: 0.75em;
+        color: var(--diff-positive, #35973d);
+      }
+      .envelope-legend-swatch::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        border: 1px solid currentColor;
+      }
+      .envelope-legend-swatch::after {
+        content: "";
+        position: absolute;
+        inset: 30%;
+        border-radius: 50%;
+        background: currentColor;
+      }
       /* Activity drill-down: clicking the activity figure reveals the
          contributing postings, each linking to Fava's entry context popup.
          The popover is sized to its widest line (never wrapping a ledger line)
@@ -282,18 +312,38 @@
          closing balance's funding colour, and is sized in ems so it adds no
          height to the row. */
       .envelope-ring {
+        position: relative;
         display: inline-block;
         width: 0.75em;
         height: 0.75em;
         margin-right: 0.4em;
-        border-radius: 50%;
         vertical-align: -0.05em;
+      }
+      /* The ring is a full disc masked to a thin annulus. The mask paints the
+         element and every descendant, so it sits on the pseudo-element and the
+         over-funding dot below is left unclipped. */
+      .envelope-ring::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
         background: conic-gradient(
           currentColor var(--envelope-fill, 0%),
           rgba(128, 128, 128, 0.25) 0
         );
         -webkit-mask: radial-gradient(closest-side, transparent 56%, #000 57%);
         mask: radial-gradient(closest-side, transparent 56%, #000 57%);
+      }
+      /* An over-funded balance — above its plan level — gets a filled centre
+         dot. It is a shape cue, not a colour, so "above the level" stays
+         distinct from "exactly on plan" for colour-blind users; the amount
+         above plan itself is in the closing popover. */
+      .envelope-over .envelope-ring::after {
+        content: "";
+        position: absolute;
+        inset: 32%;
+        border-radius: 50%;
+        background: currentColor;
       }
       /* Collapsible parents: CSS-only, so the state is not persisted. */
       .envelope-toggle {
@@ -587,6 +637,9 @@
             Collapse all
           </label>
         {% endif %}
+        <span class="envelope-legend">
+          <span class="envelope-legend-swatch"></span> over plan
+        </span>
       {% endif %}
       <span class="envelope-nav-tabs">
         <a class="envelope-tab{{ '' if reports else ' envelope-tab-active' }}" href="?">Envelopes</a>

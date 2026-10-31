@@ -484,7 +484,10 @@ envelope by its cumulative contributions, so it too stays green after the money
 is spent. A planned envelope also carries a small ring beside its closing
 balance, filled in proportion to that funded amount against its goal (its
 `goal`, its `up-to` ceiling, or its monthly `level` when it has neither); the
-ring takes the balance's colour. The colours come from Fava's own variables, so they follow its
+ring takes the balance's colour. A balance above its plan level — an over-funded
+`monthly` or goal envelope — shows a filled dot in the ring's centre, set apart
+from an on-plan balance by shape rather than a second colour, with the amount
+above plan in the closing popover. The colours come from Fava's own variables, so they follow its
 light and dark schemes.
 
 Set the default number of months (1 to 3) with an optional config, a

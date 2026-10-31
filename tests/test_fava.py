@@ -692,13 +692,19 @@ def test_template_colors_overspent_closing() -> None:
 
 
 def test_template_colors_funding_status() -> None:
-    """Closing balances are green when funded and amber when underfunded."""
+    """Closing balances are green when funded, amber when underfunded, and an
+    over-funded balance carries an extra marker distinct from on-plan."""
     html = _render(
         _extension("funding_colors.bean"), {"month": "2024-01", "months": "1"}
     )
     assert "envelope-partial" in _row(html, ">Under<")
-    assert "envelope-funded" in _row(html, ">On<")
-    assert "envelope-funded" in _row(html, ">Over<")
+    on = _row(html, ">On<")
+    assert "envelope-funded" in on
+    assert "envelope-over" not in on
+    over = _row(html, ">Over<")
+    assert "envelope-funded" in over
+    assert "envelope-over" in over
+    assert "envelope-legend-swatch" in html
 
 
 def test_template_marks_current_month(monkeypatch: pytest.MonkeyPatch) -> None:
