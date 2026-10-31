@@ -150,6 +150,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A goal envelope's progress is now judged only up to the month being shown, so
+  a month is no longer credited with allocations, income or refunds made in
+  later months. The Fava report's funding ring and `fund`, `suggest` and the
+  report all follow the same bound (#57).
 - The Fava report now suggests funding for the month being actioned, not the
   current one: a form for a future month evaluates that month's plan and
   balances, and dates its new directive inside that month, instead of collapsing

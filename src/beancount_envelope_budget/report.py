@@ -9,6 +9,7 @@ Fava report share from here rather than each reimplement.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal
@@ -26,6 +27,7 @@ from beancount_envelope_budget.core import (
     Plan,
     month_of,
     row_for,
+    row_index,
 )
 from beancount_envelope_budget.schema import Severity
 
@@ -537,8 +539,8 @@ def _maybe_row(rows: tuple[MonthRow, ...], month: date) -> MonthRow | None:
     Returns:
         The matching row, or ``None``.
     """
-    goal = month_of(month)
-    return next((row for row in rows if row.month == goal), None)
+    index = row_index(rows, month)
+    return None if index is None else rows[index]
 
 
 def _avg_window(monthly: str) -> int:
@@ -1730,9 +1732,9 @@ def _cash_balance(result: BudgetResult, month: date) -> Decimal:
     goal = month_of(month)
     if not result.cash or goal < result.months[0]:
         return result.pre_start_cash
-    for row in result.cash:
-        if row.month == goal:
-            return row.balance
+    index = bisect_left(result.cash, goal, key=lambda row: row.month)
+    if index < len(result.cash) and result.cash[index].month == goal:
+        return result.cash[index].balance
     return result.cash[-1].balance
 
 

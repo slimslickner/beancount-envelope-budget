@@ -13,6 +13,7 @@ everything below them works on plain records.
 from __future__ import annotations
 
 import re
+from bisect import bisect_left, bisect_right
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from datetime import date
@@ -48,6 +49,7 @@ __all__ = [
     "iter_months",
     "month_of",
     "row_for",
+    "row_index",
 ]
 
 #: The reserved name of the unassigned pool.
@@ -421,11 +423,8 @@ class EnvelopeReport:
             The closing balance for that month, or zero when the month is out
             of range.
         """
-        goal = month_of(month)
-        for row in self.rows:
-            if row.month == goal:
-                return row.closing
-        return Decimal(0)
+        index = row_index(self.rows, month)
+        return Decimal(0) if index is None else self.rows[index].closing
 
     def funded_at(self, on: date) -> Decimal:
         """Return the amount credited toward the envelope's plan on a date.
@@ -522,15 +521,14 @@ class EnvelopeReport:
         start = _goal_start(self.envelope, on)
         if start is None:
             return row_for(self.rows, on).closing
-        start_month = month_of(start)
-        progress = Decimal(0)
-        seeded = False
-        for row in self.rows:
-            if row.month < start_month:
-                continue
-            if not seeded:
-                progress += row.opening
-                seeded = True
+        start_index = row_index(self.rows, start)
+        if start_index is None:
+            return Decimal(0)
+        stop_index = bisect_right(self.rows, month_of(on), key=lambda row: row.month)
+        if start_index >= stop_index:
+            return Decimal(0)
+        progress = self.rows[start_index].opening
+        for row in self.rows[start_index:stop_index]:
             progress += row.allocated + max(row.activity, Decimal(0))
         return progress
 
@@ -892,6 +890,34 @@ def iter_months(start: date, end: date) -> list[date]:
     return months
 
 
+def row_index(rows: Sequence[MonthRow], month: date) -> int | None:
+    """Return the index of a month's row, or ``None`` when it is not in range.
+
+    Args:
+        rows: The computed rows, ascending by month.
+        month: Any date; only its month matters.
+
+    Returns:
+        The index of the row for that month, or ``None`` when the month falls
+        between the rows' months.
+
+    Examples:
+        >>> rows = (
+        ...     MonthRow(date(2024, 1, 1), Decimal(0), Decimal(0), Decimal(0)),
+        ...     MonthRow(date(2024, 3, 1), Decimal(0), Decimal(0), Decimal(0)),
+        ... )
+        >>> row_index(rows, date(2024, 3, 15))
+        1
+        >>> row_index(rows, date(2024, 2, 1)) is None
+        True
+    """
+    goal = month_of(month)
+    index = bisect_left(rows, goal, key=lambda row: row.month)
+    if index < len(rows) and rows[index].month == goal:
+        return index
+    return None
+
+
 def row_for(rows: Sequence[MonthRow], month: date) -> MonthRow:
     """Return a monthly row for any month, projecting outside the range.
 
@@ -906,14 +932,10 @@ def row_for(rows: Sequence[MonthRow], month: date) -> MonthRow:
     goal = month_of(month)
     if not rows or goal < rows[0].month:
         return MonthRow(goal, Decimal(0), Decimal(0), Decimal(0))
-    for index, row in enumerate(rows):
-        if row.month == goal:
-            return row
-        if row.month > goal:
-            previous = rows[index - 1]
-            return MonthRow(goal, previous.closing, Decimal(0), Decimal(0))
-    last = rows[-1]
-    return MonthRow(goal, last.closing, Decimal(0), Decimal(0))
+    row = rows[bisect_right(rows, goal, key=lambda item: item.month) - 1]
+    if row.month == goal:
+        return row
+    return MonthRow(goal, row.closing, Decimal(0), Decimal(0))
 
 
 def format_amount(value: Decimal, currency: str = "") -> str:
