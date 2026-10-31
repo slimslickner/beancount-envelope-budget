@@ -10,7 +10,7 @@ Fava report share from here rather than each reimplement.
 from __future__ import annotations
 
 from bisect import bisect_left
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -49,6 +49,7 @@ __all__ = [
     "ReportEntry",
     "ReportRow",
     "Reports",
+    "ViewIndex",
     "active_plan",
     "build_reports",
     "build_view",
@@ -60,6 +61,7 @@ __all__ = [
     "pool_entry_text",
     "pool_ledger",
     "pool_ledger_json",
+    "prepare_view",
     "to_jsonable",
     "today_month",
 ]
@@ -1001,48 +1003,58 @@ def pool_ledger(
     """
     if result.start is None:
         return PoolLedger(result.pre_start_cash, ())
-    activity = [
+    # Each line as plain fields, so the running balance is filled in one pass
+    # without rebuilding a PoolEntry per line.
+    staged: list[
+        tuple[date, str, Decimal, str, str | None, str | None, str | None, str | None]
+    ] = [
         (
             event.date,
             POOL_ACTIVITY,
-            PoolEntry(
-                date=event.date,
-                kind=POOL_ACTIVITY,
-                amount=event.amount,
-                balance=Decimal(0),
-                entry_hash=event.entry_hash,
-                payee=event.payee,
-                transaction_narration=event.transaction_narration,
-                posting_narration=event.posting_narration,
-            ),
+            event.amount,
+            event.entry_hash,
+            event.payee,
+            event.transaction_narration,
+            event.posting_narration,
+            None,
         )
         for event in result.activity
         if event.destination == POOL
     ]
-    allocations = [
+    staged += [
         (
             event.date,
             POOL_ALLOCATION,
-            PoolEntry(
-                date=event.date,
-                kind=POOL_ALLOCATION,
-                amount=-event.amount,
-                balance=Decimal(0),
-                entry_hash=event.entry_hash,
-                envelope=event.envelope,
-            ),
+            -event.amount,
+            event.entry_hash,
+            None,
+            None,
+            None,
+            event.envelope,
         )
         for event in result.allocations
     ]
     # Sort by date and kind, keeping each list's own order within a day; that
     # puts a day's activity before its allocations, as the warning does.
-    staged = sorted([*activity, *allocations], key=lambda item: (item[0], item[1]))
+    staged.sort(key=lambda item: (item[0], item[1]))
 
     balance = result.pre_start_cash
     built: list[PoolEntry] = []
-    for _date, _kind, entry in staged:
-        balance += entry.amount
-        built.append(replace(entry, balance=balance))
+    for when, kind, amount, entry_hash, payee, txn, post, envelope in staged:
+        balance += amount
+        built.append(
+            PoolEntry(
+                date=when,
+                kind=kind,
+                amount=amount,
+                balance=balance,
+                entry_hash=entry_hash,
+                payee=payee,
+                transaction_narration=txn,
+                posting_narration=post,
+                envelope=envelope,
+            )
+        )
 
     opening = result.pre_start_cash
     if start is not None:
@@ -1103,10 +1115,50 @@ def pool_ledger_json(ledger: PoolLedger) -> dict[str, object]:
     }
 
 
+@dataclass(frozen=True, slots=True)
+class ViewIndex:
+    """The history-wide lookups a view slices, built once per ledger load.
+
+    :func:`build_view` derives these from the whole budget on every call — the
+    activity detail grouped by envelope and month, the allocations likewise, and
+    the pool's full ledger. A caller that renders the view repeatedly for one
+    loaded ledger, such as the Fava report, builds a :class:`ViewIndex` once with
+    :func:`prepare_view` and passes it back, so a request only slices the months
+    it shows.
+
+    Attributes:
+        details: The activity events, by ``(destination, month)``.
+        allocations: The allocation events, by ``(envelope, month)``.
+        ledger: The pool's full ledger.
+    """
+
+    details: Mapping[tuple[str, date], list[ActivityLine]]
+    allocations: Mapping[tuple[str, date], list[AllocationLine]]
+    ledger: PoolLedger
+
+
+def prepare_view(result: BudgetResult) -> ViewIndex:
+    """Build the lookups :func:`build_view` slices a view from.
+
+    Args:
+        result: The computed budget.
+
+    Returns:
+        The :class:`ViewIndex`, ready to pass to :func:`build_view`.
+    """
+    return ViewIndex(
+        details=_detail_index(result.activity),
+        allocations=_allocation_index(result.allocations),
+        ledger=pool_ledger(result),
+    )
+
+
 def build_view(
     result: BudgetResult,
     month: date | None = None,
     count: int = 1,
+    *,
+    index: ViewIndex | None = None,
 ) -> BudgetView:
     """Build a view over one to three months.
 
@@ -1117,6 +1169,9 @@ def build_view(
             pass :func:`today_month`, so a future-dated directive does not move
             the default window forward.
         count: The number of months to show, clamped to ``1..MAX_MONTHS``.
+        index: The precomputed :func:`prepare_view`, or ``None`` to build one
+            here. Pass one to avoid rebuilding the history-wide lookups on every
+            call.
 
     Returns:
         The :class:`BudgetView`. When tracking is not configured, it has
@@ -1151,9 +1206,11 @@ def build_view(
     months = tuple(_shift(start, offset) for offset in range(count))
     available = set(result.months)
     projected = tuple(month not in available for month in months)
-    details = _detail_index(result.activity)
-    allocations = _allocation_index(result.allocations)
-    ledger = pool_ledger(result)
+    if index is None:
+        index = prepare_view(result)
+    details = index.details
+    allocations = index.allocations
+    ledger = index.ledger
 
     envelopes = tuple(
         _envelope_view(report, months, available, details, allocations)
@@ -1570,8 +1627,8 @@ def _envelope_view(
     report: EnvelopeReport,
     months: tuple[date, ...],
     available: set[date],
-    details: dict[tuple[str, date], list[ActivityLine]],
-    allocations: dict[tuple[str, date], list[AllocationLine]],
+    details: Mapping[tuple[str, date], list[ActivityLine]],
+    allocations: Mapping[tuple[str, date], list[AllocationLine]],
 ) -> EnvelopeView:
     """Build an envelope view.
 

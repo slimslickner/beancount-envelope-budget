@@ -111,6 +111,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The Fava report builds its history-wide lookups (the activity and allocation
+  indexes and the pool ledger) once per ledger load and slices only the shown
+  months on each request, instead of rebuilding them on every page load, and the
+  pool ledger no longer rebuilds a line per entry to fill in its running balance
+  (#57).
 - The plugin no longer computes Beancount entry hashes it never uses, and the
   CLI reuses the budget the plugin already computed instead of scanning the
   ledger a second time, so loading a year of transactions is materially faster
