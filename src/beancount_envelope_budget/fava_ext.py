@@ -25,7 +25,9 @@ from :mod:`beancount_envelope_budget.actions`, the same module the CLI uses.
 The extension recomputes the budget in :meth:`Envelopes.after_load_file` and
 renders a Jinja template. It is the only module that imports Fava. The view it
 renders is built by :func:`beancount_envelope_budget.report.build_view`, the
-same function the CLI uses, so the two cannot disagree.
+same function the CLI uses, so the two cannot disagree. The Reports tab spans
+the budget's whole history, narrowed to Fava's window date filter when one is
+set.
 """
 
 from __future__ import annotations
@@ -40,7 +42,7 @@ from beancount.core.data import Custom
 from beancount.parser import parser
 from fava.core import file as fava_file
 from fava.ext import ExtensionConfigError, FavaExtensionBase, extension_endpoint
-from flask import jsonify, make_response, redirect, request
+from flask import g, has_app_context, jsonify, make_response, redirect, request
 
 from beancount_envelope_budget import actions, plugin, writer
 from beancount_envelope_budget.core import BudgetResult, Plan, compute
@@ -389,16 +391,43 @@ class Envelopes(FavaExtensionBase):
         )
 
     def reports(self) -> Reports:
-        """Build the full-history, table-only reports view.
+        """Build the table-only reports view, for the Reports tab.
 
         Delegates to :func:`beancount_envelope_budget.report.build_reports`, the
         single implementation, so the reports tab's numbers come from the same
-        pure core as the rest of the report.
+        pure core as the rest of the report. The window's date filter is
+        resolved here, in the Fava layer, and passed in as month bounds, so
+        ``report.py`` stays pure.
 
         Returns:
-            The :class:`Reports`.
+            The :class:`Reports`, narrowed to the window's date filter when one
+            is set.
         """
-        return build_reports(self._result())
+        bounds = self._filter_range()
+        start, end = bounds if bounds is not None else (None, None)
+        return build_reports(self._result(), start=start, end=end)
+
+    def _filter_range(self) -> tuple[date, date] | None:
+        """Resolve the window's active date filter as inclusive month bounds.
+
+        Fava parses the top-of-window date filter into
+        ``flask.g.filtered.date_range`` (a ``DateRange`` with ``begin`` and
+        ``end_inclusive``). Reading it here keeps the wall-clock/request concern
+        in the Fava module, the same way :func:`today_month` is handled, so
+        :func:`~beancount_envelope_budget.report.build_reports` stays pure.
+
+        Returns:
+            ``(begin, end_inclusive)`` when a filter is set, else ``None`` —
+            including when there is no Flask application context, so the
+            template can render outside a request.
+        """
+        if not has_app_context():
+            return None
+        filtered = getattr(g, "filtered", None)
+        date_range = getattr(filtered, "date_range", None)
+        if date_range is None:
+            return None
+        return date_range.begin, date_range.end_inclusive
 
     def money(self, value: Decimal) -> str:
         """Format a money amount for display.

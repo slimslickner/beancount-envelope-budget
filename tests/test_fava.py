@@ -1252,3 +1252,65 @@ def test_reports_without_start() -> None:
     """A ledger with no start still has nothing to show on the reports."""
     html = _render(_extension("no_start.bean"), {"view": "reports"})
     assert "nothing to show" in html
+
+
+def test_filter_range_without_a_request_is_none() -> None:
+    """Outside a Flask request there is no active filter."""
+    assert _extension("basic.bean")._filter_range() is None
+
+
+def test_reports_span_full_history_without_a_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no date filter the reports span every computed month."""
+    extension = _extension("fund_backfill.bean")
+    monkeypatch.setattr(Envelopes, "_filter_range", lambda _self: None)
+    reports = extension.reports()
+    assert [month.month for month in reports.rows[0].months] == [
+        date(2024, 1, 1),
+        date(2024, 2, 1),
+        date(2024, 3, 1),
+    ]
+
+
+def test_reports_respect_the_date_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A window date filter narrows the reports to the months in range."""
+    extension = _extension("fund_backfill.bean")
+    monkeypatch.setattr(
+        Envelopes,
+        "_filter_range",
+        lambda _self: (date(2024, 2, 1), date(2024, 2, 28)),
+    )
+    reports = extension.reports()
+    assert [month.month for month in reports.rows[0].months] == [date(2024, 2, 1)]
+
+
+def test_template_reports_hide_months_outside_the_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reports tab renders only the months the date filter selects."""
+    extension = _extension("fund_backfill.bean")
+    monkeypatch.setattr(
+        Envelopes,
+        "_filter_range",
+        lambda _self: (date(2024, 2, 1), date(2024, 2, 28)),
+    )
+    html = _render(extension, {"view": "reports"})
+    assert "2024-02" in html
+    assert "2024-01" not in html
+    assert "2024-03" not in html
+
+
+def test_template_reports_show_a_note_when_the_filter_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A filter that excludes every month says so instead of blank tables."""
+    extension = _extension("fund_backfill.bean")
+    monkeypatch.setattr(
+        Envelopes,
+        "_filter_range",
+        lambda _self: (date(2030, 1, 1), date(2030, 1, 31)),
+    )
+    html = _render(extension, {"view": "reports"})
+    assert "No months in the selected date range." in html
+    assert "Top spending" not in html

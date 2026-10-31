@@ -187,6 +187,42 @@ def test_reports_without_start() -> None:
     assert reports.rows == ()
 
 
+def test_reports_filter_to_a_month_range() -> None:
+    """A start/end range narrows the months shown."""
+    reports = build_reports(
+        _compute("fund_backfill.bean"),
+        start=date(2024, 2, 1),
+        end=date(2024, 2, 28),
+    )
+    assert [month.month for month in reports.rows[0].months] == [date(2024, 2, 1)]
+
+
+def test_reports_balances_stay_cumulative_when_filtered() -> None:
+    """A narrowed range still shows balances from the whole history.
+
+    The pool holds money that earlier months moved through, so a balance
+    recomputed from only the visible month would be wrong; it must be drawn
+    from the whole budget.
+    """
+    reports = build_reports(
+        _compute("fund_backfill.bean"),
+        start=date(2024, 2, 1),
+        end=date(2024, 2, 28),
+    )
+    balance = reports.rows[0].months[0]
+    assert [(entry.name, entry.amount) for entry in balance.entries] == [
+        ("Cash", D("4750")),
+        ("Pool", D("5000")),
+    ]
+
+
+def test_reports_empty_range_has_no_rows() -> None:
+    """A range with no computed months leaves the rows empty but started."""
+    reports = build_reports(_compute("fund_backfill.bean"), start=date(2030, 1, 1))
+    assert reports.has_start is True
+    assert reports.rows == ()
+
+
 def test_top_entries_caps_and_breaks_ties() -> None:
     """Ranked entries cap at TOP_N and break ties by name."""
     entries = [ReportEntry(f"env{index:02d}", D(1)) for index in range(12)]

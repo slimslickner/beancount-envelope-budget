@@ -526,6 +526,9 @@
 
     {% if reports %}
       <div class="envelope-reports">
+        {% if not dash.rows %}
+          <p>No months in the selected date range.</p>
+        {% endif %}
         <div class="envelope-reports-strip" style="--envelope-reports-name-chars: {{ dash.name_chars }}; --envelope-reports-amount-chars: {{ dash.amount_chars }}">
           {% for row in dash.rows %}
             <section class="envelope-reports-row">

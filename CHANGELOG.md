@@ -121,6 +121,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The Fava **Reports** tab now respects the window's date filter: with a period
+  selected it shows only the months inside it, drawing the cumulative cash and
+  pool balances from the whole budget rather than a truncated history. With no
+  filter it still spans full history, as does the CLI `report` (#50).
 - The pool ledger (`pool` and the Fava popover) now nets each transaction's
   postings into one line, and `W001` walks the same per-transaction events, so a
   payroll's withholding and its deposit no longer read as a pool dip and the
