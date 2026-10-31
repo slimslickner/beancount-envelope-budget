@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The Fava report's month navigation is a selectable strip of three-letter
+  months, showing a sliding block of at most eight around the visible window
+  with a marker whenever the year turns, so you can jump several months at once
+  and keep stepping into projected months. Each link sets the window's first
+  month and keeps the current month count; today's month and the visible window
+  are marked, a **Today** link returns to the current month, and the ledger's
+  name column is sized so it no longer resizes as you navigate (#20).
 - An `up-to` metadata key on a plan pairs with `monthly` to cap a balance: fund
   by the monthly amount each month, but never past the ceiling. Once full, or
   once the month's allowance is used up, funding stops; spending re-opens room.

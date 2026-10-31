@@ -69,7 +69,9 @@
         font-variant-numeric: tabular-nums;
       }
       .envelope-leader {
-        width: 1%;
+        /* Sized to the longest name so the column never resizes as envelopes
+           come in and out of the visible window. */
+        width: calc(max({{ extension.name_chars() }}, 9) * 1ch + 3ch);
       }
       .envelope-value {
         width: 7.5rem;
@@ -90,6 +92,42 @@
         position: sticky;
         top: 0;
         z-index: 4;
+      }
+      /* The selectable month strip shows a sliding block of months, scrolling
+         sideways if it still will not fit on a narrow screen. */
+      .envelope-months {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow-x: auto;
+        scrollbar-width: thin;
+      }
+      /* A fixed jump back to the current month, outside the scrolling strip. */
+      .envelope-today {
+        flex: 0 0 auto;
+        white-space: nowrap;
+      }
+      .envelope-month {
+        padding: 0.1rem 0.35rem;
+        border-radius: 0.2rem;
+        white-space: nowrap;
+        text-decoration: none;
+      }
+      /* The months currently shown in the grid. */
+      .envelope-month-visible {
+        background: var(--table-header-background, rgba(128, 128, 128, 0.15));
+        font-weight: 600;
+      }
+      /* The wall-clock current month. */
+      .envelope-month-current {
+        outline: 1px solid currentColor;
+      }
+      .envelope-month-year {
+        padding: 0 0.35rem;
+        color: rgba(128, 128, 128, 1);
+        white-space: nowrap;
       }
       .envelope-nav-tabs {
         display: flex;
@@ -505,18 +543,19 @@
 
     <p class="envelope-nav">
       {% if not reports %}
-        <span class="envelope-nav-months">
-          <a href="?{{ view.nav.previous }}">&laquo; previous month</a> &middot;
-          <a href="?{{ extension.today_nav(view.months|length) }}">this month</a> &middot;
-          <a href="?{{ view.nav.next }}">next month &raquo;</a>
-          {% if view.groups | selectattr('parent', 'ne', none) | list %}
-            &middot;
-            <label class="envelope-collapse">
-              <input type="checkbox" class="envelope-collapse-all" id="envelope-collapse-all">
-              Collapse all
-            </label>
-          {% endif %}
+        <a class="envelope-today" href="?month={{ today.strftime('%Y-%m') }}&amp;months={{ view.months|length }}">Today</a>
+        <span class="envelope-months">
+          {% for link in extension.month_nav(view.months) %}
+            {% if loop.changed(link.month.year) %}<span class="envelope-month-year">{{ link.month.year }}</span>{% endif %}
+            <a class="envelope-month{{ ' envelope-month-visible' if link.visible else '' }}{{ ' envelope-month-current' if link.current else '' }}" href="?{{ link.query }}" aria-label="{{ link.month.strftime('%B %Y') }}">{{ link.label }}</a>
+          {% endfor %}
         </span>
+        {% if view.groups | selectattr('parent', 'ne', none) | list %}
+          <label class="envelope-collapse">
+            <input type="checkbox" class="envelope-collapse-all" id="envelope-collapse-all">
+            Collapse all
+          </label>
+        {% endif %}
       {% endif %}
       <span class="envelope-nav-tabs">
         <a class="envelope-tab{{ '' if reports else ' envelope-tab-active' }}" href="?">Envelopes</a>

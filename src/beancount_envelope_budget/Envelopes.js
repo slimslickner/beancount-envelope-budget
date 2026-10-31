@@ -14,6 +14,7 @@ export default {
   onPageLoad() {},
   onExtensionPageLoad(ctx) {
     track_scroll();
+    scroll_to_window();
     const api = ctx && ctx.api;
     if (!api) {
       return;
@@ -79,6 +80,26 @@ function track_scroll() {
     },
     { passive: true },
   );
+}
+
+/**
+ * Bring the visible window into view in the month strip.
+ *
+ * The strip lists the budget's whole history, so at today's month — or after
+ * jumping — the active months can sit off the right edge. Scrolling the strip
+ * itself (rather than `scrollIntoView`) keeps them in sight without moving the
+ * page.
+ */
+function scroll_to_window() {
+  const strip = document.querySelector(".envelope-months");
+  const active = strip && strip.querySelector(".envelope-month-visible");
+  if (!(strip instanceof HTMLElement) || !(active instanceof HTMLElement)) {
+    return;
+  }
+  const strip_box = strip.getBoundingClientRect();
+  const active_box = active.getBoundingClientRect();
+  strip.scrollLeft +=
+    active_box.left - strip_box.left - strip.clientWidth / 2 + active_box.width / 2;
 }
 
 /**
