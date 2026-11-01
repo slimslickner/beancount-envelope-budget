@@ -56,8 +56,11 @@ __all__ = [
     "build_reports",
     "build_view",
     "envelope_need",
+    "funding_derivation_lines",
     "funding_explanation",
     "funding_explanation_lines",
+    "funding_top_up_line",
+    "funding_verdict",
     "month_funding",
     "overspend_cover",
     "plan_level",
@@ -100,6 +103,29 @@ def _round_to_cent(value: Decimal) -> Decimal:
         The level rounded to the cent.
     """
     return value.quantize(_CENT)
+
+
+def _money(value: Decimal | None, currency: str = "") -> str:
+    """Format an optional amount for a funding explanation line.
+
+    Args:
+        value: The amount, or ``None``.
+        currency: The operating currency, appended to the amount when given.
+
+    Returns:
+        The amount as ``0.00`` (with the currency appended), or ``-`` when
+        there is no amount.
+
+    Examples:
+        >>> _money(Decimal("12.5"))
+        '12.50'
+        >>> _money(Decimal("12.5"), "USD")
+        '12.50 USD'
+        >>> _money(None)
+        '-'
+    """
+    suffix = f" {currency}" if currency else ""
+    return "-" if value is None else f"{value:.2f}{suffix}"
 
 
 def today_month() -> date:
@@ -986,6 +1012,157 @@ def funding_explanation(
     )
 
 
+def funding_derivation_lines(
+    explanation: FundingExplanation,
+    currency: str = "",
+) -> tuple[str, ...]:
+    """Render the arithmetic behind a funding level, without the verdict.
+
+    The lines spell out the level's formula and what the funded amount is
+    measured from — the completed months an ``avgN`` averaged, the ``up-to``
+    ceiling, or the goal schedule. Split out from
+    :func:`funding_explanation_lines` so the Fava closing popover can lead with
+    the verdict and the funded fraction, then show these lines beneath, while
+    the CLI's ``explain`` composes them the other way round.
+
+    Args:
+        explanation: The explanation to render.
+        currency: The operating currency, appended to each amount when given.
+
+    Returns:
+        The derivation lines.
+
+    Examples:
+        >>> from decimal import Decimal
+        >>> explanation = FundingExplanation(
+        ...     reference="monthly",
+        ...     level=Decimal("550"),
+        ...     funded=Decimal("500"),
+        ...     top_up=Decimal("50"),
+        ...     funding="under",
+        ...     opening=Decimal(0),
+        ...     allocated=Decimal("500"),
+        ...     monthly=Decimal("550"),
+        ... )
+        >>> funding_derivation_lines(explanation)
+        ('monthly 550.00 = plan', 'level 550.00 = monthly 550.00', 'funded 500.00 = opening 0.00 + allocated 500.00')
+    """
+    lines: list[str] = []
+    if explanation.reference == "goal":
+        window = ""
+        if explanation.months_elapsed is not None and explanation.months_total:
+            window = (
+                f" ({explanation.months_elapsed}/{explanation.months_total} months)"
+            )
+        deadline = f" to {explanation.by}" if explanation.by is not None else ""
+        lines.append(
+            f"level {_money(explanation.level, currency)} = goal "
+            f"{_money(explanation.goal, currency)}{window}{deadline}"
+        )
+        lines.append(
+            f"funded {_money(explanation.funded, currency)} = cumulative contributions"
+        )
+    elif explanation.reference == "up-to":
+        lines.append(
+            f"level {_money(explanation.level, currency)} = min(ceiling "
+            f"{_money(explanation.up_to, currency)}, opening "
+            f"{_money(explanation.opening, currency)}"
+            f" + monthly {_money(explanation.monthly, currency)})"
+        )
+        lines.append(f"funded {_money(explanation.funded, currency)} = closing balance")
+    else:
+        if explanation.average_months:
+            samples = ", ".join(
+                f"{month:%Y-%m} {spend:.2f}"
+                for month, spend in explanation.average_months
+            )
+            lines.append(
+                f"monthly {_money(explanation.monthly, currency)} = average of "
+                f"{samples}"
+            )
+        else:
+            lines.append(f"monthly {_money(explanation.monthly, currency)} = plan")
+        lines.append(
+            f"level {_money(explanation.level, currency)} = monthly "
+            f"{_money(explanation.monthly, currency)}"
+        )
+        lines.append(
+            f"funded {_money(explanation.funded, currency)} = opening "
+            f"{_money(explanation.opening, currency)} + allocated "
+            f"{_money(explanation.allocated, currency)}"
+        )
+    return tuple(lines)
+
+
+def funding_verdict(
+    explanation: FundingExplanation,
+    currency: str = "",
+) -> str | None:
+    """Describe how an envelope's funded amount compares with its level.
+
+    Splits the "underfunded by X" / "on plan" / "over plan by X" verdict out of
+    :func:`funding_explanation_lines` so the Fava closing popover can lead with
+    it, beside the funded fraction.
+
+    Args:
+        explanation: The explanation to render.
+        currency: The operating currency, appended to each amount when given.
+
+    Returns:
+        The verdict line, or ``None`` when there is no funding status.
+
+    Examples:
+        >>> explanation = FundingExplanation(
+        ...     reference="monthly",
+        ...     level=Decimal("550"),
+        ...     funded=Decimal("500"),
+        ...     top_up=Decimal("50"),
+        ...     funding="under",
+        ... )
+        >>> funding_verdict(explanation)
+        'underfunded by 50.00'
+    """
+    if explanation.funding is None:
+        return None
+    label = _FUNDING_TEXT[explanation.funding]
+    difference = (
+        None if explanation.level is None else explanation.funded - explanation.level
+    )
+    if explanation.funding == "under" and difference is not None:
+        return f"{label} by {_money(-difference, currency)}"
+    if explanation.funding == "over" and difference is not None:
+        return f"{label} by {_money(difference, currency)}"
+    return label
+
+
+def funding_top_up_line(
+    explanation: FundingExplanation,
+    currency: str = "",
+) -> str | None:
+    """Render the top-up a plan still needs, or ``None`` when it needs none.
+
+    Args:
+        explanation: The explanation to render.
+        currency: The operating currency, appended to the amount when given.
+
+    Returns:
+        The ``top up X`` line, or ``None`` when nothing is left to fund.
+
+    Examples:
+        >>> funding_top_up_line(
+        ...     FundingExplanation("monthly", Decimal("550"), Decimal("500"), Decimal("50"))
+        ... )
+        'top up 50.00'
+        >>> funding_top_up_line(
+        ...     FundingExplanation("monthly", Decimal("550"), Decimal("500"), Decimal(0))
+        ... ) is None
+        True
+    """
+    if explanation.top_up <= 0:
+        return None
+    return f"top up {_money(explanation.top_up, currency)}"
+
+
 def funding_explanation_lines(
     explanation: FundingExplanation,
     currency: str = "",
@@ -994,8 +1171,8 @@ def funding_explanation_lines(
 
     The lines spell out the level's formula, what the funded amount is measured
     from, whether the envelope is under, on or over plan, and the top-up the
-    plan still needs. Shared by the CLI's ``explain`` command and the Fava
-    closing popover, so the two cannot disagree.
+    plan still needs. Shared by the CLI's ``explain`` command and — via the
+    pieces above — the Fava closing popover, so the two cannot disagree.
 
     Args:
         explanation: The explanation to render.
@@ -1019,64 +1196,13 @@ def funding_explanation_lines(
         >>> funding_explanation_lines(explanation)
         ('monthly 550.00 = plan', 'level 550.00 = monthly 550.00', 'funded 500.00 = opening 0.00 + allocated 500.00', 'underfunded by 50.00', 'top up 50.00')
     """
-
-    def money(value: Decimal | None) -> str:
-        suffix = f" {currency}" if currency else ""
-        return "-" if value is None else f"{value:.2f}{suffix}"
-
-    lines: list[str] = []
-    if explanation.reference == "goal":
-        window = ""
-        if explanation.months_elapsed is not None and explanation.months_total:
-            window = (
-                f" ({explanation.months_elapsed}/{explanation.months_total} months)"
-            )
-        deadline = f" to {explanation.by}" if explanation.by is not None else ""
-        lines.append(
-            f"level {money(explanation.level)} = goal {money(explanation.goal)}"
-            f"{window}{deadline}"
-        )
-        lines.append(f"funded {money(explanation.funded)} = cumulative contributions")
-    elif explanation.reference == "up-to":
-        lines.append(
-            f"level {money(explanation.level)} = min(ceiling "
-            f"{money(explanation.up_to)}, opening {money(explanation.opening)}"
-            f" + monthly {money(explanation.monthly)})"
-        )
-        lines.append(f"funded {money(explanation.funded)} = closing balance")
-    else:
-        if explanation.average_months:
-            samples = ", ".join(
-                f"{month:%Y-%m} {spend:.2f}"
-                for month, spend in explanation.average_months
-            )
-            lines.append(f"monthly {money(explanation.monthly)} = average of {samples}")
-        else:
-            lines.append(f"monthly {money(explanation.monthly)} = plan")
-        lines.append(
-            f"level {money(explanation.level)} = monthly {money(explanation.monthly)}"
-        )
-        lines.append(
-            f"funded {money(explanation.funded)} = opening "
-            f"{money(explanation.opening)} + allocated {money(explanation.allocated)}"
-        )
-
-    if explanation.funding is not None:
-        label = _FUNDING_TEXT[explanation.funding]
-        difference = (
-            None
-            if explanation.level is None
-            else explanation.funded - explanation.level
-        )
-        if explanation.funding == "under" and difference is not None:
-            lines.append(f"{label} by {money(-difference)}")
-        elif explanation.funding == "over" and difference is not None:
-            lines.append(f"{label} by {money(difference)}")
-        else:
-            lines.append(label)
-
-    if explanation.top_up > 0:
-        lines.append(f"top up {money(explanation.top_up)}")
+    lines = list(funding_derivation_lines(explanation, currency))
+    verdict = funding_verdict(explanation, currency)
+    if verdict is not None:
+        lines.append(verdict)
+    top_up = funding_top_up_line(explanation, currency)
+    if top_up is not None:
+        lines.append(top_up)
     return tuple(lines)
 
 
