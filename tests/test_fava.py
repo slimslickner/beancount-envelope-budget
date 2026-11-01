@@ -446,7 +446,7 @@ def test_template_no_closing_popover_without_a_plan() -> None:
 
 def test_report_includes_warnings() -> None:
     """Warnings surface on the view."""
-    view = _extension("mid_month_dip.bean").report("2024-01", "1")
+    view = _extension("pool_shortfall.bean").report("2024-01", "1")
     assert [warning.code for warning in view.warnings] == ["W001"]
 
 
@@ -579,7 +579,7 @@ def test_template_renders_target_tooltip() -> None:
 def test_template_renders_warning_panel() -> None:
     """Warnings are shown with a link to the errors page."""
     html = _render(
-        _extension("mid_month_dip.bean"), {"month": "2024-01", "months": "1"}
+        _extension("pool_shortfall.bean"), {"month": "2024-01", "months": "1"}
     )
     assert "W001" in html
     assert "Warnings" in html

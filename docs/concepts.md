@@ -353,10 +353,13 @@ closing(e, m) = closing(e, m-1) + allocated(e, m) + activity(e, m)
   month.
 
 Overspending needs no special rule: a negative balance simply carries forward
-until later allocations cover it. A pool that goes negative on any day means
-more was allocated than the cash available at that point, and is reported as a
-warning (`W001`); `pool LEDGER` prints the pool's per-transaction ledger around it,
-with the running balance after each line.
+until later allocations cover it. A pool that *closes a month* negative means
+more was allocated than the cash available by that month end, and is reported as
+a warning (`W001`). Only month ends are judged: a dip within a month that
+recovers by its end is timing, not an error, so it is not reported — the budget
+carries balances month to month, and the money did arrive. (`pool LEDGER` still
+prints the pool's per-transaction ledger with the running balance after each
+line, so such a dip can still be traced.)
 
 ## Validation
 
@@ -434,7 +437,8 @@ See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget
   top-up, so a funding suggestion is never a bare number. `--envelope` filters
   by name and `--json` prints the lines per envelope.
 - `pool` prints the pool's per-transaction ledger — both directions, with the running
-  balance after each line — so a `W001` dip can be traced. A bare run opens on
+  balance after each line — so an intra-month dip (which `W001` no longer reports)
+  can be traced. A bare run opens on
   the pool's lowest month when it ever went negative, else the latest month;
   `--all` shows the whole history, and `--month`/`--date` window it.
 - `fund` prints `allocate` directives (redirect them into a file you include), or

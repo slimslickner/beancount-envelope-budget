@@ -1933,9 +1933,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="print the pool's ledger with a running balance",
         description=(
             "Print every transaction and allocation that moved the unassigned "
-            "pool, in date order with the running balance after each, so a negative "
-            "pool (W001) can be traced. A bare run shows the pool's lowest month "
-            "when it ever went negative, else the latest month."
+            "pool, in date order with the running balance after each, so an "
+            "intra-month dip (which W001 no longer reports) can be traced. A bare "
+            "run shows the pool's lowest month when it ever went negative, else "
+            "the latest month."
         ),
     )
     _ledger_argument(pool)

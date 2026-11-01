@@ -150,7 +150,7 @@ option "plugin_processing_mode" "raw"
     # compute agree: both see the pre-pad ledger and warn.
     assert "W001" in [d.code for d in compute(entries, options).diagnostics]
     _new_entries, errors = plugin.plugin(entries, options)
-    assert any("pool is negative" in error.message for error in errors)
+    assert any("pool closes" in error.message for error in errors)
 
 
 def test_plugin_leaves_a_reusable_result() -> None:

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `W001` (negative pool) now judges **month ends only**. A dip within a month
+  that recovers by its end is cash-flow timing — the money arrived after it was
+  assigned — not a shortfall, and is no longer reported; a month that actually
+  closes negative still is, naming its lowest month end. This puts the warning
+  on the same cadence as the month-end invariant (`E007`) and makes it
+  independent of intra-month timing. The `pool` command and the report's pool
+  ledger still show per-transaction dips, so a recovered dip stays traceable
+  (#78).
 - **Breaking:** the Fava **Reports** tab is now **Monthly Reports**, at
   `?view=monthly_reports` (was `?view=reports`); no alias is kept (#68).
 - Both Fava plan popovers — the closing figure's and the allocated figure's —

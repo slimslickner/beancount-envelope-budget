@@ -84,7 +84,7 @@ For a month, print how each planned envelope's funding is evaluated: the resolve
 
 ## `beancount-envelope-budget pool`
 
-Print every transaction and allocation that moved the unassigned pool, in date order with the running balance after each, so a negative pool (W001) can be traced. A bare run shows the pool's lowest month when it ever went negative, else the latest month.
+Print every transaction and allocation that moved the unassigned pool, in date order with the running balance after each, so an intra-month dip (which W001 no longer reports) can be traced. A bare run shows the pool's lowest month when it ever went negative, else the latest month.
 
 
 | Option | Help |
