@@ -1204,6 +1204,28 @@ def test_js_module_places_popovers() -> None:
     assert 'window.addEventListener("scroll", place_open_popover, true)' in source
 
 
+def test_js_module_closes_popovers_after_save() -> None:
+    """The module closes an open popover before it refreshes the report (#69).
+
+    A Fava reload replaces only the report's content, not the body where an open
+    popover floats, so a popover left open would be orphaned and uncloseable.
+    """
+    source = (Path(fava_ext.__file__).parent / "Envelopes.js").read_text()
+    # The save path closes the popover before it refreshes...
+    before_refresh = source.split("\n  refresh();")[0]
+    assert "close_open_popover();" in before_refresh
+    # ...unchecking its toggle so it hides at once, not back to its CSS shape.
+    close = source.split("function close_open_popover(")[1]
+    assert "open_toggle.checked = false;" in close
+    # ...and every page load discards anything the previous render left floating.
+    hook = source.split("onExtensionPageLoad(ctx)")[1]
+    assert "discard_stray_popovers()" in hook
+    cleanup = source.split("function discard_stray_popovers(")[1]
+    assert "envelope-pop-floating" in cleanup
+    assert "envelope-edit-dialog" in cleanup
+    assert "open_pop = null;" in cleanup
+
+
 def test_template_popovers_size_to_content() -> None:
     """The stylesheet sizes ledger popovers to their widest line (#43)."""
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})

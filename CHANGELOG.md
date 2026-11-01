@@ -184,6 +184,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The Fava edit popovers now close after a save instead of lingering as an
+  uncloseable orphan. A reload replaces only the report's content, not the body
+  where an open popover floats, so the save closes its popover first, and every
+  page load now discards any popover or editor left floating by the previous
+  render (#69).
 - The Fava popovers now size to their content and stay inside the window: the
   activity and pool-ledger popovers no longer clip a long line like
   `2026-10-21 · Emergency Fund · -35000.00 → 64316.97`, and every popover grows
