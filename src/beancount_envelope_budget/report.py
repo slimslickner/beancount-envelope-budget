@@ -68,6 +68,7 @@ __all__ = [
     "build_reports",
     "build_suggestions",
     "build_view",
+    "envelope_groups",
     "envelope_history_json",
     "envelope_need",
     "funding_derivation_lines",
@@ -2477,6 +2478,41 @@ def _group(envelopes: tuple[EnvelopeView, ...]) -> tuple[EnvelopeGroup, ...]:
             subtotal=_subtotal(buckets[parent]),
         )
         for parent in headings
+    )
+
+
+def envelope_groups(
+    result: BudgetResult,
+) -> tuple[tuple[str | None, tuple[str, ...]], ...]:
+    """Group the declared envelopes by parent, in the grid's order.
+
+    The grid orders parent headings alphabetically with the parentless envelopes
+    last, and the envelopes alphabetically within each group. The history tab's
+    selector mirrors that, so a parent reads as a heading over its envelopes.
+
+    Args:
+        result: The computed budget.
+
+    Returns:
+        ``(parent, names)`` pairs; ``parent`` is ``None`` for the trailing group
+        of envelopes with no parent.
+
+    Examples:
+        >>> from beancount_envelope_budget.core import BudgetResult
+        >>> envelope_groups(BudgetResult(None, "USD", (), (), (), (), ()))
+        ()
+    """
+    buckets: dict[str | None, list[str]] = {}
+    for report in result.envelopes:
+        buckets.setdefault(report.envelope.parent, []).append(report.name)
+    ordered_parents = sorted(
+        (parent for parent in buckets if parent is not None), key=_sort_key
+    )
+    headings: list[str | None] = [*ordered_parents]
+    if None in buckets:
+        headings.append(None)
+    return tuple(
+        (parent, tuple(sorted(buckets[parent], key=_sort_key))) for parent in headings
     )
 
 

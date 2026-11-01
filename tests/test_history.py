@@ -12,7 +12,11 @@ from beancount import loader
 
 from beancount_envelope_budget import cli
 from beancount_envelope_budget.core import compute
-from beancount_envelope_budget.report import build_envelope_history, plan_line_text
+from beancount_envelope_budget.report import (
+    build_envelope_history,
+    envelope_groups,
+    plan_line_text,
+)
 
 _LEDGERS = Path(__file__).parent / "ledgers"
 
@@ -101,6 +105,17 @@ def test_plan_line_text() -> None:
     history = _history()
     assert plan_line_text(history.plans[0]) == "open: monthly 500.00"
     assert plan_line_text(history.plans[-1]) == "clear plan"
+
+
+def test_envelope_groups_order_like_the_grid() -> None:
+    """Envelopes group by parent, parents alphabetical, parentless last."""
+    entries, _errors, options = loader.load_file(_LEDGERS / "parent_groups.bean")
+    result = compute(entries, options)
+    assert envelope_groups(result) == (
+        ("Living", ("Groceries", "Rent")),
+        ("Transport", ("Car",)),
+        (None, ("Misc",)),
+    )
 
 
 def test_history_includes_close(load_budget) -> None:

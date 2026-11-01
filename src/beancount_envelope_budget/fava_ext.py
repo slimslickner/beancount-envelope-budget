@@ -70,6 +70,7 @@ from beancount_envelope_budget.report import (
     build_reports,
     build_suggestions,
     build_view,
+    envelope_groups,
     funding_derivation_lines,
     funding_top_up_line,
     funding_verdict,
@@ -256,6 +257,18 @@ class Envelopes(FavaExtensionBase):
             The envelope names, in declaration order.
         """
         return tuple(report.name for report in self._result().envelopes)
+
+    def history_groups(self) -> tuple[tuple[str | None, tuple[str, ...]], ...]:
+        """Return the envelope names grouped by parent, for the selector.
+
+        Mirrors the grid's grouping: parent headings in alphabetical order with
+        the parentless envelopes last, and the envelopes alphabetical within.
+
+        Returns:
+            ``(parent, names)`` pairs; ``parent`` is ``None`` for the trailing
+            group of envelopes with no parent.
+        """
+        return envelope_groups(self._result())
 
     def history(self, envelope: str | None = None) -> EnvelopeHistory:
         """Build one envelope's whole history, for the drill-down tab.

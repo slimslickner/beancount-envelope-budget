@@ -1653,6 +1653,15 @@ def test_template_history_is_read_only_without_write() -> None:
     assert "Consolidate history" not in html
 
 
+def test_template_history_selector_groups_by_parent() -> None:
+    """The selector shows parents as non-selectable optgroups."""
+    html = _render(_extension("parent_groups.bean"), {"view": "envelope"})
+    assert '<optgroup label="Living">' in html
+    assert '<optgroup label="Transport">' in html
+    # Parents are alphabetical, with the parentless envelopes last.
+    assert html.index('label="Living"') < html.index('label="Transport"')
+
+
 # --- Reports ---------------------------------------------------------------
 
 
@@ -1709,10 +1718,10 @@ def test_reports_tabs_share_the_row() -> None:
 
 
 def test_reports_nav_is_not_sticky() -> None:
-    """The nav only sticks on the ledger grid; on the reports it scrolls away."""
+    """The nav only sticks on the grid; the tabs that scroll the page do not."""
     html = _render(_extension("basic.bean"), {"view": "monthly_reports"})
     assert (
-        ".envelope-report:not(:has(.envelope-reports)):not(:has(.envelope-review))"
+        ".envelope-report:not(:has(.envelope-reports)):not(:has(.envelope-review)):not(:has(.envelope-history))"
         " .envelope-nav" in html
     )
 

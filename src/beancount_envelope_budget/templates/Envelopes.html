@@ -93,7 +93,7 @@
         background: var(--background, #fff);
         border-bottom: 1px solid rgba(128, 128, 128, 0.5);
       }
-      .envelope-report:not(:has(.envelope-reports)):not(:has(.envelope-review)) .envelope-nav {
+      .envelope-report:not(:has(.envelope-reports)):not(:has(.envelope-review)):not(:has(.envelope-history)) .envelope-nav {
         position: sticky;
         top: 0;
         z-index: 4;
@@ -856,8 +856,14 @@
           <input type="hidden" name="view" value="envelope">
           <label>Envelope
             <select name="envelope">
-              {% for name in extension.history_names() %}
-                <option value="{{ name }}"{{ ' selected' if name == history.name else '' }}>{{ name }}</option>
+              {% for parent, names in extension.history_groups() %}
+                {% if parent is not none %}
+                  <optgroup label="{{ parent }}">
+                    {% for name in names %}<option value="{{ name }}"{{ ' selected' if name == history.name else '' }}>{{ name }}</option>{% endfor %}
+                  </optgroup>
+                {% else %}
+                  {% for name in names %}<option value="{{ name }}"{{ ' selected' if name == history.name else '' }}>{{ name }}</option>{% endfor %}
+                {% endif %}
               {% endfor %}
             </select>
           </label>
