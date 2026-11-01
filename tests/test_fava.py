@@ -1124,14 +1124,16 @@ def test_plan_text_shows_up_to() -> None:
 
 
 def test_funding_text_shows_up_to() -> None:
-    """The closing popover names the ceiling and the plan status (#22)."""
+    """The closing popover leads with the verdict and funded fraction (#22)."""
     extension = _extension("up_to.bean")
     view = extension.report("2024-03", "1")
     car = next(e for e in view.envelopes if e.name == "Car")
     text = extension.funding_text(car.cells[0])
+    lines = text.split("\n")
+    assert lines[0] == "underfunded by 100.00 - 83.3% funded"
     assert "level 600.00 = min(ceiling 600.00, opening 500.00 + monthly 250.00)" in text
     assert "funded 500.00 = closing balance" in text
-    assert text.endswith("underfunded by 100.00\ntop up 100.00")
+    assert text.endswith("top up 100.00")
 
 
 def test_action_entry_plan_includes_up_to() -> None:
@@ -1609,18 +1611,6 @@ def test_template_reports_show_a_note_when_the_filter_is_empty(
     assert "Top spending" not in html
 
 
-def test_prefill_reason_explains_the_suggestion() -> None:
-    """The add-allocation note spells out the prefilled amount's derivation."""
-    extension = _extension("up_to.bean")
-    lines = extension.prefill_reason("Car", date(2024, 3, 1))
-    assert (
-        lines[0]
-        == "level 600.00 = min(ceiling 600.00, opening 500.00 + monthly 250.00)"
-    )
-    assert lines[-1] == "top up 100.00"
-    assert extension.prefill_reason("Nope", date(2024, 3, 1)) == ()
-
-
 def test_template_shows_the_prefill_reason(
     tmp_path: Path,
 ) -> None:
@@ -1632,4 +1622,5 @@ def test_template_shows_the_prefill_reason(
     )
     html = _render(extension, {"month": "2024-03", "months": "1"})
     assert "envelope-prefill-reason" in html
+    assert "underfunded by 100.00 - 83.3% funded" in html
     assert "top up 100.00" in html

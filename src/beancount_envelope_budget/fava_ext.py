@@ -59,8 +59,9 @@ from beancount_envelope_budget.report import (
     active_plan,
     build_reports,
     build_view,
-    funding_explanation,
-    funding_explanation_lines,
+    funding_derivation_lines,
+    funding_top_up_line,
+    funding_verdict,
     month_funding,
     overspend_cover,
     plan_top_up,
@@ -484,12 +485,13 @@ class Envelopes(FavaExtensionBase):
     def funding_lines(self, cell: Cell) -> tuple[str, ...]:
         """Describe how a cell's plan is evaluated, one line per part.
 
-        Delegates to :func:`~beancount_envelope_budget.report.funding_explanation_lines`,
-        the shared formatter, so the closing popover shows the same derivation
-        the CLI's ``explain`` command prints: the level's formula, what the
-        funded amount is measured from, the under/on/over verdict and the
-        top-up still needed. A funding-fraction line leads when the cell has a
-        goal to measure against.
+        Composes the shared pieces from
+        :mod:`beancount_envelope_budget.report`, so the closing popover shows
+        the same derivation the CLI's ``explain`` command prints — the level's
+        formula, what the funded amount is measured from, and the top-up still
+        needed — but leads with the verdict and the funded fraction together,
+        such as ``on plan - 24.0% funded``, so the status and how full the
+        envelope is read at a glance.
 
         Args:
             cell: The view cell.
@@ -497,12 +499,20 @@ class Envelopes(FavaExtensionBase):
         Returns:
             The derivation lines, or an empty tuple when the cell has no plan.
         """
-        if cell.explanation is None:
+        explanation = cell.explanation
+        if explanation is None:
             return ()
-        lines: list[str] = []
+        lead: list[str] = []
+        verdict = funding_verdict(explanation)
+        if verdict is not None:
+            lead.append(verdict)
         if cell.fill is not None:
-            lines.append(f"{cell.fill * 100:.1f}% funded")
-        lines.extend(funding_explanation_lines(cell.explanation))
+            lead.append(f"{cell.fill * 100:.1f}% funded")
+        lines: list[str] = [" - ".join(lead)] if lead else []
+        lines.extend(funding_derivation_lines(explanation))
+        top_up = funding_top_up_line(explanation)
+        if top_up is not None:
+            lines.append(top_up)
         return tuple(lines)
 
     def funding_text(self, cell: Cell) -> str:
@@ -518,28 +528,6 @@ class Envelopes(FavaExtensionBase):
             The derivation, or an empty string when the cell has no plan.
         """
         return "\n".join(self.funding_lines(cell))
-
-    def prefill_reason(self, envelope: str, month: date) -> tuple[str, ...]:
-        """Explain the amount an "add allocation" form would prefill.
-
-        Shows how the suggested allocation was reached for the actioned month,
-        so the prefilled number is not a bare figure.
-
-        Args:
-            envelope: The envelope name.
-            month: The month to fill.
-
-        Returns:
-            The derivation lines, or an empty tuple when the envelope has no
-            plan.
-        """
-        report = self._result().envelope(envelope)
-        if report is None:
-            return ()
-        explanation = funding_explanation(report, _fill_day(month))
-        if explanation is None:
-            return ()
-        return funding_explanation_lines(explanation)
 
     def active_plan(self, plans: tuple[PlanLine, ...], month: date) -> PlanLine | None:
         """Return the plan directive in force in a month, for the closing popover.

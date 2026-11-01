@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Both Fava plan popovers — the closing figure's and the allocated figure's —
+  lead with the plan verdict beside the funded fraction (e.g.
+  `on plan - 24.0% funded`), then the level/funded derivation and any top-up, so
+  the status is not buried beneath the arithmetic and the two no longer
+  disagree. The CLI's `explain` output is unchanged.
 - **Breaking:** the `cash-account` account metadata key is now `on-budget`, to
   match the on-budget/off-budget language used elsewhere. It marks an `Assets`
   or `Liabilities` account whose balance counts as spendable cash; `FALSE` is
