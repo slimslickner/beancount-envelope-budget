@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from beancount_envelope_budget import actions
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
     from beancount.core.data import Custom
@@ -21,10 +22,12 @@ if TYPE_CHECKING:
 __all__ = [
     "SOURCE_SUFFIXES",
     "append",
+    "apply_edits",
     "delete",
     "directive_line_count",
     "replace",
     "resolve_target",
+    "rewrite",
 ]
 
 #: The file suffixes the writer will edit.
@@ -124,6 +127,47 @@ def delete(path: Path, lineno: int) -> None:
     count = directive_line_count(lines, lineno)
     del lines[lineno - 1 : lineno - 1 + count]
     _write_lines(path, lines)
+
+
+def apply_edits(
+    lines: list[str],
+    edits: Sequence[tuple[int, Custom | None]],
+) -> list[str]:
+    """Replace or delete directives in a file's lines, without touching disk.
+
+    The edits are applied from the bottom up, so each ``lineno`` still names its
+    original directive after the lines below it have changed. A directive spans
+    its own line plus any indented metadata lines.
+
+    Args:
+        lines: The file's lines, with line endings.
+        edits: ``(lineno, entry)`` pairs. ``entry`` is the directive to write in
+            place of the one at ``lineno``; ``None`` deletes it.
+
+    Returns:
+        The new lines.
+    """
+    updated = list(lines)
+    ending = _ending(lines)
+    for lineno, entry in sorted(edits, key=lambda edit: edit[0], reverse=True):
+        count = directive_line_count(updated, lineno)
+        start = lineno - 1
+        if entry is None:
+            del updated[start : start + count]
+        else:
+            written = [f"{line}{ending}" for line in actions.render(entry).split("\n")]
+            updated[start : start + count] = written
+    return updated
+
+
+def rewrite(path: Path, edits: Sequence[tuple[int, Custom | None]]) -> None:
+    """Replace or delete directives in a file, in place.
+
+    Args:
+        path: The file to edit.
+        edits: ``(lineno, entry)`` pairs, as :func:`apply_edits`.
+    """
+    _write_lines(path, apply_edits(_read_lines(path), edits))
 
 
 def _read_lines(path: Path) -> list[str]:

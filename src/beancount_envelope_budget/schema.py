@@ -489,14 +489,17 @@ DIAGNOSTIC_CODES: tuple[DiagnosticCode, ...] = (
         code="W001",
         severity=Severity.WARNING,
         summary=(
-            "The pool is negative on {date}, reaching a low of {balance} "
-            "(it opened that day at {opening})."
+            "The pool closes {month} negative at {balance} (it opened the month "
+            "at {opening})."
         ),
         explanation=(
-            "More was allocated than the cash available at that point. Fund the "
-            "envelope after the income arrives, or move money back from another "
-            "envelope. Run `beancount-envelope-budget pool LEDGER` to see the "
-            "pool's per-transaction ledger around the dip, with a running balance."
+            "More was allocated than the cash available by that month end. Only "
+            "month ends are judged: the budget carries balances from month to "
+            "month, so a dip within a month that recovers by its end is timing, "
+            "not an error, and is not reported. Fund the envelope after the "
+            "income arrives, or move money back from another envelope. Run "
+            "`beancount-envelope-budget pool LEDGER` to see the pool's "
+            "per-transaction ledger, with a running balance."
         ),
     ),
     DiagnosticCode(

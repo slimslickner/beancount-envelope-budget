@@ -26,7 +26,7 @@ from argcomplete.completers import FilesCompleter
 from beancount import loader
 from beancount.core.data import Open, Transaction
 
-from beancount_envelope_budget import __version__, actions, plugin, writer
+from beancount_envelope_budget import __version__, actions, consolidate, plugin, writer
 from beancount_envelope_budget.core import (
     BudgetResult,
     Diagnostic,
@@ -1440,6 +1440,115 @@ def _line_ending(line: str) -> str:
     return "\r\n" if line.endswith("\r\n") else "\n"
 
 
+# --- Consolidation -------------------------------------------------------------
+
+
+def _cmd_consolidate(args: argparse.Namespace) -> int:
+    """Print a diff that merges each envelope-month's ``allocate`` directives.
+
+    Args:
+        args: Parsed arguments.
+
+    Returns:
+        The process exit status.
+    """
+    if not args.ledger.exists():
+        print(f"no such ledger: {args.ledger}", file=sys.stderr)
+        return 2
+    pattern = _compile_pattern(args.envelope, "--envelope")
+    if pattern is _INVALID_PATTERN:
+        return 2
+    loaded = _load(args.ledger)
+    result = loaded.result
+    if result.start is None:
+        print("there is no start directive; nothing to consolidate", file=sys.stderr)
+        return 0
+    plan = consolidate.plan_consolidation(
+        loaded.entries,
+        currency=result.operating_currency,
+        today=date.today(),  # noqa: DTZ011 - local today is intended
+        envelope=pattern,
+        month=args.month,
+    )
+    return _apply_consolidation(args, plan)
+
+
+def _apply_consolidation(
+    args: argparse.Namespace, plan: consolidate.ConsolidationPlan
+) -> int:
+    """Print or write a consolidation plan.
+
+    Args:
+        args: Parsed arguments; ``args.ledger`` and ``args.write``.
+        plan: The consolidation plan.
+
+    Returns:
+        The process exit status.
+    """
+    for note in plan.skipped:
+        print(f"; skipped {note}", file=sys.stderr)
+    if not plan.edits:
+        print("nothing to consolidate", file=sys.stderr)
+        return 0
+    edits_by_file = _edits_by_file(plan)
+    targets = {name: Path(name) for name in edits_by_file}
+    missing = [name for name, target in targets.items() if not target.is_file()]
+    if missing:
+        print(
+            "cannot consolidate; no such source file: " + ", ".join(sorted(missing)),
+            file=sys.stderr,
+        )
+        return 2
+    if args.write:
+        for name in sorted(edits_by_file):
+            writer.rewrite(targets[name], edits_by_file[name])
+        print(
+            f"consolidated {len(plan.groups)} envelope-month(s) "
+            f"in {len(edits_by_file)} file(s)"
+        )
+        return _recheck(args.ledger)
+    for name in sorted(edits_by_file):
+        sys.stdout.write(_consolidation_diff(name, edits_by_file[name]))
+    return 0
+
+
+def _edits_by_file(
+    plan: consolidate.ConsolidationPlan,
+) -> dict[str, list[tuple[int, Custom | None]]]:
+    """Group a consolidation plan's edits by the file they touch.
+
+    Args:
+        plan: The consolidation plan.
+
+    Returns:
+        A mapping from file name to ``(lineno, entry)`` edits.
+    """
+    grouped: dict[str, list[tuple[int, Custom | None]]] = {}
+    for edit in plan.edits:
+        grouped.setdefault(edit.filename, []).append((edit.lineno, edit.entry))
+    return grouped
+
+
+def _consolidation_diff(filename: str, edits: list[tuple[int, Custom | None]]) -> str:
+    """Render the unified diff for one file's consolidation edits.
+
+    Args:
+        filename: The file to edit.
+        edits: The ``(lineno, entry)`` edits.
+
+    Returns:
+        The unified diff, or an empty string.
+    """
+    path = Path(filename)
+    original = _read_lines(path)
+    updated = writer.apply_edits(original, edits)
+    return "".join(
+        difflib.unified_diff(
+            original, updated, fromfile=str(path), tofile=f"{path} (consolidated)"
+        )
+    )
+
+
 # --- Completion ----------------------------------------------------------------
 
 _INVALID_PATTERN = re.compile("(?!x)x")
@@ -1933,9 +2042,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="print the pool's ledger with a running balance",
         description=(
             "Print every transaction and allocation that moved the unassigned "
-            "pool, in date order with the running balance after each, so a negative "
-            "pool (W001) can be traced. A bare run shows the pool's lowest month "
-            "when it ever went negative, else the latest month."
+            "pool, in date order with the running balance after each, so an "
+            "intra-month dip (which W001 no longer reports) can be traced. A bare "
+            "run shows the pool's lowest month when it ever went negative, else "
+            "the latest month."
         ),
     )
     _ledger_argument(pool)
@@ -2070,6 +2180,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pin.set_defaults(func=_cmd_pin)
 
+    _add_consolidate_parser(subparsers)
+
     _add_completion_parser(subparsers)
 
     return parser
@@ -2168,6 +2280,46 @@ def _add_action_parsers(subparsers: argparse._SubParsersAction) -> None:
     )
     _write_argument(unplan)
     unplan.set_defaults(func=_cmd_unplan)
+
+
+def _add_consolidate_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``consolidate`` subcommand.
+
+    Args:
+        subparsers: The subparsers action to extend.
+    """
+    consolidate = subparsers.add_parser(
+        "consolidate",
+        help="merge each envelope-month's allocate directives into one",
+        description=(
+            "Print a diff that merges an envelope-month's several allocate "
+            "directives into a single directive, dated the last day of the month "
+            "(or today, for the current month). The net amount is unchanged, so "
+            "balances, the pool and the invariant are unchanged. With no filter "
+            "the whole ledger is consolidated; --envelope limits it to matching "
+            "envelopes, and --month to a single month. A month with a single "
+            "directive is left alone. Apply the diff with --write."
+        ),
+    )
+    _ledger_argument(consolidate)
+    consolidate_envelopes = consolidate.add_argument(
+        "--envelope",
+        metavar="REGEX",
+        help="only consolidate envelopes whose name matches this regular expression",
+    )
+    setattr(consolidate_envelopes, "completer", _complete_envelopes)  # noqa: B010
+    consolidate.add_argument(
+        "--month",
+        type=_parse_month,
+        metavar="YYYY-MM",
+        help="only consolidate this month",
+    )
+    consolidate.add_argument(
+        "--write",
+        action="store_true",
+        help="edit the ledger files in place instead of printing a diff",
+    )
+    consolidate.set_defaults(func=_cmd_consolidate)
 
 
 def _add_completion_parser(subparsers: argparse._SubParsersAction) -> None:

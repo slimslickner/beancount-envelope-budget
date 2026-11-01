@@ -353,10 +353,13 @@ closing(e, m) = closing(e, m-1) + allocated(e, m) + activity(e, m)
   month.
 
 Overspending needs no special rule: a negative balance simply carries forward
-until later allocations cover it. A pool that goes negative on any day means
-more was allocated than the cash available at that point, and is reported as a
-warning (`W001`); `pool LEDGER` prints the pool's per-transaction ledger around it,
-with the running balance after each line.
+until later allocations cover it. A pool that *closes a month* negative means
+more was allocated than the cash available by that month end, and is reported as
+a warning (`W001`). Only month ends are judged: a dip within a month that
+recovers by its end is timing, not an error, so it is not reported — the budget
+carries balances month to month, and the money did arrive. (`pool LEDGER` still
+prints the pool's per-transaction ledger with the running balance after each
+line, so such a dip can still be traced.)
 
 ## Validation
 
@@ -409,6 +412,7 @@ beancount-envelope-budget suggest LEDGER
 beancount-envelope-budget fund LEDGER --from YYYY-MM --to YYYY-MM [--mode MODE]
 beancount-envelope-budget fund LEDGER --mode topup [--date DATE] [--reserve AMOUNT] [--strict]
 beancount-envelope-budget pin LEDGER --account REGEX [--through DATE] [--write]
+beancount-envelope-budget consolidate LEDGER [--envelope REGEX] [--month YYYY-MM] [--write]
 ```
 
 See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget
@@ -434,7 +438,8 @@ See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget
   top-up, so a funding suggestion is never a bare number. `--envelope` filters
   by name and `--json` prints the lines per envelope.
 - `pool` prints the pool's per-transaction ledger — both directions, with the running
-  balance after each line — so a `W001` dip can be traced. A bare run opens on
+  balance after each line — so an intra-month dip (which `W001` no longer reports)
+  can be traced. A bare run opens on
   the pool's lowest month when it ever went negative, else the latest month;
   `--all` shows the whole history, and `--month`/`--date` window it.
 - `fund` prints `allocate` directives (redirect them into a file you include), or
@@ -448,6 +453,33 @@ See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget
   `--write FILE`, so the CLI can make the same ledger edits the Fava report can.
 - `pin` freezes an account's current envelope onto its existing postings so you
   can change the account's metadata without reclassifying history.
+- `consolidate` merges an envelope-month's several `allocate` directives into a
+  single one, dated the last day of the month (or today, for the current month),
+  so a history funded in several passes reads as one line. The net amount is
+  unchanged, so every balance, the pool and the invariant are unchanged. With no
+  filter it walks the whole ledger; `--envelope` limits it to matching envelopes
+  and `--month` to one month. A month that already holds a single directive is
+  left alone, and a month whose allocations net to zero loses them all. It
+  prints a diff and edits nothing until you pass `--write`.
+
+## Consolidating allocations
+
+Funding an envelope more than once in a month scatters its history across many
+`allocate` directives. `consolidate` tidies that up: for each envelope-month it
+sums the directives, keeps the latest one's place, re-dates it to the month end
+(today, for the current month) and deletes the rest. The sum is exactly what the
+budget already used, so the report, the pool and the invariant are unchanged —
+this is a readability change, not a budget change. Because `W001` now judges
+month ends, re-dating the allocations to month end cannot change any diagnostic,
+either.
+
+It is deliberately conservative. It merges only months with **two or more**
+directives; a lone directive — even one not dated month-end — is left as it is.
+A month whose allocations cancel out keeps no directive rather than a zero one.
+A directive with no source location (a plugin-generated one, say) blocks its
+whole month, which is reported and skipped rather than half-merged. And it is
+opt-in twice over: a bare run prints a unified diff, and only `--write` touches
+the files, by literal line edits that preserve line endings and the inode.
 
 ## Fava report
 
@@ -597,6 +629,16 @@ exposed beyond localhost; keep it local.
 Moving money between envelopes is not a separate action: it is two allocations,
 one back to the pool and one out of it, so the report expresses it as two
 entries.
+
+Because those two entries, and any month funded in several passes, clutter the
+history, the report can **consolidate** them the way the CLI does. The allocated
+figure's popover offers *Consolidate N directives* when a month holds more than
+one, and the month heading's actions offer *Consolidate this month* for every
+envelope in the month. Both plan the edits with the CLI's own planner, so the
+two never disagree, and apply them through Fava's own file API (its lock,
+watcher and conflict guard), by the same in-memory line splice the CLI uses.
+These are plain forms, not the JavaScript modal — there is no new directive to
+edit, only directives to merge away — so they work without JavaScript too.
 
 The invariant is unchanged: pure code still never touches disk. Writing is an
 explicit, opt-in surface, here and in the CLI.

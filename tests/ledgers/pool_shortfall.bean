@@ -1,0 +1,19 @@
+option "operating_currency" "USD"
+
+; The January allocation exceeds the income that lands mid-month, so the pool
+; closes January at -450.00 and W001 fires. Unlike mid_month_dip.bean, the month
+; end itself is negative, so this is a real shortfall, not timing.
+2020-01-01 open Assets:Checking USD
+  on-budget: TRUE
+2020-01-01 open Expenses:Groceries USD
+  envelope: "Groceries"
+2020-01-01 open Income:Salary USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Groceries"
+2024-01-01 custom "envelope" "allocate" "Groceries" 500.00 USD
+2024-01-02 custom "envelope" "allocate" "Groceries" 200.00 USD
+
+2024-01-15 * "Salary"
+  Assets:Checking   250.00 USD
+  Income:Salary    -250.00 USD

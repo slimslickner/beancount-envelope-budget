@@ -1377,9 +1377,9 @@ def pool_ledger(
     security's gain; a folded rounding residual is its own line) and allocations
     leaving the pool for an envelope. A transaction is one line, so its internal
     posting order never reads as a dip. Lines are ordered by date, with a day's
-    activity before its allocations, so the running balance walks the same path
-    the ``W001`` pool-floor warning measures. Each line carries the balance after
-    it, so the pool's lows are visible.
+    activity before its allocations, so the running balance walks the pool's true
+    per-day path. Each line carries the balance after it, so a dip that recovers
+    by a month end — which :data:`W001` no longer reports — is still visible.
 
     ``result`` must have been computed with ``collect_activity=True``, or the
     pool's activity lines are absent and only allocations remain.

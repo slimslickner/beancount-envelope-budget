@@ -116,6 +116,7 @@ beancount-envelope-budget fund LEDGER --from YYYY-MM --to YYYY-MM [--mode actual
 beancount-envelope-budget fund LEDGER --mode topup [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]
 beancount-envelope-budget fund LEDGER --mode fully-fund|fund-available [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]
 beancount-envelope-budget pin LEDGER --account REGEX [--through YYYY-MM-DD] [--write]
+beancount-envelope-budget consolidate LEDGER [--envelope REGEX] [--month YYYY-MM] [--write]
 beancount-envelope-budget schema [--json]
 beancount-envelope-budget docs [--check]
 beancount-envelope-budget completion SHELL   # bash or zsh
@@ -126,6 +127,7 @@ beancount-envelope-budget completion SHELL   # bash or zsh
 - `explain` shows how each planned envelope is evaluated for a month: the resolved `monthly` and the completed months an `avgN` averaged, the `up-to` ceiling formula, or the goal schedule, plus the funding level, the funded amount, the under/on/over verdict and the suggested top-up.
 - `fund` prints `allocate` directives to stdout (redirect them into a file you include); it never edits your ledger. The `actuals`, `overspend` and `copy` modes backfill a month range and skip months that already have an allocation; `topup` funds envelopes up to their level in priority order from the pool, and reports any envelope already above its level. `fully-fund` and `fund-available` fund every envelope to its plan or its overspend, whichever is greater, the latter stopping before the pool would go negative — the same actions the Fava report offers on each month heading.
 - `pin` freezes the resolved envelope onto matching postings as metadata, so you can change an account's envelope afterwards without reclassifying history. It prints a diff by default; `--write` edits the files in place.
+- `consolidate` merges an envelope-month's several `allocate` directives into one, dated the last day of the month (or today, for the current month), so a history funded in several passes reads as one line. The net amount is unchanged, so balances, the pool and the invariant are unchanged. With no filter it walks the whole ledger; `--envelope` and `--month` narrow it. It prints a diff by default; `--write` edits the files in place. The Fava report offers the same for one envelope-month or one month.
 
 See `docs/cli.md` for the full reference and `beancount-envelope-budget --help`.
 

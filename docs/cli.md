@@ -84,7 +84,7 @@ For a month, print how each planned envelope's funding is evaluated: the resolve
 
 ## `beancount-envelope-budget pool`
 
-Print every transaction and allocation that moved the unassigned pool, in date order with the running balance after each, so a negative pool (W001) can be traced. A bare run shows the pool's lowest month when it ever went negative, else the latest month.
+Print every transaction and allocation that moved the unassigned pool, in date order with the running balance after each, so an intra-month dip (which W001 no longer reports) can be traced. A bare run shows the pool's lowest month when it ever went negative, else the latest month.
 
 
 | Option | Help |
@@ -170,6 +170,19 @@ Print a diff that adds the resolved envelope to matching postings as posting met
 | `ledger` | path to the Beancount ledger (.bean or .beancount) |
 | `--account` | only pin postings whose account matches this regular expression |
 | `--through` | only pin postings dated on or before this date |
+| `--write` | edit the ledger files in place instead of printing a diff |
+
+## `beancount-envelope-budget consolidate`
+
+Print a diff that merges an envelope-month's several allocate directives into a single directive, dated the last day of the month (or today, for the current month). The net amount is unchanged, so balances, the pool and the invariant are unchanged. With no filter the whole ledger is consolidated; --envelope limits it to matching envelopes, and --month to a single month. A month with a single directive is left alone. Apply the diff with --write.
+
+
+| Option | Help |
+| --- | --- |
+| `-h, --help` | show this help message and exit |
+| `ledger` | path to the Beancount ledger (.bean or .beancount) |
+| `--envelope` | only consolidate envelopes whose name matches this regular expression |
+| `--month` | only consolidate this month |
 | `--write` | edit the ledger files in place instead of printing a diff |
 
 ## `beancount-envelope-budget completion`

@@ -446,7 +446,7 @@ def test_template_no_closing_popover_without_a_plan() -> None:
 
 def test_report_includes_warnings() -> None:
     """Warnings surface on the view."""
-    view = _extension("mid_month_dip.bean").report("2024-01", "1")
+    view = _extension("pool_shortfall.bean").report("2024-01", "1")
     assert [warning.code for warning in view.warnings] == ["W001"]
 
 
@@ -579,7 +579,7 @@ def test_template_renders_target_tooltip() -> None:
 def test_template_renders_warning_panel() -> None:
     """Warnings are shown with a link to the errors page."""
     html = _render(
-        _extension("mid_month_dip.bean"), {"month": "2024-01", "months": "1"}
+        _extension("pool_shortfall.bean"), {"month": "2024-01", "months": "1"}
     )
     assert "W001" in html
     assert "Warnings" in html
@@ -1228,6 +1228,36 @@ def test_js_module_closes_popovers_after_save() -> None:
     assert "open_pop = null;" in cleanup
 
 
+def test_js_module_consolidates_in_place() -> None:
+    """The module submits a consolidation without a page navigation (#78).
+
+    There is no JavaScript runtime in this project, so this only pins the
+    contract: a ``data-consolidate`` form posts with ``format=json`` and then
+    refreshes the report in place, like a created directive, rather than doing
+    the browser's full navigation a plain form submit would.
+    """
+    source = (Path(fava_ext.__file__).parent / "Envelopes.js").read_text()
+    hook = source.split("onExtensionPageLoad(ctx)")[1]
+    assert "form[data-consolidate]" in hook
+    assert "consolidate(form, api)" in hook
+    body = source.split("async function consolidate(")[1].split("function refresh()")[0]
+    assert 'body.append("format", "json")' in body
+    assert 'api.post("commit", body)' in body
+    assert "close_open_popover();" in body
+    assert "refresh();" in body
+
+
+def test_js_module_right_aligns_month_popovers() -> None:
+    """The month actions popover always hangs right-aligned (#78).
+
+    The other popovers flip to the side with more room, but the first month's
+    header sits near the left edge, so it would flip left and read differently
+    from every other month.
+    """
+    source = (Path(fava_ext.__file__).parent / "Envelopes.js").read_text()
+    assert 'host.classList.contains("envelope-month-host")' in source
+
+
 def test_template_popovers_size_to_content() -> None:
     """The stylesheet sizes ledger popovers to their widest line (#43)."""
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
@@ -1287,6 +1317,87 @@ def test_render_source_expands_a_month_action() -> None:
     lines = source.splitlines()
     assert any('"Rent"' in line and "2200.00 USD" in line for line in lines)
     assert any('"Groceries"' in line and "50.00 USD" in line for line in lines)
+
+
+def test_rewrite_source_applies_edits(tmp_path: Path) -> None:
+    """A consolidation rewrite reads, edits and writes a source file."""
+    text = (
+        '2024-01-05 custom "envelope" "allocate" "A" 100.00 USD\n'
+        '2024-01-20 custom "envelope" "allocate" "A" 250.00 USD\n'
+    )
+
+    class _FakeFileModule:
+        written: str | None = None
+
+        def get_source(self, _path: object) -> tuple[str, str]:
+            return text, "sha"
+
+        def set_source(self, _path: object, source: str, _sha: str) -> None:
+            self.written = source
+
+    fake = _FakeFileModule()
+    ledger = cast("FavaLedger", SimpleNamespace(file=fake))
+    replacement = actions.allocate("A", D("350"), date(2024, 1, 31), "USD")
+    fava_ext._rewrite_source(
+        ledger, tmp_path / "main.bean", [(2, replacement), (1, None)]
+    )
+    assert fake.written == ('2024-01-31 custom "envelope" "allocate" "A" 350.00 USD\n')
+
+
+def test_perform_consolidates_through_the_writer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A consolidate action rewrites matching allocations and appends nothing."""
+    recorded: list[tuple[Path, list[tuple[int, object]]]] = []
+    monkeypatch.setattr(
+        fava_ext,
+        "_rewrite_source",
+        lambda _ledger, path, edits: recorded.append((path, edits)),
+    )
+    extension = _extension(
+        "consolidate.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    entries = extension.perform(
+        {"action": "consolidate", "envelope": "Groceries", "month": "2024-01"}
+    )
+    assert entries == []
+    assert len(recorded) == 1
+    _path, edits = recorded[0]
+    # One replacement and one delete, the replacement first.
+    assert [entry is None for _lineno, entry in edits] == [False, True]
+
+
+def test_perform_consolidate_skips_a_single_month(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A month with nothing to merge rewrites nothing."""
+    recorded: list[object] = []
+    monkeypatch.setattr(
+        fava_ext, "_rewrite_source", lambda *args: recorded.append(args)
+    )
+    extension = _extension(
+        "consolidate.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    assert extension.perform({"action": "consolidate", "month": "2024-02"}) == []
+    assert recorded == []
+
+
+def test_perform_consolidate_rejects_a_bad_pattern(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A malformed envelope regex is a value error."""
+    monkeypatch.setattr(fava_ext, "_rewrite_source", lambda *_args: None)
+    extension = _extension(
+        "consolidate.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    with pytest.raises(ValueError, match="invalid envelope pattern"):
+        extension.perform({"action": "consolidate", "envelope": "("})
 
 
 def test_perform_rejects_an_empty_month_action(
@@ -1451,8 +1562,22 @@ def test_template_shows_edit_popovers_when_writable(tmp_path: Path) -> None:
     assert 'name="action" value="unplan"' in html
     assert 'name="action" value="fully_fund"' in html
     assert 'name="action" value="fund_available"' in html
+    assert 'name="action" value="consolidate"' in html
     assert "envelope-month-pop" in html
     assert "title=" not in html
+
+
+def test_template_shows_consolidate_for_multiple_allocations(tmp_path: Path) -> None:
+    """A month with several allocations offers a consolidate button."""
+    extension = _extension(
+        "consolidate.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    html = _render(extension, {"month": "2024-01", "months": "1"})
+    assert "Consolidate 2 directives" in html
+    assert "Consolidate this month" in html
+    assert html.count("data-consolidate") == 2
 
 
 def test_template_plan_popover_shows_read_only_info() -> None:

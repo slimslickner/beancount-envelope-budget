@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `W001` (negative pool) now judges **month ends only**. A dip within a month
+  that recovers by its end is cash-flow timing — the money arrived after it was
+  assigned — not a shortfall, and is no longer reported; a month that actually
+  closes negative still is, naming its lowest month end. This puts the warning
+  on the same cadence as the month-end invariant (`E007`) and makes it
+  independent of intra-month timing. The `pool` command and the report's pool
+  ledger still show per-transaction dips, so a recovered dip stays traceable
+  (#78).
 - **Breaking:** the Fava **Reports** tab is now **Monthly Reports**, at
   `?view=monthly_reports` (was `?view=reports`); no alias is kept (#68).
 - Both Fava plan popovers — the closing figure's and the allocated figure's —
@@ -42,6 +50,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A **consolidate** command and Fava action that merge an envelope-month's
+  several `allocate` directives into one, dated the last day of the month (or
+  today, for the current month). The net amount is unchanged, so balances, the
+  pool and the invariant are unchanged — it is a readability change only. The
+  CLI walks the whole ledger by default and narrows with `--envelope`/`--month`;
+  a bare run prints a diff and `--write` applies it in place, by literal line
+  edits. A month with a single directive is left alone, and one whose allocations
+  net to zero loses them all. The Fava report offers *Consolidate N directives*
+  in an allocation popover and *Consolidate this month* in the month actions,
+  sharing the CLI's planner and applying through Fava's own file API (#78).
 - **Experimental:** a **Plan Review** tab (`?view=plan_review`) and a matching
   `suggest` review. Each open, non-goal envelope's spending over the trailing
   window of completed months is compared against its plan as written — average

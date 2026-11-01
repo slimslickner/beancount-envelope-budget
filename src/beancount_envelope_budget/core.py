@@ -2559,14 +2559,7 @@ def _build_result(
     _check_envelope_closes(
         declarations, env_activity, env_alloc, operating_currency, diagnostics
     )
-    _check_pool_floor(
-        start,
-        pre_start_cash,
-        pool_activity,
-        pool_alloc,
-        operating_currency,
-        diagnostics,
-    )
+    _check_pool_floor(pool_rows, operating_currency, diagnostics)
     return BudgetResult(
         start=start,
         operating_currency=operating_currency,
@@ -2708,54 +2701,38 @@ def _check_envelope_closes(
 
 
 def _check_pool_floor(
-    start: date,
-    pre_start_cash: Decimal,
-    pool_activity: list[tuple[date, Decimal]],
-    pool_alloc: list[tuple[date, Decimal]],
+    pool_rows: Sequence[MonthRow],
     operating_currency: str,
     diagnostics: list[Diagnostic],
 ) -> None:
-    """Warn when the pool goes negative, naming its lowest point.
+    """Warn when the pool closes a month negative, naming its lowest month.
+
+    Only month ends are judged. The budget carries balances from month to
+    month, so a dip *within* a month that recovers by its end has no bearing on
+    any later month and is not a shortfall — the money arrived after it was
+    assigned, which is timing, not an error. This keeps the warning on the same
+    month-end cadence as the invariant (:data:`E007`) and independent of the
+    ledger's intra-month timing. A true over-allocation still shows: the month
+    closes negative. The pool's per-transaction dips remain visible through
+    ``beancount-envelope-budget pool`` and the report's pool ledger.
 
     Args:
-        start: The start date.
-        pre_start_cash: The pool's opening balance.
-        pool_activity: Pool activity events.
-        pool_alloc: Allocation events, which leave the pool.
+        pool_rows: The pool's monthly rows.
         operating_currency: The currency, for the message.
         diagnostics: The list to append diagnostics to.
     """
-    # Walk the same events, in the same order, that
-    # :func:`beancount_envelope_budget.report.pool_ledger` builds its ledger
-    # from: each transaction's pooled effect, then that day's allocations. The
-    # warning and the ledger therefore agree line for line.
-    staged = sorted(
-        [(when, 0, amount) for when, amount in pool_activity]
-        + [(when, 1, amount) for when, amount in pool_alloc],
-        key=lambda item: (item[0], item[1]),
-    )
-    balance = pre_start_cash
-    low = balance
-    low_date = start
-    low_opening = balance
-    current_date: date | None = None
-    day_opening = balance
-    for when, kind, amount in staged:
-        if when != current_date:
-            current_date = when
-            day_opening = balance
-        balance += amount if kind == 0 else -amount
-        if balance < low:
-            low, low_date, low_opening = balance, when, day_opening
-    if low < 0:
-        diagnostics.append(
-            _diag(
-                "W001",
-                date=low_date.isoformat(),
-                balance=format_amount(low, operating_currency),
-                opening=format_amount(low_opening, operating_currency),
-            )
+    losing = [row for row in pool_rows if row.closing < 0]
+    if not losing:
+        return
+    low = min(losing, key=lambda row: (row.closing, row.month))
+    diagnostics.append(
+        _diag(
+            "W001",
+            month=f"{low.month:%Y-%m}",
+            balance=format_amount(low.closing, operating_currency),
+            opening=format_amount(low.opening, operating_currency),
         )
+    )
 
 
 def _sorted(diagnostics: list[Diagnostic]) -> list[Diagnostic]:

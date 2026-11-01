@@ -1,6 +1,6 @@
 ---
 name: Envelope Budgeting CLI
-description: Use when working with a Beancount envelope budget and the beancount-envelope-budget CLI — validating a ledger, reporting envelope balances, funding envelopes after a paycheck, backfilling historical allocations, or remapping an account with pin. Covers the safe workflow and the command outline.
+description: Use when working with a Beancount envelope budget and the beancount-envelope-budget CLI — validating a ledger, reporting envelope balances, funding envelopes after a paycheck, backfilling historical allocations, consolidating duplicated allocations, or remapping an account with pin. Covers the safe workflow and the command outline.
 ---
 
 # Envelope Budgeting CLI
@@ -19,10 +19,11 @@ Worked examples are in `references/workflows.md` beside this file.
 
 - **Always run `check` first**, and again after any change.
 - `check`, `report` and `suggest` are **read-only**.
-- `fund` and `pin` (without `--write`) only **print**. Redirect their output into
-  a file you `include`; never paste allocations by hand.
-- `pin --write` **edits the ledger in place**. Show the diff first and get the
-  user's approval before writing.
+- `fund` only **prints** directives: redirect its output into a file you
+  `include`; never paste allocations by hand.
+- `pin` and `consolidate` **print a diff** and change nothing. `pin --write` and
+  `consolidate --write` **edit the ledger in place**: show the diff first and get
+  the user's approval before writing.
 - Prefer `report --json` when you need to read numbers programmatically.
 - Show the exact command you ran and its exit code.
 
@@ -41,6 +42,7 @@ When working inside this repository, prefix commands with `uv run`.
 | `fund LEDGER --mode topup [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]` | Print `allocate` directives funding envelopes up to their level, in priority order. |
 | `fund LEDGER --mode fully-fund\|fund-available [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]` | Print `allocate` directives funding every envelope to its plan or its overspend, whichever is greater; `fund-available` caps the run by the pool. |
 | `pin LEDGER --account REGEX [--through YYYY-MM-DD] [--write]` | Freeze the resolved envelope onto existing postings so an account can be remapped without changing history. |
+| `consolidate LEDGER [--envelope REGEX] [--month YYYY-MM] [--write]` | Merge an envelope-month's several `allocate` directives into one, dated month-end (today, in the current month). Prints a diff; the net amount, the pool and the invariant are unchanged. |
 | `schema [--json]` | The directive, metadata and reserved-value schema. |
 | `completion SHELL` | Tab-completion snippet for bash or zsh. |
 
@@ -91,15 +93,18 @@ net spending, so months close flat.
   `check`. See `references/workflows.md#backfill-history`.
 - **Moving an account to a new envelope** → `pin`, then change the metadata. See
   `references/workflows.md#remap-an-account`.
+- **Tidying up duplicate allocations** → `consolidate`, review the diff, then
+  `--write`. See `references/workflows.md#tidy-up-allocations`.
 
 ## Pitfalls
 
 - `E002` means a non-cash account moved cash without an envelope. Give it an
   `envelope:` (or `envelope: "pool"` for taxes and pre-tax deductions).
 - `E001` means a directive or posting names an envelope that was never declared.
-- `W001` means the pool went negative on some day — usually allocating before the
-  income that funds it lands. Run `pool LEDGER` to see the pool's ledger around
-  the dip, with a running balance.
+- `W001` means the pool closed a month negative — usually allocating before the
+  income that funds it landed. Only month ends are judged, so a dip that recovers
+  by month end is not reported; run `pool LEDGER` to see the pool's per-transaction
+  ledger either way.
 - Beancount runs `beancount.ops.pad` after every user plugin, so a plugin that
   runs earlier would miss `pad`'s synthesized transactions; the library applies
   `pad` before computing to stay in step with the report. `plugin_processing_mode

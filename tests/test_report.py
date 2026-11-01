@@ -48,8 +48,8 @@ def _compute(name: str, *, collect_activity: bool = True) -> BudgetResult:
     return compute(entries, options, collect_activity=collect_activity)
 
 
-def test_pool_ledger_matches_the_warning() -> None:
-    """The ledger's lines, order and low match W001, and it reports the opening."""
+def test_pool_ledger_reports_lines_and_low() -> None:
+    """The ledger's lines, order, low and opening are reported."""
     result = _compute("mid_month_dip.bean")
     ledger = pool_ledger(result)
     assert ledger.opening == D("0")
@@ -57,10 +57,17 @@ def test_pool_ledger_matches_the_warning() -> None:
         (date(2024, 1, 1), POOL_ALLOCATION, D("-500"), D("-500")),
         (date(2024, 1, 15), POOL_ACTIVITY, D("3000"), D("2500")),
     ]
+    assert ledger.low == D("-500")
+    assert ledger.low_date == date(2024, 1, 1)
+
+
+def test_pool_warning_uses_the_month_end() -> None:
+    """W001 reports a month that closes negative, not an intra-month dip."""
+    result = _compute("pool_shortfall.bean")
     warning = next(d for d in result.diagnostics if d.code == "W001")
-    assert f"{ledger.low_date}" in warning.message
-    assert f"{ledger.low:.2f}" in warning.message
-    assert "opened that day at 0.00 USD" in warning.message
+    assert "2024-01" in warning.message
+    assert "-450.00" in warning.message
+    assert "opened the month at 0.00 USD" in warning.message
 
 
 def test_pool_ledger_window_carries_opening() -> None:

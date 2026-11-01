@@ -20,7 +20,10 @@ report append ``custom "envelope"`` directives::
 A path that escapes the ledger directory or is not a Beancount source file is
 refused. Writes go through Fava's own file API (its lock, watcher and printer),
 so Fava's editor and this report stay consistent; the directives themselves come
-from :mod:`beancount_envelope_budget.actions`, the same module the CLI uses.
+from :mod:`beancount_envelope_budget.actions`, the same module the CLI uses. With
+writing on, the report can also consolidate an envelope-month's allocations into
+one, through the CLI's own planner
+(:mod:`beancount_envelope_budget.consolidate`).
 
 The extension recomputes the budget in :meth:`Envelopes.after_load_file` and
 renders a Jinja template. It is the only module that imports Fava. The view it
@@ -45,7 +48,7 @@ from fava.core import file as fava_file
 from fava.ext import ExtensionConfigError, FavaExtensionBase, extension_endpoint
 from flask import g, has_app_context, jsonify, make_response, redirect, request
 
-from beancount_envelope_budget import actions, plugin, writer
+from beancount_envelope_budget import actions, consolidate, plugin, writer
 from beancount_envelope_budget.core import BudgetResult, Plan, compute, iter_months
 from beancount_envelope_budget.report import (
     MAX_MONTHS,
@@ -263,14 +266,15 @@ class Envelopes(FavaExtensionBase):
         With a ``source`` field — what the JavaScript modal posts — the
         Beancount text is parsed and every ``custom "envelope"`` directive it
         holds is appended. Otherwise the individual form fields are turned into
-        one directive, the no-JS fallback.
+        one directive, the no-JS fallback. A ``consolidate`` action merges
+        directives in place instead, so it appends nothing.
 
         Args:
             params: The submitted fields. ``source`` holds Beancount text; any
                 other shape is the ``action``/arguments of the plain forms.
 
         Returns:
-            The directives that were appended.
+            The directives that were appended, empty for a consolidation.
 
         Raises:
             RuntimeError: If writing is not configured.
@@ -279,10 +283,52 @@ class Envelopes(FavaExtensionBase):
         if self.write_target is None:
             message = "writing is not configured"
             raise RuntimeError(message)
+        if params.get("action") == "consolidate":
+            self._consolidate(params)
+            return []
         entries = self._entries_for(params)
         for entry in entries:
             _insert(self.ledger, self.write_target, entry)
         return entries
+
+    def _consolidate(self, params: Mapping[str, str]) -> None:
+        """Merge matching envelope-months' ``allocate`` directives in place.
+
+        The plan is shared with the CLI's ``consolidate`` command, so the two
+        agree. The edits are applied through Fava's own file API (its lock,
+        watcher and editor), reusing the same in-memory splice the CLI uses, so
+        the report and the CLI never disagree on the resulting text.
+
+        Args:
+            params: The submitted fields; an optional ``envelope`` regex and an
+                optional ``month``.
+
+        Raises:
+            ValueError: If the envelope pattern is not a valid regular
+                expression.
+        """
+        envelope = (params.get("envelope") or "").strip()
+        try:
+            pattern = re.compile(envelope) if envelope else None
+        except re.error as error:
+            message = f"invalid envelope pattern: {error}"
+            raise ValueError(message) from error
+        month = _parse_month(params.get("month"))
+        result = self._result()
+        plan = consolidate.plan_consolidation(
+            self._entries(),
+            currency=result.operating_currency,
+            today=date.today(),  # noqa: DTZ011 - local today is intended
+            envelope=pattern,
+            month=month,
+        )
+        edits_by_file: dict[str, list[tuple[int, Custom | None]]] = {}
+        for edit in plan.edits:
+            edits_by_file.setdefault(edit.filename, []).append(
+                (edit.lineno, edit.entry)
+            )
+        for filename in sorted(edits_by_file):
+            _rewrite_source(self.ledger, Path(filename), edits_by_file[filename])
 
     def _entries_for(self, params: Mapping[str, str]) -> list[Custom]:
         """Turn submitted fields into the directives they describe.
@@ -1132,3 +1178,26 @@ def _insert(ledger: FavaLedger, path: Path, entry: Custom) -> None:
         )
         ledger.watcher.notify(written)
         ledger.extensions.after_insert_entry(fava_entry)
+
+
+def _rewrite_source(
+    ledger: FavaLedger,
+    path: Path,
+    edits: list[tuple[int, Custom | None]],
+) -> None:
+    """Rewrite a source file's directives through Fava's own file API.
+
+    The current source is read, the edits are applied in memory with the same
+    splice the CLI uses (:func:`beancount_envelope_budget.writer.apply_edits`),
+    and the result is written back with Fava's conflict guard. That keeps Fava's
+    lock, watcher and editor consistent with the report, and the file's line
+    endings and inode intact.
+
+    Args:
+        ledger: The Fava ledger.
+        path: The source file to rewrite.
+        edits: ``(lineno, entry)`` pairs; ``None`` deletes the directive.
+    """
+    source, sha256sum = ledger.file.get_source(path)
+    updated = writer.apply_edits(source.splitlines(keepends=True), edits)
+    ledger.file.set_source(path, "".join(updated), sha256sum)
