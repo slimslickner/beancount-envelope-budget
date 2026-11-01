@@ -13,6 +13,7 @@ export default {
   init() {},
   onPageLoad() {},
   onExtensionPageLoad(ctx) {
+    discard_stray_popovers();
     track_scroll();
     scroll_to_window();
     setup_popovers();
@@ -193,10 +194,42 @@ function place_open_popover(event) {
   }
 }
 
-/** Close and reset the open popover, if any. */
+/**
+ * Close and reset the open popover, if any.
+ *
+ * The toggle is unchecked as well as reset, so the popover hides at once rather
+ * than snapping back to its CSS-anchored shape: the stylesheet reveals a
+ * popover through its checked checkbox, so clearing the floating position alone
+ * would show it again in the cell.
+ */
 function close_open_popover() {
+  if (open_toggle) {
+    open_toggle.checked = false;
+  }
   if (open_pop) {
     reset_popover(open_pop);
+  }
+  open_pop = null;
+  open_toggle = null;
+}
+
+/**
+ * Remove popovers and modals a previous render left floating on the body.
+ *
+ * A popover is moved to the body while open (see :func:`float_popover`), but a
+ * Fava reload replaces only the report's own content (`<article>`), not the
+ * body. A popover still floated when the new content arrives is an orphan: its
+ * checkbox and backdrop were in the replaced content, so it can no longer be
+ * closed and would sit over the report. Clear it, along with an editor a reload
+ * left open mid-edit. It runs on every page load, so it also covers reloads the
+ * module did not trigger (Fava's watcher, the reload button, month navigation).
+ */
+function discard_stray_popovers() {
+  for (const pop of document.body.querySelectorAll(".envelope-pop-floating")) {
+    pop.remove();
+  }
+  for (const dialog of document.body.querySelectorAll(".envelope-edit-dialog")) {
+    dialog.remove();
   }
   open_pop = null;
   open_toggle = null;
@@ -367,6 +400,12 @@ async function create(form, api) {
     window.alert(`Could not save:\n\n${result.error}`);
     return;
   }
+  // Close the popover the save came from before refreshing. The refresh swaps
+  // only the report's content, not the body where an open popover floats, so a
+  // popover left open would survive as an orphan that cannot be closed. Do this
+  // only after a successful commit, so a failed save still leaves it open to
+  // retry.
+  close_open_popover();
   // We made the change, so refresh now rather than waiting for Fava's watcher to
   // notice it (up to five seconds, then only the yellow reload button when
   // auto-reload is off). The refresh's own request reloads the ledger first.
