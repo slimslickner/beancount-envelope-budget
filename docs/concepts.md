@@ -407,6 +407,7 @@ opening-balance transactions are clearer than `pad` and avoid the extra pass.
 beancount-envelope-budget check  LEDGER
 beancount-envelope-budget report LEDGER [--month YYYY-MM] [--months N]
 beancount-envelope-budget explain LEDGER [--month YYYY-MM] [--envelope REGEX]
+beancount-envelope-budget history LEDGER --envelope REGEX [--json]
 beancount-envelope-budget pool   LEDGER [--all | --month YYYY-MM | --date YYYY-MM-DD]
 beancount-envelope-budget suggest LEDGER
 beancount-envelope-budget fund LEDGER --from YYYY-MM --to YYYY-MM [--mode MODE]
@@ -437,6 +438,10 @@ See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget
   funded amount, whether the envelope is under, on or over, and the suggested
   top-up, so a funding suggestion is never a bare number. `--envelope` filters
   by name and `--json` prints the lines per envelope.
+- `history` prints one envelope's whole history as a vertical ledger, grouped by
+  month: its `open` and plan directives, every allocation, the postings that
+  moved it and its `close`, each with the running balance. `--envelope` selects
+  the envelope (by regular expression) and `--json` prints the months and lines.
 - `pool` prints the pool's per-transaction ledger — both directions, with the running
   balance after each line — so an intra-month dip (which `W001` no longer reports)
   can be traced. A bare run opens on
@@ -580,6 +585,25 @@ budget is visible at a glance. Goal envelopes are excluded from the rows because
 they are savings contributions, not spending. The tab is advisory: it is plain
 tables and never writes, and it is marked **experimental** — its readings are
 heuristics, so treat them as guidance.
+
+### Envelope History
+
+The **Envelope History** tab (`?view=envelope`, with an envelope selector, or
+`?envelope=NAME` to jump straight to one) shows a single envelope's whole
+history as a vertical ledger, grouped by month. Every `custom "envelope"`
+directive that acts on the envelope — its `open` and base plan, each
+`plan`/`unplan`, every `allocate` and its `close` — appears interleaved with the
+postings that moved it, each line dated, with the running balance after it so a
+month's opening and closing are visible line by line. A line with a source
+directive links to it in Fava's editor, where it can be changed or deleted
+through Fava's conflict-guarded source-slice machinery. Each envelope's plan
+popover in the grid links here too.
+
+With `write` configured the tab also edits: it can add an allocation, set or
+clear a plan (the same modal flow the grid uses), and **consolidate** the
+envelope — a *Consolidate history* button for all time and a *Consolidate this
+month* button per month, both reusing the `consolidate` planner, so the CLI and
+the report never disagree.
 
 ### Editing from the report
 

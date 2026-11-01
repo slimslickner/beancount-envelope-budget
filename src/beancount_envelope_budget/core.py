@@ -252,6 +252,9 @@ class Envelope:
         parent: A grouping label set on ``open``, or ``None``.
         source_hash: The Beancount hash of the ``open`` directive, for linking
             back to it in Fava (empty when there is no source).
+        close_hash: The Beancount hash of the ``close`` directive, for linking
+            back to it in Fava (empty when the envelope is open or has no
+            source).
     """
 
     name: str
@@ -261,6 +264,7 @@ class Envelope:
     plans: tuple[PlanChange, ...]
     parent: str | None = None
     source_hash: str = ""
+    close_hash: str = ""
 
     def effective(self, on: date) -> Plan:
         """Return the plan in force on a date.
@@ -705,6 +709,7 @@ class _Draft:
     closed: date | None = None
     parent: str | None = None
     source_hash: str = ""
+    close_hash: str = ""
 
     def freeze(self) -> Envelope:
         """Return the immutable envelope.
@@ -720,6 +725,7 @@ class _Draft:
             plans=tuple(sorted(self.plans, key=lambda change: change.date)),
             parent=self.parent,
             source_hash=self.source_hash,
+            close_hash=self.close_hash,
         )
 
     def effective(self, on: date) -> Plan:
@@ -1767,6 +1773,7 @@ def _handle_close(
         diagnostics.append(_diag("E003", entry=raw.entry, name=name))
         return
     drafts[name].closed = raw.date
+    drafts[name].close_hash = compare.hash_entry(raw.entry)
 
 
 # --- Transaction processing ----------------------------------------------------

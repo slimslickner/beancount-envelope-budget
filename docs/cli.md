@@ -96,6 +96,18 @@ Print every transaction and allocation that moved the unassigned pool, in date o
 | `--date` | show one day of the pool's ledger, with its opening balance |
 | `--json` | print the ledger as JSON instead of a table |
 
+## `beancount-envelope-budget history`
+
+Print one envelope's whole history as a vertical ledger, grouped by month: its open and plan directives, every allocation, the postings that moved it and its close, each line with the running balance. --envelope selects the envelope by regular expression.
+
+
+| Option | Help |
+| --- | --- |
+| `-h, --help` | show this help message and exit |
+| `ledger` | path to the Beancount ledger (.bean or .beancount) |
+| `--envelope` | the envelope to show, by regular expression |
+| `--json` | print the history as JSON instead of a table |
+
 ## `beancount-envelope-budget fund`
 
 Print allocate directives, dated the last day of each month. The actuals, overspend and copy modes take --from/--to and skip any envelope-month that already has an allocation; topup, fully-fund and fund-available take --date.

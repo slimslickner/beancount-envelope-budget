@@ -1589,6 +1589,70 @@ def test_template_plan_popover_shows_read_only_info() -> None:
     assert "<form" not in html
 
 
+# --- Envelope History -------------------------------------------------------
+
+
+def test_history_view_builds_for_an_envelope() -> None:
+    """The extension builds one envelope's history from the budget."""
+    history = _extension("consolidate.bean").history("Groceries")
+    assert history.found is True
+    assert [line.kind for month in history.months for line in month.lines] == [
+        "open",
+        "allocate",
+        "allocate",
+        "allocate",
+    ]
+
+
+def test_history_defaults_to_the_first_envelope() -> None:
+    """With no name, the first declared envelope is shown."""
+    extension = _extension("consolidate.bean")
+    assert extension.history().name == extension.history_names()[0] == "Groceries"
+
+
+def test_history_unknown_envelope() -> None:
+    """An unknown name yields a not-found history."""
+    assert _extension("consolidate.bean").history("Nope").found is False
+
+
+def test_template_history_tab_is_linked_from_the_grid(tmp_path: Path) -> None:
+    """The grid offers the tab and a per-envelope history link."""
+    extension = _extension(
+        "consolidate.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    html = _render(extension, {"month": "2024-01", "months": "1"})
+    assert "Envelope History" in html
+    assert "View history" in html
+    assert "view=envelope" in html
+
+
+def test_template_renders_the_history_view(tmp_path: Path) -> None:
+    """The history view lists the months, lines and create forms."""
+    extension = _extension(
+        "consolidate.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    html = _render(extension, {"view": "envelope", "envelope": "Groceries"})
+    assert "envelope-history" in html
+    assert "2024-01" in html
+    assert "2024-02" in html
+    assert "Add allocation" in html
+    assert "Consolidate history" in html
+    assert "Consolidate this month" in html
+    assert "#context-" in html
+
+
+def test_template_history_is_read_only_without_write() -> None:
+    """Without a write config the history view offers no edits."""
+    html = _render(_extension("consolidate.bean"), {"view": "envelope"})
+    assert "envelope-history" in html
+    assert 'name="action"' not in html
+    assert "Consolidate history" not in html
+
+
 # --- Reports ---------------------------------------------------------------
 
 

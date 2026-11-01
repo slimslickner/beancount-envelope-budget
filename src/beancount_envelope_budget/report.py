@@ -46,8 +46,11 @@ __all__ = [
     "BudgetView",
     "Cell",
     "EnvelopeGroup",
+    "EnvelopeHistory",
     "EnvelopeView",
     "FundingExplanation",
+    "HistoryLine",
+    "HistoryMonth",
     "MonthReport",
     "PlanLine",
     "PoolEntry",
@@ -61,9 +64,11 @@ __all__ = [
     "Suggestions",
     "ViewIndex",
     "active_plan",
+    "build_envelope_history",
     "build_reports",
     "build_suggestions",
     "build_view",
+    "envelope_history_json",
     "envelope_need",
     "funding_derivation_lines",
     "funding_explanation",
@@ -73,6 +78,7 @@ __all__ = [
     "month_funding",
     "overspend_cover",
     "plan_level",
+    "plan_line_text",
     "plan_top_up",
     "pool_entry_text",
     "pool_ledger",
@@ -308,6 +314,87 @@ class PlanLine:
     up_to: Decimal | None = None
     clears: bool = False
     base: bool = False
+
+
+#: The mix of line kinds an envelope history lists, and the order same-day
+#: lines sort in: an envelope's own directives frame the month, its allocations
+#: and activity move the balance.
+_HISTORY_RANK = {
+    "open": 0,
+    "plan": 1,
+    "unplan": 1,
+    "activity": 2,
+    "allocate": 3,
+    "close": 4,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryLine:
+    """One action against an envelope, for the drill-down history.
+
+    Attributes:
+        date: The action's date.
+        kind: ``open``, ``plan``, ``unplan``, ``activity``, ``allocate`` or
+            ``close``.
+        description: A short human label — the plan change, the payee and
+            narration, or the verb.
+        amount: The signed effect on the envelope balance; ``0`` for the
+            directives that only describe the envelope (``open``, ``plan``,
+            ``unplan``, ``close``).
+        balance: The running balance after this line.
+        entry_hash: The Beancount hash of the source directive, for linking back
+            to it in Fava, or ``""`` when there is no source.
+    """
+
+    date: date
+    kind: str
+    description: str
+    amount: Decimal
+    balance: Decimal
+    entry_hash: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryMonth:
+    """One month of an envelope's history.
+
+    Attributes:
+        month: The first day of the month.
+        opening: The balance carried in.
+        lines: The month's actions, in date order.
+        closing: The balance carried out.
+        allocated: Money assigned this month.
+        activity: The month's summed posting effects.
+    """
+
+    month: date
+    opening: Decimal
+    lines: tuple[HistoryLine, ...]
+    closing: Decimal
+    allocated: Decimal
+    activity: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class EnvelopeHistory:
+    """One envelope's whole history, grouped by month.
+
+    Attributes:
+        name: The envelope's name.
+        currency: The operating currency.
+        found: Whether the envelope exists in the ledger.
+        months: The months of the envelope's life, in order.
+        plans: Every plan directive for the envelope, for the plan popover.
+        has_start: Whether the ledger has a start directive at all.
+    """
+
+    name: str
+    currency: str
+    found: bool
+    months: tuple[HistoryMonth, ...] = ()
+    plans: tuple[PlanLine, ...] = ()
+    has_start: bool = True
 
 
 #: How each funding status reads in an explanation.
@@ -1985,6 +2072,262 @@ def _plan_lines(envelope: Envelope) -> tuple[PlanLine, ...]:
         for change in envelope.plans
     )
     return (base, *history)
+
+
+def plan_line_text(line: PlanLine) -> str:
+    """Describe one plan directive in a few words.
+
+    Args:
+        line: The plan line.
+
+    Returns:
+        A short description, such as ``goal 15000.00 USD · by 2028-06-01``, or
+        ``open: monthly 500`` for the base plan.
+
+    Examples:
+        >>> plan_line_text(
+        ...     PlanLine(date(2024, 1, 1), "", monthly=Decimal("500"), base=True)
+        ... )
+        'open: monthly 500'
+        >>> plan_line_text(PlanLine(date(2024, 2, 1), "", clears=True))
+        'clear plan'
+    """
+    if line.clears:
+        return "clear plan"
+    parts: list[str] = []
+    if line.monthly is not None:
+        parts.append(f"monthly {line.monthly}")
+    if line.up_to is not None:
+        parts.append(f"up to {line.up_to:.2f}")
+    if line.priority is not None:
+        parts.append(f"priority {line.priority}")
+    if line.goal is not None:
+        currency = f" {line.goal_currency}" if line.goal_currency else ""
+        parts.append(f"goal {line.goal:.2f}{currency}")
+    if line.by is not None:
+        parts.append(f"by {line.by.isoformat()}")
+    label = " · ".join(parts) if parts else "no plan"
+    return f"open: {label}" if line.base else label
+
+
+def build_envelope_history(result: BudgetResult, name: str) -> EnvelopeHistory:
+    """Build one envelope's whole history, grouped by month.
+
+    The history is a ledger: every ``custom "envelope"`` directive that acts on
+    the envelope — its ``open`` and base plan, each ``plan``/``unplan``, every
+    ``allocate`` and its ``close`` — interleaved with the postings that moved it,
+    each line carrying the running balance. Only allocations and activity move
+    the balance; the plan directives frame the envelope and read as zero-effect.
+
+    Each month's opening and closing come from the envelope's month row, so a
+    line-by-line walk always ends on the closing balance the grid shows.
+
+    Args:
+        result: The computed budget, with ``collect_activity=True`` for the
+            activity lines.
+        name: The envelope's name.
+
+    Returns:
+        The :class:`EnvelopeHistory`; ``found`` is ``False`` when no such
+        envelope exists.
+
+    Examples:
+        >>> from beancount_envelope_budget.core import BudgetResult
+        >>> empty = BudgetResult(None, "USD", (), (), (), (), ())
+        >>> build_envelope_history(empty, "Groceries").found
+        False
+    """
+    report = result.envelope(name)
+    if report is None:
+        return EnvelopeHistory(
+            name,
+            result.operating_currency,
+            found=False,
+            has_start=result.start is not None,
+        )
+    envelope = report.envelope
+    events = _history_events(result, envelope)
+    rows = {row.month: row for row in report.rows if _open_in(envelope, row.month)}
+    # A plan or unplan can be dated after the last month the budget computes, so
+    # the history spans every month an event touches, not just the rows. A month
+    # with no row holds only zero-effect directives, so it carries the balance in.
+    months: list[HistoryMonth] = []
+    carried = report.rows[-1].closing if report.rows else Decimal(0)
+    for month in sorted(set(rows) | {m for m in events if _open_in(envelope, m)}):
+        row = rows.get(month)
+        if row is not None:
+            opening, allocated = row.opening, row.allocated
+            activity, closing = row.activity, row.closing
+        else:
+            opening = closing = carried
+            allocated = activity = Decimal(0)
+        months.append(
+            HistoryMonth(
+                month=month,
+                opening=opening,
+                lines=_history_lines(events.get(month, []), opening),
+                closing=closing,
+                allocated=allocated,
+                activity=activity,
+            )
+        )
+        carried = closing
+    return EnvelopeHistory(
+        name=name,
+        currency=result.operating_currency,
+        found=True,
+        months=tuple(months),
+        plans=_plan_lines(envelope),
+        has_start=True,
+    )
+
+
+def _history_events(
+    result: BudgetResult,
+    envelope: Envelope,
+) -> dict[date, list[tuple[date, int, str, str, Decimal, str]]]:
+    """Gather every history line for an envelope, keyed by month.
+
+    Args:
+        result: The computed budget.
+        envelope: The declared envelope.
+
+    Returns:
+        A mapping from month to its raw ``(date, rank, kind, description,
+        amount, entry_hash)`` events, unsorted and without a running balance.
+    """
+    events: list[tuple[date, int, str, str, Decimal, str]] = []
+    for line in _plan_lines(envelope):
+        kind = "open" if line.base else "unplan" if line.clears else "plan"
+        description = plan_line_text(line)
+        if kind == "open" and description == "open: no plan":
+            description = "open"
+        events.append(
+            (
+                line.date,
+                _HISTORY_RANK[kind],
+                kind,
+                description,
+                Decimal(0),
+                line.entry_hash,
+            )
+        )
+    for allocation in result.allocations:
+        if allocation.envelope != envelope.name:
+            continue
+        events.append(
+            (
+                allocation.date,
+                _HISTORY_RANK["allocate"],
+                "allocate",
+                "allocate",
+                allocation.amount,
+                entry_hash(allocation.entry) if allocation.entry is not None else "",
+            )
+        )
+    for activity in result.activity:
+        if activity.destination != envelope.name:
+            continue
+        events.append(
+            (
+                activity.date,
+                _HISTORY_RANK["activity"],
+                "activity",
+                _history_activity_text(activity),
+                activity.amount,
+                entry_hash(activity.entry) if activity.entry is not None else "",
+            )
+        )
+    if envelope.closed is not None:
+        events.append(
+            (
+                envelope.closed,
+                _HISTORY_RANK["close"],
+                "close",
+                "close",
+                Decimal(0),
+                envelope.close_hash,
+            )
+        )
+    by_month: dict[date, list[tuple[date, int, str, str, Decimal, str]]] = {}
+    for event in events:
+        by_month.setdefault(month_of(event[0]), []).append(event)
+    return by_month
+
+
+def _history_lines(
+    events: list[tuple[date, int, str, str, Decimal, str]],
+    opening: Decimal,
+) -> tuple[HistoryLine, ...]:
+    """Sort a month's events and walk the running balance.
+
+    Args:
+        events: The month's raw events.
+        opening: The balance carried into the month.
+
+    Returns:
+        The month's lines, in date order, each carrying the running balance.
+    """
+    balance = opening
+    lines: list[HistoryLine] = []
+    for when, _rank, kind, description, amount, digest in sorted(
+        events, key=lambda event: (event[0], event[1])
+    ):
+        balance += amount
+        lines.append(HistoryLine(when, kind, description, amount, balance, digest))
+    return tuple(lines)
+
+
+def _history_activity_text(event: ActivityEvent) -> str:
+    """Describe one activity posting, as ``payee - narration``.
+
+    Args:
+        event: The activity event.
+
+    Returns:
+        The description, preferring the posting's own narration, or
+        ``(no description)``.
+    """
+    narration = event.posting_narration or event.transaction_narration
+    parts = [part for part in (event.payee, narration) if part]
+    return " - ".join(parts) or "(no description)"
+
+
+def envelope_history_json(history: EnvelopeHistory) -> dict[str, object]:
+    """Serialise an envelope history for the CLI's ``--json``.
+
+    Args:
+        history: The history.
+
+    Returns:
+        A JSON-serialisable dictionary with fixed two-decimal money strings.
+    """
+    return {
+        "envelope": history.name,
+        "currency": history.currency,
+        "found": history.found,
+        "months": [
+            {
+                "month": month.month.isoformat(),
+                "opening": _money_json(month.opening),
+                "allocated": _money_json(month.allocated),
+                "activity": _money_json(month.activity),
+                "closing": _money_json(month.closing),
+                "lines": [
+                    {
+                        "date": line.date.isoformat(),
+                        "kind": line.kind,
+                        "description": line.description,
+                        "amount": _money_json(line.amount),
+                        "balance": _money_json(line.balance),
+                        "entry_hash": line.entry_hash,
+                    }
+                    for line in month.lines
+                ],
+            }
+            for month in history.months
+        ],
+    }
 
 
 def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder

@@ -66,6 +66,7 @@ from beancount_envelope_budget.report import (
     SuggestionSummary,
     ViewIndex,
     active_plan,
+    build_envelope_history,
     build_reports,
     build_suggestions,
     build_view,
@@ -74,6 +75,7 @@ from beancount_envelope_budget.report import (
     funding_verdict,
     month_funding,
     overspend_cover,
+    plan_line_text,
     plan_top_up,
     pool_entry_text,
     prepare_view,
@@ -89,6 +91,8 @@ if TYPE_CHECKING:
     from fava.beans.abc import Directive as FavaDirective
     from fava.core import FavaLedger
     from flask import Response
+
+    from beancount_envelope_budget.report import EnvelopeHistory
 
 __all__ = ["Envelopes", "MonthLink"]
 
@@ -243,22 +247,31 @@ class Envelopes(FavaExtensionBase):
         Returns:
             A short description, such as ``goal 15000.00 USD · by 2028-06-01``.
         """
-        if line.clears:
-            return "clear plan"
-        parts: list[str] = []
-        if line.monthly is not None:
-            parts.append(f"monthly {line.monthly}")
-        if line.up_to is not None:
-            parts.append(f"up to {line.up_to:.2f}")
-        if line.priority is not None:
-            parts.append(f"priority {line.priority}")
-        if line.goal is not None:
-            currency = f" {line.goal_currency}" if line.goal_currency else ""
-            parts.append(f"goal {line.goal:.2f}{currency}")
-        if line.by is not None:
-            parts.append(f"by {line.by.isoformat()}")
-        label = " · ".join(parts) if parts else "no plan"
-        return f"open: {label}" if line.base else label
+        return plan_line_text(line)
+
+    def history_names(self) -> tuple[str, ...]:
+        """Return the names of every declared envelope, for the selector.
+
+        Returns:
+            The envelope names, in declaration order.
+        """
+        return tuple(report.name for report in self._result().envelopes)
+
+    def history(self, envelope: str | None = None) -> EnvelopeHistory:
+        """Build one envelope's whole history, for the drill-down tab.
+
+        Args:
+            envelope: The envelope to show, or ``None`` for the first declared
+                envelope.
+
+        Returns:
+            The :class:`~beancount_envelope_budget.report.EnvelopeHistory`. An
+            unknown name yields a history with ``found = False``.
+        """
+        result = self._result()
+        names = [report.name for report in result.envelopes]
+        name = envelope or (names[0] if names else "")
+        return build_envelope_history(result, name)
 
     def perform(self, params: Mapping[str, str]) -> list[Custom]:
         """Apply a submitted edit form, appending its directive(s).
