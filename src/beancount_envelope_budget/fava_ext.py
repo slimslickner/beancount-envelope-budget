@@ -25,9 +25,9 @@ from :mod:`beancount_envelope_budget.actions`, the same module the CLI uses.
 The extension recomputes the budget in :meth:`Envelopes.after_load_file` and
 renders a Jinja template. It is the only module that imports Fava. The view it
 renders is built by :func:`beancount_envelope_budget.report.build_view`, the
-same function the CLI uses, so the two cannot disagree. The Reports tab spans
-the budget's whole history, narrowed to Fava's window date filter when one is
-set.
+same function the CLI uses, so the two cannot disagree. The Monthly Reports tab
+spans the budget's whole history, narrowed to Fava's window date filter when one
+is set.
 """
 
 from __future__ import annotations
@@ -49,15 +49,22 @@ from beancount_envelope_budget import actions, plugin, writer
 from beancount_envelope_budget.core import BudgetResult, Plan, compute, iter_months
 from beancount_envelope_budget.report import (
     MAX_MONTHS,
+    SUGGESTION_HEADERS,
+    SUGGESTION_LEGEND,
+    SUGGESTION_NOTE,
     ActivityLine,
     BudgetView,
     Cell,
     PlanLine,
     PoolEntry,
     Reports,
+    SuggestionRow,
+    Suggestions,
+    SuggestionSummary,
     ViewIndex,
     active_plan,
     build_reports,
+    build_suggestions,
     build_view,
     funding_derivation_lines,
     funding_top_up_line,
@@ -67,6 +74,8 @@ from beancount_envelope_budget.report import (
     plan_top_up,
     pool_entry_text,
     prepare_view,
+    suggestion_cells,
+    suggestion_summary_line,
     today_month,
 )
 
@@ -421,7 +430,7 @@ class Envelopes(FavaExtensionBase):
         )
 
     def reports(self) -> Reports:
-        """Build the table-only reports view, for the Reports tab.
+        """Build the table-only reports view, for the Monthly Reports tab.
 
         Delegates to :func:`beancount_envelope_budget.report.build_reports`, the
         single implementation, so the reports tab's numbers come from the same
@@ -458,6 +467,71 @@ class Envelopes(FavaExtensionBase):
         if date_range is None:
             return None
         return date_range.begin, date_range.end_inclusive
+
+    def suggestions(self) -> Suggestions:
+        """Build the Plan Review view.
+
+        Delegates to
+        :func:`beancount_envelope_budget.report.build_suggestions`, the single
+        implementation, so the tab and the CLI's ``suggest`` command share one
+        set of numbers. It reads the trailing window of completed months, not
+        the Fava date filter, since the review is always "the last year or so".
+
+        Returns:
+            The :class:`Suggestions`.
+        """
+        return build_suggestions(self._result(), on=self.today_month())
+
+    def suggestion_headers(self) -> tuple[str, ...]:
+        """Return the Plan Review table's column headings.
+
+        Returns:
+            The headings, from
+            :data:`~beancount_envelope_budget.report.SUGGESTION_HEADERS`.
+        """
+        return SUGGESTION_HEADERS
+
+    def suggestion_legend(self) -> tuple[tuple[str, str], ...]:
+        """Return the Plan Review's reading labels and their meanings.
+
+        Returns:
+            The ``(reading, meaning)`` pairs, from
+            :data:`~beancount_envelope_budget.report.SUGGESTION_LEGEND`, so the
+            tab defines the Reading column it shows.
+        """
+        return SUGGESTION_LEGEND
+
+    def suggestion_note(self) -> str:
+        """Return the Plan Review's experimental-feature caveat.
+
+        Returns:
+            The caveat, from
+            :data:`~beancount_envelope_budget.report.SUGGESTION_NOTE`.
+        """
+        return SUGGESTION_NOTE
+
+    def suggestion_cells(self, row: SuggestionRow) -> tuple[str, ...]:
+        """Render one Plan Review row as table cells.
+
+        Args:
+            row: The review row.
+
+        Returns:
+            The cells, aligned with :meth:`suggestion_headers`.
+        """
+        return suggestion_cells(row)
+
+    def suggestion_summary(self, summary: SuggestionSummary) -> str:
+        """Describe the portfolio affordability check in one line.
+
+        Args:
+            summary: The summary.
+
+        Returns:
+            The line, from
+            :func:`beancount_envelope_budget.report.suggestion_summary_line`.
+        """
+        return suggestion_summary_line(summary, self._result().operating_currency)
 
     def money(self, value: Decimal) -> str:
         """Format a money amount for display.

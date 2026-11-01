@@ -36,6 +36,10 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
 __all__ = [
+    "SUGGESTION_HEADERS",
+    "SUGGESTION_LEGEND",
+    "SUGGESTION_NOTE",
+    "SUGGESTION_WINDOW",
     "TOP_N",
     "ActivityLine",
     "AllocationLine",
@@ -51,9 +55,14 @@ __all__ = [
     "ReportEntry",
     "ReportRow",
     "Reports",
+    "SuggestionGroup",
+    "SuggestionRow",
+    "SuggestionSummary",
+    "Suggestions",
     "ViewIndex",
     "active_plan",
     "build_reports",
+    "build_suggestions",
     "build_view",
     "envelope_need",
     "funding_derivation_lines",
@@ -69,6 +78,8 @@ __all__ = [
     "pool_ledger",
     "pool_ledger_json",
     "prepare_view",
+    "suggestion_cells",
+    "suggestion_summary_line",
     "to_jsonable",
     "today_month",
 ]
@@ -2469,3 +2480,641 @@ def _nav(start: date, count: int) -> dict[str, str]:
         "previous": query(_shift(start, -1)),
         "next": query(_shift(start, 1)),
     }
+
+
+# --- Plan review ---------------------------------------------------------------
+
+#: The default number of completed months the Plan Review averages over.
+SUGGESTION_WINDOW = 12
+
+#: The Plan Review table's column headings, shared by the CLI and the Fava tab.
+SUGGESTION_HEADERS = (
+    "Envelope",
+    "Avg / month",
+    "Months",
+    "Plan",
+    "Under / On / Over",
+    "Overspent",
+    "Reading",
+)
+
+#: Every reading a Plan Review row can carry, with a one-line meaning. Shared by
+#: the CLI's legend and the Fava tab's, so the labels are self-documenting.
+SUGGESTION_LEGEND = (
+    ("no plan", "no monthly or up-to plan"),
+    ("no history", "an avgN plan with too few completed months to resolve"),
+    (
+        "over-saving",
+        "a monthly plan above its spending, or an up-to envelope at its ceiling",
+    ),
+    ("under-saving", "a monthly plan below its spending"),
+    ("on track", "spending matches the plan"),
+    ("sinking fund", "an up-to envelope filling toward its ceiling"),
+    ("over allowance", "an up-to envelope spending above its monthly allowance"),
+)
+
+#: A caveat shown with the Plan Review, since its readings are heuristics.
+SUGGESTION_NOTE = (
+    "Plan Review is an experimental feature. Its readings are heuristics over a "
+    "trailing window of completed months, so treat them as guidance, not gospel."
+)
+
+
+@dataclass(frozen=True, slots=True)
+class SuggestionRow:
+    """One envelope's spending-versus-plan review over the trailing window.
+
+    Attributes:
+        name: The envelope's name.
+        parent: The envelope's grouping label, or ``None``.
+        months: The number of completed months sampled (up to the window).
+        average: The average monthly spending over those months.
+        planned: The envelope's resolved planned monthly amount — the
+            ``monthly`` (a number or an ``avgN`` resolved against history), or
+            the ``up-to`` allowance — or ``None`` when it has no such plan. It
+            is the figure the months are classified against.
+        plan_label: The plan as written, for display — a number, an ``avgN``, or
+            ``<monthly> up to <ceiling>`` — or ``"-"`` when there is none.
+        reference: What ``planned`` is measured against: ``"monthly"``,
+            ``"up-to"`` or ``None``.
+        under: The months spending was below that month's plan.
+        on: The months spending matched that month's plan.
+        over: The months spending was above that month's plan.
+        overspent: The months the envelope's closing balance was negative.
+        reading: A short, kind-aware interpretation, one of the labels in
+            :data:`SUGGESTION_LEGEND`.
+    """
+
+    name: str
+    parent: str | None
+    months: int
+    average: Decimal
+    planned: Decimal | None
+    plan_label: str
+    reference: str | None
+    under: int
+    on: int
+    over: int
+    overspent: int
+    reading: str
+
+
+@dataclass(frozen=True, slots=True)
+class SuggestionGroup:
+    """Review rows sharing a parent category.
+
+    Mirrors :class:`EnvelopeGroup`, so the Plan Review tables group and order
+    exactly as the Envelopes grid does.
+
+    Attributes:
+        parent: The grouping label, or ``None`` for envelopes with no parent.
+        rows: The member rows, in alphabetical order.
+    """
+
+    parent: str | None
+    rows: tuple[SuggestionRow, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SuggestionSummary:
+    """The portfolio-level affordability check for the Plan Review.
+
+    Attributes:
+        planned_total: The planned monthly allocation across every envelope
+            with a plan — the reviewed envelopes' resolved monthly amounts plus
+            each goal envelope's on-track monthly contribution.
+        pool_average: The average monthly net pool activity: income, security
+            gains and pool-charged spending, i.e. the money the pool receives.
+        months: The number of completed months both averages cover.
+    """
+
+    planned_total: Decimal
+    pool_average: Decimal
+    months: int
+
+    @property
+    def surplus(self) -> Decimal:
+        """The pool's headroom over the plans, negative when they exceed it.
+
+        Examples:
+            >>> SuggestionSummary(Decimal("1000"), Decimal("1200"), 12).surplus
+            Decimal('200')
+        """
+        return self.pool_average - self.planned_total
+
+
+@dataclass(frozen=True, slots=True)
+class Suggestions:
+    """A trailing-window spending-versus-plan review of a budget.
+
+    Attributes:
+        has_start: Whether the ledger has a start directive.
+        currency: The operating currency.
+        window: The requested window, in completed months.
+        months: The completed months actually sampled, ascending.
+        rows: One :class:`SuggestionRow` per reviewed envelope, in alphabetical
+            order.
+        groups: The rows grouped by parent, with the parent headings in
+            alphabetical order and envelopes with no parent forming a
+            headingless group placed last — the same order as the Envelopes
+            grid.
+        summary: The portfolio affordability check, or ``None`` when there is
+            nothing to compare.
+    """
+
+    has_start: bool
+    currency: str
+    window: int
+    months: tuple[date, ...]
+    rows: tuple[SuggestionRow, ...]
+    groups: tuple[SuggestionGroup, ...]
+    summary: SuggestionSummary | None
+
+
+def build_suggestions(
+    result: BudgetResult,
+    *,
+    on: date | None = None,
+    window: int = SUGGESTION_WINDOW,
+) -> Suggestions:
+    """Review each envelope's spending against its plan over a trailing window.
+
+    A read-only analytics view: for every open, non-goal envelope it averages
+    the last ``window`` completed months of spending, counts how those months
+    fell against the month's plan (under, on or over) and how often the balance
+    went negative, and gives a short, kind-aware reading. Goal envelopes —
+    funded by contributions, not spending — and closed envelopes are left out.
+    The CLI and the Fava Plan Review tab render the same rows. A summary
+    compares the total planned monthly allocation against the average monthly
+    pool inflow.
+
+    The window is the ``window`` months ending with the month before the review
+    date, capped so a future-dated directive cannot pull it forward and the
+    current, partial month is never counted. A ledger with fewer months yields
+    fewer samples rather than empty zero months.
+
+    Args:
+        result: The computed budget.
+        on: A date in the review month — the current month is the caller's to
+            choose, so the pure builder does not read the wall clock. The window
+            ends the month before it, capped at the budget's last computed
+            month. ``None`` uses the budget's own last month.
+        window: How many completed months to average over.
+
+    Returns:
+        The :class:`Suggestions`. When tracking is not configured it has
+        ``has_start = False`` and no rows.
+
+    Examples:
+        >>> from beancount_envelope_budget.core import BudgetResult
+        >>> empty = BudgetResult(None, "USD", (), (), (), (), ())
+        >>> build_suggestions(empty).has_start
+        False
+    """
+    if result.start is None or not result.months:
+        return Suggestions(
+            has_start=False,
+            currency=result.operating_currency,
+            window=window,
+            months=(),
+            rows=(),
+            groups=(),
+            summary=None,
+        )
+    anchor = _suggestion_anchor(result, on)
+    months = _suggestion_months(result, window, anchor)
+    if not months:
+        return Suggestions(
+            has_start=True,
+            currency=result.operating_currency,
+            window=window,
+            months=(),
+            rows=(),
+            groups=(),
+            summary=None,
+        )
+    rows: list[SuggestionRow] = []
+    for report in sorted(result.envelopes, key=lambda item: _sort_key(item.name)):
+        row = _suggestion_row(report, months, anchor)
+        if row is not None:
+            rows.append(row)
+    return Suggestions(
+        has_start=True,
+        currency=result.operating_currency,
+        window=window,
+        months=months,
+        rows=tuple(rows),
+        groups=_suggestion_groups(rows),
+        summary=_suggestion_summary(result, months, anchor),
+    )
+
+
+def _suggestion_anchor(result: BudgetResult, on: date | None) -> date:
+    """Return the exclusive end of the review window.
+
+    The window runs up to but not including this month. It is the month after
+    the budget's last computed month, capped at the caller's month, so a
+    future-dated directive cannot pull the window into the future and the
+    current, partial month is never counted. A ledger that ends before the
+    caller's month keeps its own end, so its last month still counts.
+
+    Args:
+        result: The computed budget.
+        on: A date in the review month, or ``None``.
+
+    Returns:
+        The first day of the month the window ends before.
+    """
+    after_last = _shift(result.months[-1], 1)
+    if on is None:
+        return after_last
+    return min(after_last, month_of(on))
+
+
+def _suggestion_months(
+    result: BudgetResult,
+    window: int,
+    anchor: date,
+) -> tuple[date, ...]:
+    """Return the completed months a suggestion window covers.
+
+    The window is the ``window`` months ending the month before ``anchor``.
+    Months before the ledger's first are dropped, so a short ledger yields
+    fewer samples rather than empty zero months.
+
+    Args:
+        result: The computed budget.
+        window: How many completed months to cover.
+        anchor: The exclusive end of the window.
+
+    Returns:
+        The sampled months, ascending.
+    """
+    available = set(result.months)
+    candidates = [_shift(anchor, -offset) for offset in range(window, 0, -1)]
+    return tuple(month for month in candidates if month in available)
+
+
+def _suggestion_groups(
+    rows: list[SuggestionRow],
+) -> tuple[SuggestionGroup, ...]:
+    """Group review rows by parent, matching the Envelopes grid's order.
+
+    Parent headings sort alphabetically; envelopes with no parent form a
+    headingless group placed last. Members keep the rows' order.
+
+    Args:
+        rows: The review rows, in alphabetical order.
+
+    Returns:
+        One :class:`SuggestionGroup` per distinct parent.
+    """
+    buckets: dict[str | None, list[SuggestionRow]] = {}
+    for row in rows:
+        buckets.setdefault(row.parent, []).append(row)
+    ordered_parents = sorted(
+        (parent for parent in buckets if parent is not None), key=_sort_key
+    )
+    headings: list[str | None] = [*ordered_parents]
+    if None in buckets:
+        headings.append(None)
+    return tuple(
+        SuggestionGroup(parent=parent, rows=tuple(buckets[parent]))
+        for parent in headings
+    )
+
+
+def _is_reviewable(envelope: Envelope, on: date) -> bool:
+    """Whether an envelope belongs in the Plan Review.
+
+    A closed envelope has no live plan to revise, and a goal envelope is funded
+    by contributions rather than spending, so both are left out — the goal
+    ``suggest`` table covers the latter. Every other envelope, planned or not,
+    is reviewed.
+
+    Args:
+        envelope: The declared envelope.
+        on: The date to evaluate the plan at.
+
+    Returns:
+        True when the envelope should be reviewed.
+    """
+    if envelope.closed is not None:
+        return False
+    return envelope.effective(on).goal is None
+
+
+def _suggestion_row(
+    report: EnvelopeReport,
+    months: tuple[date, ...],
+    anchor: date,
+) -> SuggestionRow | None:
+    """Build one envelope's Plan Review row, or ``None`` when it has no history.
+
+    Args:
+        report: The envelope's report.
+        months: The sampled months.
+        anchor: The date the current plan is evaluated at.
+
+    Returns:
+        The :class:`SuggestionRow`, or ``None`` when the envelope is not
+        reviewable or has no sampled month.
+    """
+    envelope = report.envelope
+    if not _is_reviewable(envelope, anchor):
+        return None
+    spends, under, on, over, overspent = _sample_months(
+        report, months, month_of(envelope.opened)
+    )
+    if not spends:
+        return None
+    average = _round_to_cent(sum(spends, Decimal(0)) / len(spends))
+    plan = envelope.effective(anchor)
+    if plan.up_to is not None:
+        reference = "up-to"
+    elif plan.monthly is not None:
+        reference = "monthly"
+    else:
+        reference = None
+    planned = _monthly_amount(report, anchor) if reference is not None else None
+    closing = _maybe_row(report.rows, months[-1])
+    at_ceiling = (
+        reference == "up-to"
+        and plan.up_to is not None
+        and closing is not None
+        and closing.closing >= plan.up_to
+    )
+    return SuggestionRow(
+        name=envelope.name,
+        parent=envelope.parent,
+        months=len(spends),
+        average=average,
+        planned=planned,
+        plan_label=_plan_label(plan),
+        reference=reference,
+        under=under,
+        on=on,
+        over=over,
+        overspent=overspent,
+        reading=_reading(
+            reference, planned, average, under, over, at_ceiling=at_ceiling
+        ),
+    )
+
+
+def _plan_label(plan: Plan) -> str:
+    """Render a plan as written, for the Plan Review's Plan column.
+
+    Args:
+        plan: The effective plan.
+
+    Returns:
+        A number, an ``avgN``, ``<monthly> up to <ceiling>``, ``up to
+        <ceiling>``, or ``"-"`` when the plan sets neither.
+
+    Examples:
+        >>> _plan_label(Plan(monthly=Decimal("500")))
+        '500.00'
+        >>> _plan_label(Plan(monthly="avg12"))
+        'avg12'
+        >>> _plan_label(Plan(monthly=Decimal("100"), up_to=Decimal("1200")))
+        '100.00 up to 1200.00'
+        >>> _plan_label(Plan())
+        '-'
+    """
+    if isinstance(plan.monthly, Decimal):
+        monthly = f"{plan.monthly:.2f}"
+    elif isinstance(plan.monthly, str):
+        monthly = plan.monthly
+    else:
+        monthly = None
+    if monthly is not None and plan.up_to is not None:
+        return f"{monthly} up to {plan.up_to:.2f}"
+    if monthly is not None:
+        return monthly
+    if plan.up_to is not None:
+        return f"up to {plan.up_to:.2f}"
+    return "-"
+
+
+def _sample_months(
+    report: EnvelopeReport,
+    months: tuple[date, ...],
+    opened: date,
+) -> tuple[list[Decimal], int, int, int, int]:
+    """Average and classify an envelope's spending over the sampled months.
+
+    Counts each opened month's spending against that month's resolved plan —
+    under, on or over — and how often the balance closed negative.
+
+    Args:
+        report: The envelope's report.
+        months: The sampled months.
+        opened: The month the envelope opened, before which it has no history.
+
+    Returns:
+        The monthly spends, and the under, on, over and overspent counts.
+    """
+    spends: list[Decimal] = []
+    under = on = over = overspent = 0
+    for month in months:
+        if month < opened:
+            continue
+        row = _maybe_row(report.rows, month)
+        if row is None:
+            continue
+        spend = _round_to_cent(-row.activity)
+        spends.append(spend)
+        if row.closing < 0:
+            overspent += 1
+        monthly = _monthly_amount(report, _last_day(month))
+        if monthly is None:
+            continue
+        if spend < monthly:
+            under += 1
+        elif spend > monthly:
+            over += 1
+        else:
+            on += 1
+    return spends, under, on, over, overspent
+
+
+def _reading(
+    reference: str | None,
+    planned: Decimal | None,
+    average: Decimal,
+    under: int,
+    over: int,
+    *,
+    at_ceiling: bool,
+) -> str:
+    """Give a short, kind-aware reading of a review row.
+
+    A plain ``monthly`` envelope spending below its plan is over-saving; above
+    it, under-saving. An ``up-to`` envelope is a sinking fund: spending below
+    its allowance while it fills toward the ceiling is expected, so it reads
+    ``sinking fund`` until it reaches the ceiling — when it is over-saving — or
+    spends above its allowance, when it reads ``over allowance``.
+
+    Args:
+        reference: What the plan is measured against, or ``None``.
+        planned: The resolved planned monthly amount, or ``None``.
+        average: The average monthly spending.
+        under: The months spending was below plan.
+        over: The months spending was above plan.
+        at_ceiling: Whether an ``up-to`` envelope's balance has reached its
+            ceiling.
+
+    Returns:
+        The reading, one of :data:`SUGGESTION_LEGEND`'s labels.
+
+    Examples:
+        >>> _reading(None, None, Decimal(0), 0, 0, at_ceiling=False)
+        'no plan'
+        >>> _reading("monthly", Decimal("500"), Decimal("300"), 5, 0, at_ceiling=False)
+        'over-saving'
+        >>> _reading("monthly", Decimal("500"), Decimal("700"), 0, 5, at_ceiling=False)
+        'under-saving'
+        >>> _reading("up-to", Decimal("100"), Decimal("20"), 5, 0, at_ceiling=False)
+        'sinking fund'
+        >>> _reading("up-to", Decimal("100"), Decimal("20"), 5, 0, at_ceiling=True)
+        'over-saving'
+        >>> _reading("up-to", Decimal("100"), Decimal("150"), 0, 5, at_ceiling=True)
+        'over allowance'
+    """
+    if reference is None:
+        reading = "no plan"
+    elif reference == "up-to":
+        if over > under:
+            reading = "over allowance"
+        elif at_ceiling:
+            reading = "over-saving"
+        else:
+            reading = "sinking fund"
+    elif planned is None:
+        reading = "no history"
+    elif average < planned:
+        reading = "over-saving"
+    elif average > planned:
+        reading = "under-saving"
+    else:
+        reading = "on track"
+    return reading
+
+
+def _suggestion_summary(
+    result: BudgetResult,
+    months: tuple[date, ...],
+    anchor: date,
+) -> SuggestionSummary:
+    """Build the portfolio affordability check.
+
+    The planned total sums every open envelope's resolved monthly amount, plus
+    each goal envelope's on-track monthly contribution (its goal spread over
+    its schedule). The pool average is the mean monthly net pool activity —
+    income and security gains, less pool-charged spending.
+
+    Args:
+        result: The computed budget.
+        months: The sampled months.
+        anchor: The date the current plans are evaluated at.
+
+    Returns:
+        The :class:`SuggestionSummary`.
+    """
+    total = Decimal(0)
+    for report in result.envelopes:
+        envelope = report.envelope
+        if envelope.closed is not None:
+            continue
+        plan = envelope.effective(anchor)
+        if plan.monthly is not None:
+            monthly = _monthly_amount(report, anchor)
+            if monthly is not None:
+                total += monthly
+        elif plan.goal is not None:
+            schedule = envelope.goal_schedule(anchor)
+            if schedule is not None and schedule.total > 0:
+                total += _round_to_cent(plan.goal / schedule.total)
+    pool_rows = [_maybe_row(result.pool, month) for month in months]
+    samples = [row.activity for row in pool_rows if row is not None]
+    pool_average = (
+        _round_to_cent(sum(samples, Decimal(0)) / len(samples))
+        if samples
+        else Decimal(0)
+    )
+    return SuggestionSummary(
+        planned_total=_round_to_cent(total),
+        pool_average=pool_average,
+        months=len(months),
+    )
+
+
+def suggestion_cells(row: SuggestionRow) -> tuple[str, ...]:
+    """Render a Plan Review row as table cells.
+
+    Shared by the CLI's ``suggest`` table and the Fava Plan Review tab, so the
+    two show identical figures.
+
+    Args:
+        row: The review row.
+
+    Returns:
+        The cells, aligned with :data:`SUGGESTION_HEADERS`.
+
+    Examples:
+        >>> row = SuggestionRow(
+        ...     "Groceries",
+        ...     None,
+        ...     12,
+        ...     Decimal("320.00"),
+        ...     Decimal("300.00"),
+        ...     "300.00",
+        ...     "monthly",
+        ...     1,
+        ...     0,
+        ...     11,
+        ...     0,
+        ...     "under-saving",
+        ... )
+        >>> suggestion_cells(row)
+        ('Groceries', '320.00', '12', '300.00', '1/0/11', '0', 'under-saving')
+    """
+    return (
+        row.name,
+        f"{row.average:.2f}",
+        str(row.months),
+        row.plan_label,
+        f"{row.under}/{row.on}/{row.over}",
+        str(row.overspent),
+        row.reading,
+    )
+
+
+def suggestion_summary_line(summary: SuggestionSummary, currency: str = "") -> str:
+    """Describe the portfolio affordability check in one line.
+
+    Args:
+        summary: The summary.
+        currency: The operating currency, appended to each amount when given.
+
+    Returns:
+        The line, such as ``Plans allocate 1000.00/month; the pool averages
+        1200.00/month over 12 months (surplus 200.00)``.
+
+    Examples:
+        >>> suggestion_summary_line(SuggestionSummary(Decimal(1000), Decimal(1200), 12))
+        'Plans allocate 1000.00/month; the pool averages 1200.00/month over 12 months (surplus 200.00)'
+    """
+    delta = summary.pool_average - summary.planned_total
+    note = (
+        f"surplus {_money(delta, currency)}"
+        if delta >= 0
+        else f"shortfall {_money(-delta, currency)}"
+    )
+    span = "month" if summary.months == 1 else "months"
+    return (
+        f"Plans allocate {_money(summary.planned_total, currency)}/month; "
+        f"the pool averages {_money(summary.pool_average, currency)}/month over "
+        f"{summary.months} {span} ({note})"
+    )

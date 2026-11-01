@@ -39,7 +39,12 @@ from beancount_envelope_budget.core import (
     row_for,
 )
 from beancount_envelope_budget.report import (
+    SUGGESTION_HEADERS,
+    SUGGESTION_LEGEND,
+    SUGGESTION_NOTE,
+    SUGGESTION_WINDOW,
     PoolLedger,
+    build_suggestions,
     build_view,
     funding_explanation_lines,
     month_funding,
@@ -48,6 +53,8 @@ from beancount_envelope_budget.report import (
     pool_entry_text,
     pool_ledger,
     pool_ledger_json,
+    suggestion_cells,
+    suggestion_summary_line,
     to_jsonable,
     today_month,
 )
@@ -63,7 +70,12 @@ if TYPE_CHECKING:
 
     from beancount.core.data import Custom, Directive
 
-    from beancount_envelope_budget.report import BudgetView, Cell, FundingExplanation
+    from beancount_envelope_budget.report import (
+        BudgetView,
+        Cell,
+        FundingExplanation,
+        Suggestions,
+    )
 
 __all__ = ["build_parser", "cli_markdown", "main", "render_docs"]
 
@@ -325,10 +337,11 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 
 def _cmd_suggest(args: argparse.Namespace) -> int:
-    """Print the monthly amount each goal envelope needs to hit its goal.
+    """Print goal needs and the trailing spending-versus-plan review.
 
     Args:
-        args: Parsed arguments; ``args.ledger`` is the ledger path.
+        args: Parsed arguments; ``args.ledger`` is the ledger path,
+            ``args.window`` the review window and ``args.json`` the output mode.
 
     Returns:
         The process exit status.
@@ -342,12 +355,119 @@ def _cmd_suggest(args: argparse.Namespace) -> int:
         print("there is no start directive; nothing to suggest", file=sys.stderr)
         return 0
     latest = max(entry.date for entry in loaded.entries)
-    rows = _suggest_rows(result, latest)
-    if not rows:
-        print("no envelopes with a `goal` and a `by` date")
+    goal_rows = _suggest_rows(result, latest)
+    suggestions = build_suggestions(result, on=today_month(), window=args.window)
+    if args.json:
+        print(json.dumps(_suggest_json(result, goal_rows, suggestions), indent=2))
         return 0
-    print(_table(("Envelope", "Saved", "Goal", "By", "Months", "Per month"), rows))
+    sections: list[str] = []
+    if goal_rows:
+        sections.append(
+            "Goal envelopes\n\n"
+            + _table(
+                ("Envelope", "Saved", "Goal", "By", "Months", "Per month"), goal_rows
+            )
+        )
+    if suggestions.rows:
+        sections.append(_format_suggestions(suggestions))
+    if not sections:
+        print("no goal envelopes and no spending history to suggest from")
+        return 0
+    print("\n\n".join(sections))
     return 0
+
+
+def _format_suggestions(suggestions: Suggestions) -> str:
+    """Render the Plan Review as a heading, summary, table and legend.
+
+    Rows are grouped by parent, matching the Envelopes grid: a heading row per
+    named parent (its label in the first column, blanks across the rest), then
+    its members; envelopes with no parent come last.
+
+    Args:
+        suggestions: The review.
+
+    Returns:
+        The rendered section, matching the Fava Plan Review tab's numbers.
+    """
+    span = "month" if len(suggestions.months) == 1 else "months"
+    heading = f"Spending vs plan — last {len(suggestions.months)} {span}"
+    if suggestions.summary is not None:
+        heading += "\n" + suggestion_summary_line(
+            suggestions.summary, suggestions.currency
+        )
+    rows: list[tuple[str, ...]] = []
+    for group in suggestions.groups:
+        if group.parent is not None:
+            rows.append((group.parent, *("" for _ in range(6))))
+        rows.extend(suggestion_cells(row) for row in group.rows)
+    table = _table(SUGGESTION_HEADERS, rows)
+    legend = _table(("Reading", "Meaning"), list(SUGGESTION_LEGEND))
+    return f"{heading}\n\n{table}\n\n{legend}\n\n{SUGGESTION_NOTE}"
+
+
+def _suggest_json(
+    result: BudgetResult,
+    goal_rows: list[tuple[str, ...]],
+    suggestions: Suggestions,
+) -> dict[str, object]:
+    """Serialise the goal needs and the Plan Review as JSON.
+
+    Args:
+        result: The computed budget.
+        goal_rows: The goal table's rows, already formatted.
+        suggestions: The plan review.
+
+    Returns:
+        A JSON-serialisable dictionary with fixed two-decimal money strings.
+    """
+    summary = suggestions.summary
+    return {
+        "currency": result.operating_currency,
+        "goals": [
+            {
+                "envelope": row[0],
+                "saved": row[1],
+                "goal": row[2],
+                "by": row[3],
+                "months": int(row[4]),
+                "per_month": row[5],
+            }
+            for row in goal_rows
+        ],
+        "plan_review": {
+            "window": suggestions.window,
+            "months": [month.isoformat() for month in suggestions.months],
+            "summary": (
+                None
+                if summary is None
+                else {
+                    "planned_total": f"{summary.planned_total:.2f}",
+                    "pool_average": f"{summary.pool_average:.2f}",
+                    "surplus": f"{summary.surplus:.2f}",
+                    "months": summary.months,
+                }
+            ),
+            "rows": [
+                {
+                    "envelope": row.name,
+                    "parent": row.parent,
+                    "months": row.months,
+                    "average": f"{row.average:.2f}",
+                    "planned": None if row.planned is None else f"{row.planned:.2f}",
+                    "plan": row.plan_label,
+                    "reference": row.reference,
+                    "under": row.under,
+                    "on": row.on,
+                    "over": row.over,
+                    "overspent": row.overspent,
+                    "reading": row.reading,
+                }
+                for group in suggestions.groups
+                for row in group.rows
+            ],
+        },
+    }
 
 
 def _cmd_explain(args: argparse.Namespace) -> int:
@@ -1804,16 +1924,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report.set_defaults(func=_cmd_report)
 
-    suggest = subparsers.add_parser(
-        "suggest",
-        help="print the monthly amount goal envelopes need",
-        description=(
-            "For envelopes with a `goal` and a `by` date, print the monthly "
-            "amount needed to reach the goal on time."
-        ),
-    )
-    _ledger_argument(suggest)
-    suggest.set_defaults(func=_cmd_suggest)
+    _add_suggest_parser(subparsers)
 
     _add_explain_parser(subparsers)
 
@@ -2076,6 +2187,37 @@ def _add_completion_parser(subparsers: argparse._SubParsersAction) -> None:
         help="the shell to print a completion snippet for",
     )
     completion.set_defaults(func=_cmd_completion)
+
+
+def _add_suggest_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``suggest`` subcommand.
+
+    Args:
+        subparsers: The subparsers action to extend.
+    """
+    suggest = subparsers.add_parser(
+        "suggest",
+        help="suggest monthly amounts for goals and plans",
+        description=(
+            "For envelopes with a `goal` and a `by` date, print the monthly "
+            "amount needed to reach the goal on time; then review every "
+            "envelope's spending against its plan over the trailing window."
+        ),
+    )
+    _ledger_argument(suggest)
+    suggest.add_argument(
+        "--window",
+        type=int,
+        default=SUGGESTION_WINDOW,
+        metavar="N",
+        help="completed months the plan review averages over (default 12)",
+    )
+    suggest.add_argument(
+        "--json",
+        action="store_true",
+        help="print the suggestions as JSON instead of tables",
+    )
+    suggest.set_defaults(func=_cmd_suggest)
 
 
 def _add_explain_parser(subparsers: argparse._SubParsersAction) -> None:

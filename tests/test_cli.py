@@ -343,10 +343,60 @@ def test_suggest(capsys: pytest.CaptureFixture[str]) -> None:
     assert "269.24" in out
 
 
-def test_suggest_no_goals(capsys: pytest.CaptureFixture[str]) -> None:
-    """A ledger without goal envelopes says so."""
+def test_suggest_without_goals_reviews_plans(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A ledger without goals still gets the spending-versus-plan review."""
     assert cli.main(["suggest", _ledger("basic.bean")]) == 0
-    assert "no envelopes with a `goal` and a `by` date" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Goal envelopes" not in out
+    assert "Spending vs plan" in out
+    assert "Groceries" in out
+
+
+def test_suggest_plan_review(capsys: pytest.CaptureFixture[str]) -> None:
+    """The suggestion reviews spending against plan, grouped and with a legend."""
+    assert cli.main(["suggest", _ledger("plan_review.bean")]) == 0
+    out = capsys.readouterr().out
+    assert "Spending vs plan — last 3 months" in out
+    assert "Plans allocate 1333.33 USD/month" in out
+    assert "Groceries" in out
+    assert "under-saving" in out
+    # Grouped by parent like the Envelopes grid.
+    assert "\nHome" in out
+    assert "\nTransport" in out
+    # The reading legend and the experimental caveat.
+    assert "Meaning" in out
+    assert "sinking fund" in out
+    assert "experimental feature" in out
+
+
+def test_suggest_window_flag(capsys: pytest.CaptureFixture[str]) -> None:
+    """--window narrows the review's trailing window."""
+    assert cli.main(["suggest", _ledger("plan_review.bean"), "--window", "2"]) == 0
+    out = capsys.readouterr().out
+    assert "Spending vs plan — last 2 months" in out
+
+
+def test_suggest_json(capsys: pytest.CaptureFixture[str]) -> None:
+    """--json emits the goal needs and the plan review as JSON."""
+    assert cli.main(["suggest", _ledger("plan_review.bean"), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    review = payload["plan_review"]
+    assert review["summary"]["planned_total"] == "1333.33"
+    assert review["summary"]["pool_average"] == "2000.00"
+    # Rows are emitted in grouped order, matching the tables.
+    assert [row["envelope"] for row in review["rows"]] == [
+        "Groceries",
+        "Insurance",
+        "Car",
+        "Repairs",
+        "Fun",
+        "Gifts",
+    ]
+    groceries = review["rows"][0]
+    assert groceries["plan"] == "500.00"
+    assert groceries["reading"] == "under-saving"
 
 
 def test_completion_bash(capsys: pytest.CaptureFixture[str]) -> None:

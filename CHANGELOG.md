@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** the Fava **Reports** tab is now **Monthly Reports**, at
+  `?view=monthly_reports` (was `?view=reports`); no alias is kept (#68).
 - Both Fava plan popovers — the closing figure's and the allocated figure's —
   lead with the plan verdict beside the funded fraction (e.g.
   `on plan - 24.0% funded`), then the level/funded derivation and any top-up, so
@@ -40,6 +42,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Experimental:** a **Plan Review** tab (`?view=plan_review`) and a matching
+  `suggest` review. Each open, non-goal envelope's spending over the trailing
+  window of completed months is compared against its plan as written — average
+  monthly spending, months under/on/over, overspent months, and a short reading
+  (`over-saving`, `under-saving`, `on track`, `sinking fund`, `over allowance`,
+  …), with a legend defining each. Rows group by `parent` like the Envelopes
+  grid. A summary compares the total planned monthly allocation — including goal
+  contributions — against the average monthly pool inflow, so an over-committed
+  budget is visible. Goal envelopes are excluded. `suggest` gains `--window` and
+  `--json` (#68).
 - The Fava report marks an **over-funded** closing balance — green, with a
   filled dot in its ring — so a balance above its plan level reads apart from
   one exactly on it. The marker is a shape cue rather than a second colour, the

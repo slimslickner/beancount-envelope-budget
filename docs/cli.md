@@ -59,13 +59,15 @@ Print opening, allocated, activity and closing for every envelope, plus the pool
 
 ## `beancount-envelope-budget suggest`
 
-For envelopes with a `goal` and a `by` date, print the monthly amount needed to reach the goal on time.
+For envelopes with a `goal` and a `by` date, print the monthly amount needed to reach the goal on time; then review every envelope's spending against its plan over the trailing window.
 
 
 | Option | Help |
 | --- | --- |
 | `-h, --help` | show this help message and exit |
 | `ledger` | path to the Beancount ledger (.bean or .beancount) |
+| `--window` | completed months the plan review averages over (default 12) |
+| `--json` | print the suggestions as JSON instead of tables |
 
 ## `beancount-envelope-budget explain`
 
