@@ -14,14 +14,18 @@ from beancount_envelope_budget.report import (
     POOL_ACTIVITY,
     POOL_ALLOCATION,
     ReportEntry,
+    SuggestionSummary,
     _top_entries,
     build_reports,
+    build_suggestions,
     build_view,
     funding_explanation,
     funding_explanation_lines,
     pool_ledger,
     pool_ledger_json,
     prepare_view,
+    suggestion_cells,
+    suggestion_summary_line,
     to_jsonable,
 )
 
@@ -367,3 +371,110 @@ def test_explanation_is_serialised() -> None:
     cell_json = cast("dict[str, object]", cells[0]["explanation"])
     assert cell_json["reference"] == "up-to"
     assert cell_json["top_up"] == "100.00"
+
+
+# --- Plan review ------------------------------------------------------------
+
+
+def test_build_suggestions_reviews_spending_against_plan() -> None:
+    """Every open, non-goal envelope is reviewed over the completed months."""
+    suggestions = build_suggestions(_compute("plan_review.bean"))
+    assert suggestions.months == (
+        date(2024, 1, 1),
+        date(2024, 2, 1),
+        date(2024, 3, 1),
+    )
+    rows = {row.name: row for row in suggestions.rows}
+    # The goal envelope is left to the goal `suggest` table.
+    assert set(rows) == {"Car", "Fun", "Gifts", "Groceries", "Insurance", "Repairs"}
+    groceries = rows["Groceries"]
+    assert groceries.average == D("600.00")
+    assert groceries.planned == D("500.00")
+    assert groceries.plan_label == "500.00"
+    assert (groceries.under, groceries.on, groceries.over) == (0, 0, 3)
+    assert groceries.reading == "under-saving"
+
+
+def test_build_suggestions_reads_up_to_envelopes_by_their_ceiling() -> None:
+    """An up-to envelope is a sinking fund until it fills or overspends."""
+    rows = {
+        row.name: row for row in build_suggestions(_compute("plan_review.bean")).rows
+    }
+    assert rows["Gifts"].plan_label == "100.00 up to 1200.00"
+    assert rows["Gifts"].reading == "sinking fund"
+    assert rows["Insurance"].reading == "over-saving"
+    assert rows["Repairs"].reading == "over allowance"
+    assert rows["Car"].reading == "over-saving"
+    assert rows["Fun"].planned is None
+    assert rows["Fun"].plan_label == "-"
+    assert rows["Fun"].reading == "no plan"
+
+
+def test_build_suggestions_groups_by_parent_like_the_envelopes() -> None:
+    """Rows group by parent, headings alphabetical, no-parent group last."""
+    suggestions = build_suggestions(_compute("plan_review.bean"))
+    assert [
+        (group.parent, [row.name for row in group.rows]) for group in suggestions.groups
+    ] == [
+        ("Home", ["Groceries", "Insurance"]),
+        ("Transport", ["Car", "Repairs"]),
+        (None, ["Fun", "Gifts"]),
+    ]
+
+
+def test_build_suggestions_window_excludes_the_current_month() -> None:
+    """The window ends the month before the review date, capped there."""
+    result = _compute("plan_review.bean")
+    # Reviewing in March leaves January and February completed.
+    suggestions = build_suggestions(result, on=date(2024, 3, 1))
+    assert suggestions.months == (date(2024, 1, 1), date(2024, 2, 1))
+    # A future-dated directive cannot pull the window past the review date.
+    capped = build_suggestions(result, on=date(2024, 2, 1))
+    assert capped.months == (date(2024, 1, 1),)
+
+
+def test_build_suggestions_summary_includes_goals_and_the_pool() -> None:
+    """The affordability total adds goal contributions and measures the pool."""
+    summary = build_suggestions(_compute("plan_review.bean")).summary
+    assert summary is not None
+    assert summary.months == 3
+    # Groceries 500 + Insurance 100 + Car 200 + Repairs 100 + Gifts 100
+    # + Vacation's goal spread (333.33).
+    assert summary.planned_total == D("1333.33")
+    assert summary.pool_average == D("2000.00")
+    assert summary.surplus == D("666.67")
+
+
+def test_build_suggestions_counts_overspent_months() -> None:
+    """A month whose balance closed negative is counted as overspent."""
+    suggestions = build_suggestions(_compute("overspend_carry.bean"))
+    groceries = next(row for row in suggestions.rows if row.name == "Groceries")
+    assert groceries.months == 2
+    assert groceries.overspent == 1
+    assert groceries.planned is None
+
+
+def test_build_suggestions_without_start() -> None:
+    """A ledger without a start has nothing to review."""
+    empty = BudgetResult(None, "USD", (), (), (), (), ())
+    assert build_suggestions(empty).has_start is False
+
+
+def test_suggestion_cells_and_summary_line() -> None:
+    """The shared formatters render the row and the affordability line."""
+    line = suggestion_summary_line(SuggestionSummary(D(1000), D(800), 12))
+    assert "Plans allocate 1000.00/month" in line
+    assert "shortfall 200.00" in line
+    suggestions = build_suggestions(_compute("plan_review.bean"))
+    cells = {
+        suggestion_cells(row)[0]: suggestion_cells(row) for row in suggestions.rows
+    }
+    assert cells["Groceries"] == (
+        "Groceries",
+        "600.00",
+        "3",
+        "500.00",
+        "0/0/3",
+        "0",
+        "under-saving",
+    )

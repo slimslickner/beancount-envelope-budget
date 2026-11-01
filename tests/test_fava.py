@@ -1522,7 +1522,10 @@ def test_reports_tabs_share_the_row() -> None:
 def test_reports_nav_is_not_sticky() -> None:
     """The nav only sticks on the ledger grid; on the reports it scrolls away."""
     html = _render(_extension("basic.bean"), {"view": "monthly_reports"})
-    assert ".envelope-report:not(:has(.envelope-reports)) .envelope-nav" in html
+    assert (
+        ".envelope-report:not(:has(.envelope-reports)):not(:has(.envelope-review))"
+        " .envelope-nav" in html
+    )
 
 
 def test_reports_rows_share_one_scroll() -> None:
@@ -1624,3 +1627,44 @@ def test_template_shows_the_prefill_reason(
     assert "envelope-prefill-reason" in html
     assert "underfunded by 100.00 - 83.3% funded" in html
     assert "top up 100.00" in html
+
+
+# --- Plan Review ------------------------------------------------------------
+
+
+def test_plan_review_tab_is_rendered() -> None:
+    """The Plan Review tab shows the summary, grouped rows, legend and caveat."""
+    html = _render(_extension("plan_review.bean"), {"view": "plan_review"})
+    assert "Plan Review" in html
+    assert "Avg / month" in html
+    assert "Plans allocate 1333.33" in html
+    assert "Groceries" in html
+    # Grouped by parent, like the Envelopes grid.
+    assert "envelope-review-group" in html
+    assert ">Home<" in html
+    assert ">Transport<" in html
+    # Every reading the window produces, plus the legend and the caveat.
+    assert "under-saving" in html
+    assert "over-saving" in html
+    assert "sinking fund" in html
+    assert "over allowance" in html
+    assert "no plan" in html
+    assert "filling toward its ceiling" in html
+    assert "experimental feature" in html
+    # The goal envelope is excluded from the rows.
+    assert "Vacation" not in html
+    assert "Goal envelopes are excluded" in html
+
+
+def test_plan_review_tab_link_is_on_every_view() -> None:
+    """The Plan Review tab is reachable from the ledger grid."""
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
+    assert 'href="?view=plan_review"' in html
+    assert ">Plan Review<" in html
+
+
+def test_plan_review_is_not_shown_by_default() -> None:
+    """The default view is the ledger grid, not the Plan Review."""
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
+    assert "Avg / month" not in html
+    assert "Plans allocate" not in html

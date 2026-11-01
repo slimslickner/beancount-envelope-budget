@@ -417,6 +417,16 @@ See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget
 - `check` exits non-zero on any error.
 - `report` prints opening, allocated, activity and closing for one to three
   months, plus the pool and cash rows.
+- `suggest` prints the monthly amount each `goal` envelope needs to reach its
+  goal, then reviews every open, non-goal envelope's spending over the trailing
+  window (default 12 completed months, `--window N`): the average monthly
+  spending, the plan as written, how its months fell under, on or over the plan,
+  how often its balance closed negative, and a short reading. A summary line
+  compares the total planned monthly allocation — including goal contributions —
+  against the average monthly pool inflow, so you can see whether the plans
+  allocate more than the pool receives. `--json` emits the whole review. Goal
+  envelopes are excluded from the rows because they are funded by contributions,
+  not spending, and the review is flagged as experimental.
 - `explain` prints how each planned envelope is evaluated for a month — the
   resolved `monthly` (and the completed months an `avgN` averaged), the `up-to`
   ceiling formula, or the goal schedule — alongside the funding level, the
@@ -514,6 +524,30 @@ balances are cumulative, so they are still drawn from the whole budget and simpl
 *displayed* for the months in range, never recomputed from a truncated history.
 With no filter the tab spans full history, as does the CLI `report`, which has no
 window.
+
+### Plan Review
+
+The **Plan Review** tab (`?view=plan_review`) is the Fava face of the CLI
+`suggest` review, sharing `build_suggestions` so the two cannot disagree. It
+reviews the trailing window of completed months — the last year, or whatever
+shorter history the ledger has, ending with the month before today so a
+future-dated directive or the current, partial month is never counted — as one
+table: each open, non-goal envelope's average monthly spending, the number of
+months sampled, its **plan as written** (a number, an `avgN`, or
+`<monthly> up to <ceiling>`), how its months fell under, on or over that plan,
+how often its balance closed negative, and a short reading. Rows are grouped by
+`parent`, with headings in the same order as the Envelopes grid and envelopes
+with no parent last. A legend beneath the table defines every reading: `no plan`,
+`no history`, `over-saving` (a `monthly` plan above its spending, or an `up-to`
+envelope at its ceiling), `under-saving`, `on track`, `sinking fund` (an `up-to`
+envelope filling toward its ceiling) and `over allowance` (an `up-to` envelope
+spending above its monthly allowance). A summary line above the table compares
+the total planned monthly allocation — including each goal envelope's on-track
+contribution — against the average monthly pool inflow, so an over-committed
+budget is visible at a glance. Goal envelopes are excluded from the rows because
+they are savings contributions, not spending. The tab is advisory: it is plain
+tables and never writes, and it is marked **experimental** — its readings are
+heuristics, so treat them as guidance.
 
 ### Editing from the report
 

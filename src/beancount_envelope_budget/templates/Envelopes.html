@@ -1,8 +1,11 @@
-{% set reports = request.args.get('view') == 'monthly_reports' %}
+{% set mode = request.args.get('view') %}
+{% set reports = mode == 'monthly_reports' %}
+{% set review = mode == 'plan_review' %}
 {% set dash = extension.reports() if reports else none %}
-{% set view = none if reports else extension.report(request.args.get('month'), request.args.get('months')) %}
-{% set has_start = dash.has_start if reports else view.has_start %}
-{% set currency = dash.currency if reports else view.currency %}
+{% set suggestions = extension.suggestions() if review else none %}
+{% set view = none if reports or review else extension.report(request.args.get('month'), request.args.get('months')) %}
+{% set has_start = dash.has_start if reports else suggestions.has_start if review else view.has_start %}
+{% set currency = dash.currency if reports else suggestions.currency if review else view.currency %}
 {% set today = extension.today_month() %}
 {% set base = request.path if request.path.endswith('/') else request.path ~ '/' %}
 {% macro opening(cell, blank=false) -%}
@@ -88,7 +91,7 @@
         background: var(--background, #fff);
         border-bottom: 1px solid rgba(128, 128, 128, 0.5);
       }
-      .envelope-report:not(:has(.envelope-reports)) .envelope-nav {
+      .envelope-report:not(:has(.envelope-reports)):not(:has(.envelope-review)) .envelope-nav {
         position: sticky;
         top: 0;
         z-index: 4;
@@ -618,12 +621,63 @@
       .envelope-reports-empty {
         color: rgba(128, 128, 128, 1);
       }
+      /* The Plan Review tab: a trailing-window table of spending against plan,
+         with an affordability summary above it. */
+      .envelope-review {
+        overflow-x: auto;
+      }
+      .envelope-review-summary {
+        margin: 0.25rem 0 0.75rem;
+      }
+      .envelope-review-table {
+        border-collapse: collapse;
+        width: auto;
+      }
+      .envelope-review-table th,
+      .envelope-review-table td {
+        padding: 0.25rem 0.75rem;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.35);
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .envelope-review-table th:first-child,
+      .envelope-review-table td:first-child {
+        text-align: left;
+      }
+      .envelope-review-group th {
+        padding-top: 0.6rem;
+        text-align: left;
+        font-weight: 600;
+      }
+      .envelope-review-legend {
+        margin-top: 0.75rem;
+        font-size: 0.85em;
+        opacity: 0.85;
+      }
+      .envelope-review-legend dl {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 0.1rem 0.75rem;
+        margin: 0.25rem 0 0;
+      }
+      .envelope-review-legend dt {
+        font-weight: 600;
+      }
+      .envelope-review-legend dd {
+        margin: 0;
+      }
+      .envelope-review-note {
+        margin-top: 0.75rem;
+        font-size: 0.85em;
+        opacity: 0.8;
+      }
     </style>
 
-    <h2>{{ 'Monthly Reports' if reports else 'Envelopes' }} <small>in {{ currency }}</small></h2>
+    <h2>{{ 'Plan Review' if review else 'Monthly Reports' if reports else 'Envelopes' }} <small>in {{ currency }}</small></h2>
 
     <p class="envelope-nav">
-      {% if not reports %}
+      {% if not reports and not review %}
         <a class="envelope-today" href="?month={{ today.strftime('%Y-%m') }}&amp;months={{ view.months|length }}">Today</a>
         <span class="envelope-months">
           {% for link in extension.month_nav(view.months) %}
@@ -642,12 +696,48 @@
         </span>
       {% endif %}
       <span class="envelope-nav-tabs">
-        <a class="envelope-tab{{ '' if reports else ' envelope-tab-active' }}" href="?">Envelopes</a>
+        <a class="envelope-tab{{ '' if reports or review else ' envelope-tab-active' }}" href="?">Envelopes</a>
         <a class="envelope-tab{{ ' envelope-tab-active' if reports else '' }}" href="?view=monthly_reports">Monthly Reports</a>
+        <a class="envelope-tab{{ ' envelope-tab-active' if review else '' }}" href="?view=plan_review">Plan Review</a>
       </span>
     </p>
 
-    {% if reports %}
+    {% if review %}
+      <div class="envelope-review">
+        {% if suggestions.summary %}
+          <p class="envelope-review-summary">{{ extension.suggestion_summary(suggestions.summary) }}</p>
+        {% endif %}
+        <p class="envelope-review-note">{{ extension.suggestion_note() }}</p>
+        {% if not suggestions.rows %}
+          <p>No completed months to review yet.</p>
+        {% else %}
+          <table class="table envelope-review-table">
+            <thead>
+              <tr>{% for header in extension.suggestion_headers() %}<th>{{ header }}</th>{% endfor %}</tr>
+            </thead>
+            <tbody>
+              {% for group in suggestions.groups %}
+                {% if group.parent is not none %}
+                  <tr class="envelope-review-group"><th colspan="{{ extension.suggestion_headers() | length }}">{{ group.parent }}</th></tr>
+                {% endif %}
+                {% for row in group.rows %}
+                  <tr class="envelope-review-row">{% for cell in extension.suggestion_cells(row) %}<td>{{ cell }}</td>{% endfor %}</tr>
+                {% endfor %}
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="envelope-review-legend">
+            <strong>Reading</strong>
+            <dl>
+              {% for reading, meaning in extension.suggestion_legend() %}
+                <dt>{{ reading }}</dt><dd>{{ meaning }}</dd>
+              {% endfor %}
+            </dl>
+          </div>
+        {% endif %}
+        <p class="envelope-review-note">Goal envelopes are excluded — they are savings contributions, not spending. This tab is advisory and never writes.</p>
+      </div>
+    {% elif reports %}
       <div class="envelope-reports">
         {% if not dash.rows %}
           <p>No months in the selected date range.</p>
