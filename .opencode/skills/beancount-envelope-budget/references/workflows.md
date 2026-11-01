@@ -187,3 +187,18 @@ The net amount for each envelope-month is unchanged, so balances, the pool and
 the invariant are unchanged. A month with a single directive is left alone. If a
 directive has no source location to edit, its month is skipped and reported
 rather than half-merged.
+
+## Review an envelope
+
+To see everything that happened to one envelope — its plan changes, allocations,
+spending and close — as a ledger:
+
+```sh
+beancount-envelope-budget history main.bean --envelope '^Groceries$'
+beancount-envelope-budget history main.bean --envelope '^Groceries$' --json
+```
+
+Lines are grouped by month and carry the running balance, so a month's opening
+and closing read line by line. `--envelope` is a regular expression, so it can
+match several envelopes at once. The Fava report's **Envelope History** tab shows
+the same view and links each line to its source directive.

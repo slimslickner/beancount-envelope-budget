@@ -50,6 +50,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- An **Envelope History** tab and a matching `history` command: one envelope's
+  whole history as a vertical ledger, grouped by month — its `open` and plan
+  directives, every allocation, the postings that moved it and its `close`, each
+  line with the running balance and a link to its source directive in Fava's
+  editor. `history LEDGER --envelope REGEX [--json]` prints the same from the
+  CLI. With `write` configured, the tab can add an allocation, set or clear a
+  plan, and consolidate the envelope's whole history or a single month (reusing
+  the `consolidate` planner). The tab has a selector, and each envelope's plan
+  popover links to it (#77).
 - A **consolidate** command and Fava action that merge an envelope-month's
   several `allocate` directives into one, dated the last day of the month (or
   today, for the current month). The net amount is unchanged, so balances, the

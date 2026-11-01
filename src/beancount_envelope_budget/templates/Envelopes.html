@@ -1,11 +1,13 @@
 {% set mode = request.args.get('view') %}
 {% set reports = mode == 'monthly_reports' %}
 {% set review = mode == 'plan_review' %}
+{% set history_mode = mode == 'envelope' %}
 {% set dash = extension.reports() if reports else none %}
 {% set suggestions = extension.suggestions() if review else none %}
-{% set view = none if reports or review else extension.report(request.args.get('month'), request.args.get('months')) %}
-{% set has_start = dash.has_start if reports else suggestions.has_start if review else view.has_start %}
-{% set currency = dash.currency if reports else suggestions.currency if review else view.currency %}
+{% set history = extension.history(request.args.get('envelope')) if history_mode else none %}
+{% set view = none if reports or review or history_mode else extension.report(request.args.get('month'), request.args.get('months')) %}
+{% set has_start = dash.has_start if reports else suggestions.has_start if review else history.has_start if history_mode else view.has_start %}
+{% set currency = dash.currency if reports else suggestions.currency if review else history.currency if history_mode else view.currency %}
 {% set today = extension.today_month() %}
 {% set base = request.path if request.path.endswith('/') else request.path ~ '/' %}
 {% macro opening(cell, blank=false) -%}
@@ -37,7 +39,7 @@
   {%- set base = request.path if request.path.endswith('/') else request.path ~ '/' -%}
   {%- set action = base ~ 'commit' if extension.writable else '' -%}
   {%- set plan = extension.plan_fields(envelope.name, month) if extension.writable else none -%}
-  <td class="envelope-name{{ ' envelope-pop-host envelope-plan-host' if shows else '' }}">{% if shows %}<input type="checkbox" class="envelope-pop-toggle" id="plan-{{ ident }}"><label class="envelope-pop-label" for="plan-{{ ident }}">{{ envelope.name }}</label><label class="envelope-pop-backdrop" for="plan-{{ ident }}"></label><div class="envelope-pop envelope-plan-pop">{% for line in envelope.plans %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ extension.plan_text(line) }}</a>{% endfor %}{% if extension.writable %}<form method="post" action="{{ action }}" data-create><input type="hidden" name="action" value="plan"><input type="hidden" name="envelope" value="{{ envelope.name }}"><label>Monthly <input name="monthly" size="8" placeholder="500 or avg3" value="{{ plan.monthly }}"></label><label>Up to <input name="up_to" size="8" value="{{ plan.up_to }}"></label><label>Priority <input name="priority" size="4" value="{{ plan.priority }}"></label><label>Goal <input name="goal" size="8" value="{{ plan.goal }}"></label><label>By <input type="date" name="by" value="{{ plan.by }}"></label><input type="date" name="date" value="{{ extension.fill_date(month) }}"><button type="submit">Set plan</button></form><form method="post" action="{{ action }}" data-create><input type="hidden" name="action" value="unplan"><input type="hidden" name="envelope" value="{{ envelope.name }}"><input type="date" name="date" value="{{ extension.fill_date(month) }}"><button type="submit">Clear plan</button></form>{% endif %}</div>{% else %}{{ envelope.name }}{% endif %}</td>
+  <td class="envelope-name{{ ' envelope-pop-host envelope-plan-host' if shows else '' }}">{% if shows %}<input type="checkbox" class="envelope-pop-toggle" id="plan-{{ ident }}"><label class="envelope-pop-label" for="plan-{{ ident }}">{{ envelope.name }}</label><label class="envelope-pop-backdrop" for="plan-{{ ident }}"></label><div class="envelope-pop envelope-plan-pop">{% for line in envelope.plans %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ extension.plan_text(line) }}</a>{% endfor %}<a class="envelope-history-link" href="?view=envelope&amp;envelope={{ envelope.name | urlencode }}">View history</a>{% if extension.writable %}<form method="post" action="{{ action }}" data-create><input type="hidden" name="action" value="plan"><input type="hidden" name="envelope" value="{{ envelope.name }}"><label>Monthly <input name="monthly" size="8" placeholder="500 or avg3" value="{{ plan.monthly }}"></label><label>Up to <input name="up_to" size="8" value="{{ plan.up_to }}"></label><label>Priority <input name="priority" size="4" value="{{ plan.priority }}"></label><label>Goal <input name="goal" size="8" value="{{ plan.goal }}"></label><label>By <input type="date" name="by" value="{{ plan.by }}"></label><input type="date" name="date" value="{{ extension.fill_date(month) }}"><button type="submit">Set plan</button></form><form method="post" action="{{ action }}" data-create><input type="hidden" name="action" value="unplan"><input type="hidden" name="envelope" value="{{ envelope.name }}"><input type="date" name="date" value="{{ extension.fill_date(month) }}"><button type="submit">Clear plan</button></form>{% endif %}</div>{% else %}{{ envelope.name }}{% endif %}</td>
 {%- endmacro %}
 {% if not has_start %}
   <p>There is no <code>custom "envelope" "start"</code> directive, so there is nothing to show.</p>
@@ -91,7 +93,7 @@
         background: var(--background, #fff);
         border-bottom: 1px solid rgba(128, 128, 128, 0.5);
       }
-      .envelope-report:not(:has(.envelope-reports)):not(:has(.envelope-review)) .envelope-nav {
+      .envelope-report:not(:has(.envelope-reports)):not(:has(.envelope-review)):not(:has(.envelope-history)) .envelope-nav {
         position: sticky;
         top: 0;
         z-index: 4;
@@ -672,12 +674,89 @@
         font-size: 0.85em;
         opacity: 0.8;
       }
+      /* The Envelope History tab: one envelope's whole ledger, grouped by month,
+         each line linking to its source directive in Fava's editor. */
+      .envelope-history-pick,
+      .envelope-history-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+        margin-bottom: 0.75rem;
+      }
+      .envelope-history-pick select,
+      .envelope-history-actions input,
+      .envelope-history-actions select {
+        font: inherit;
+      }
+      .envelope-history-actions form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+        align-items: center;
+        padding: 0.3rem 0.5rem;
+        border: 1px solid rgba(128, 128, 128, 0.4);
+        border-radius: 4px;
+      }
+      .envelope-history-link {
+        display: block;
+        margin-top: 0.35rem;
+        padding-top: 0.35rem;
+        border-top: 1px solid rgba(128, 128, 128, 0.35);
+      }
+      .envelope-history-month {
+        margin-bottom: 1.25rem;
+      }
+      .envelope-history-month h3 {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+        align-items: baseline;
+        margin: 0 0 0.25rem;
+      }
+      .envelope-history-month h3 small {
+        font-weight: 400;
+        font-size: 0.8em;
+        opacity: 0.8;
+      }
+      .envelope-history-table {
+        border-collapse: collapse;
+        width: auto;
+      }
+      .envelope-history-table th,
+      .envelope-history-table td {
+        padding: 0.2rem 0.75rem;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.3);
+        text-align: left;
+        font-variant-numeric: tabular-nums;
+      }
+      .envelope-history-table th.num,
+      .envelope-history-table td.num {
+        text-align: right;
+      }
+      .envelope-history-table td a {
+        color: inherit;
+      }
+      .envelope-history-open td,
+      .envelope-history-close td {
+        font-weight: 600;
+      }
+      .envelope-history-plan td,
+      .envelope-history-unplan td {
+        color: rgba(128, 128, 128, 1);
+      }
+      .envelope-history-empty {
+        color: rgba(128, 128, 128, 1);
+      }
+      .envelope-history-consolidate {
+        margin-top: 0.35rem;
+      }
     </style>
 
     <h2>{{ 'Plan Review' if review else 'Monthly Reports' if reports else 'Envelopes' }} <small>in {{ currency }}</small></h2>
 
     <p class="envelope-nav">
-      {% if not reports and not review %}
+      {% if not reports and not review and not history_mode %}
         <a class="envelope-today" href="?month={{ today.strftime('%Y-%m') }}&amp;months={{ view.months|length }}">Today</a>
         <span class="envelope-months">
           {% for link in extension.month_nav(view.months) %}
@@ -696,9 +775,10 @@
         </span>
       {% endif %}
       <span class="envelope-nav-tabs">
-        <a class="envelope-tab{{ '' if reports or review else ' envelope-tab-active' }}" href="?">Envelopes</a>
+        <a class="envelope-tab{{ '' if reports or review or history_mode else ' envelope-tab-active' }}" href="?">Envelopes</a>
         <a class="envelope-tab{{ ' envelope-tab-active' if reports else '' }}" href="?view=monthly_reports">Monthly Reports</a>
         <a class="envelope-tab{{ ' envelope-tab-active' if review else '' }}" href="?view=plan_review">Plan Review</a>
+        <a class="envelope-tab{{ ' envelope-tab-active' if history_mode else '' }}" href="?view=envelope">Envelope History</a>
       </span>
     </p>
 
@@ -769,6 +849,102 @@
             </section>
           {% endfor %}
         </div>
+      </div>
+    {% elif history_mode %}
+      <div class="envelope-history">
+        <form class="envelope-history-pick" method="get">
+          <input type="hidden" name="view" value="envelope">
+          <label>Envelope
+            <select name="envelope">
+              {% for parent, names in extension.history_groups() %}
+                {% if parent is not none %}
+                  <optgroup label="{{ parent }}">
+                    {% for name in names %}<option value="{{ name }}"{{ ' selected' if name == history.name else '' }}>{{ name }}</option>{% endfor %}
+                  </optgroup>
+                {% else %}
+                  {% for name in names %}<option value="{{ name }}"{{ ' selected' if name == history.name else '' }}>{{ name }}</option>{% endfor %}
+                {% endif %}
+              {% endfor %}
+            </select>
+          </label>
+          <button type="submit">Show</button>
+        </form>
+        {% if not history.found %}
+          <p>No such envelope: {{ request.args.get('envelope') }}.</p>
+        {% else %}
+          {% if extension.writable %}
+            {% set plan = extension.plan_fields(history.name, today) %}
+            <div class="envelope-history-actions">
+              <form method="post" action="{{ base ~ 'commit' }}" data-create>
+                <input type="hidden" name="action" value="allocate">
+                <input type="hidden" name="envelope" value="{{ history.name }}">
+                <label>Allocate <input name="amount" size="8" value="{{ extension.prefill(history.name, today) }}"></label>
+                <input type="date" name="date" value="{{ extension.fill_date(today) }}">
+                <button type="submit">Add allocation</button>
+              </form>
+              <form method="post" action="{{ base ~ 'commit' }}" data-create>
+                <input type="hidden" name="action" value="plan">
+                <input type="hidden" name="envelope" value="{{ history.name }}">
+                <label>Monthly <input name="monthly" size="8" placeholder="500 or avg3" value="{{ plan.monthly }}"></label>
+                <label>Up to <input name="up_to" size="8" value="{{ plan.up_to }}"></label>
+                <label>Priority <input name="priority" size="4" value="{{ plan.priority }}"></label>
+                <label>Goal <input name="goal" size="8" value="{{ plan.goal }}"></label>
+                <label>By <input type="date" name="by" value="{{ plan.by }}"></label>
+                <input type="date" name="date" value="{{ extension.fill_date(today) }}">
+                <button type="submit">Set plan</button>
+              </form>
+              <form method="post" action="{{ base ~ 'commit' }}" data-create>
+                <input type="hidden" name="action" value="unplan">
+                <input type="hidden" name="envelope" value="{{ history.name }}">
+                <input type="date" name="date" value="{{ extension.fill_date(today) }}">
+                <button type="submit">Clear plan</button>
+              </form>
+              <form method="post" action="{{ base ~ 'commit' }}" data-consolidate>
+                <input type="hidden" name="action" value="consolidate">
+                <input type="hidden" name="envelope" value="{{ history.name }}">
+                <button type="submit">Consolidate history</button>
+              </form>
+            </div>
+          {% endif %}
+          {% if not history.months %}
+            <p>This envelope has no months to show.</p>
+          {% else %}
+            {% for month in history.months %}
+              <section class="envelope-history-month">
+                <h3>
+                  {{ month.month.strftime('%Y-%m') }}
+                  <small>opening {{ extension.money(month.opening) }} &middot; allocated {{ extension.money(month.allocated) }} &middot; activity {{ extension.money(month.activity) }} &middot; closing {{ extension.money(month.closing) }}</small>
+                </h3>
+                <table class="table envelope-history-table">
+                  <thead>
+                    <tr><th>Date</th><th>Action</th><th>Description</th><th class="num">Amount</th><th class="num">Balance</th></tr>
+                  </thead>
+                  <tbody>
+                    {% for line in month.lines %}
+                      <tr class="envelope-history-{{ line.kind }}">
+                        <td>{{ line.date.isoformat() }}</td>
+                        <td>{{ line.kind }}</td>
+                        <td>{% if line.entry_hash %}<a href="#context-{{ line.entry_hash }}">{{ line.description }}</a>{% else %}{{ line.description }}{% endif %}</td>
+                        <td class="num">{% if line.kind not in ('open', 'plan', 'unplan', 'close') %}{{ extension.money(line.amount) }}{% endif %}</td>
+                        <td class="num">{{ extension.money(line.balance) }}</td>
+                      </tr>
+                    {% else %}
+                      <tr><td colspan="5" class="envelope-history-empty">no activity</td></tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+                {% if extension.writable %}
+                  <form class="envelope-history-consolidate" method="post" action="{{ base ~ 'commit' }}" data-consolidate>
+                    <input type="hidden" name="action" value="consolidate">
+                    <input type="hidden" name="envelope" value="{{ history.name }}">
+                    <input type="hidden" name="month" value="{{ month.month.strftime('%Y-%m') }}">
+                    <button type="submit">Consolidate this month</button>
+                  </form>
+                {% endif %}
+              </section>
+            {% endfor %}
+          {% endif %}
+        {% endif %}
       </div>
     {% else %}
     {% if view.warnings %}

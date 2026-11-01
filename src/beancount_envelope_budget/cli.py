@@ -44,8 +44,10 @@ from beancount_envelope_budget.report import (
     SUGGESTION_NOTE,
     SUGGESTION_WINDOW,
     PoolLedger,
+    build_envelope_history,
     build_suggestions,
     build_view,
+    envelope_history_json,
     funding_explanation_lines,
     month_funding,
     plan_level,
@@ -73,6 +75,7 @@ if TYPE_CHECKING:
     from beancount_envelope_budget.report import (
         BudgetView,
         Cell,
+        EnvelopeHistory,
         FundingExplanation,
         Suggestions,
     )
@@ -96,6 +99,14 @@ _DECEMBER = 12
 #: The pool ledger's leading text columns (date and description) are left-aligned
 #: and the trailing money columns right-aligned.
 _POOL_TEXT_COLUMNS = 2
+
+#: The history ledger's leading text columns (date, action and description) are
+#: left-aligned and the trailing money columns right-aligned.
+_HISTORY_TEXT_COLUMNS = 3
+
+#: The history line kinds that only describe the envelope, so their amount is
+#: blank rather than a zero the eye must skip.
+_HISTORY_DIRECTIVES = frozenset({"open", "plan", "unplan", "close"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -698,6 +709,101 @@ def _pool_table_row(row: tuple[str, ...], widths: list[int]) -> str:
         for index, cell in enumerate(row)
     ]
     return "  ".join(cells).rstrip()
+
+
+def _cmd_history(args: argparse.Namespace) -> int:
+    """Print one envelope's whole history as a vertical ledger.
+
+    Args:
+        args: Parsed arguments; ``args.ledger``, ``args.envelope`` and
+            ``args.json``.
+
+    Returns:
+        The process exit status.
+    """
+    if not args.ledger.exists():
+        print(f"no such ledger: {args.ledger}", file=sys.stderr)
+        return 2
+    pattern = _compile_pattern(args.envelope, "--envelope")
+    if pattern is None or pattern is _INVALID_PATTERN:
+        return 2
+    loaded = _load(args.ledger, collect_activity=True)
+    result = loaded.result
+    if result.start is None:
+        print("there is no start directive; nothing to show", file=sys.stderr)
+        return 0
+    names = [report.name for report in result.envelopes if pattern.search(report.name)]
+    if not names:
+        print("no envelope matches --envelope", file=sys.stderr)
+        return 0
+    histories = [build_envelope_history(result, name) for name in names]
+    if args.json:
+        payload: object = (
+            envelope_history_json(histories[0])
+            if len(histories) == 1
+            else [envelope_history_json(history) for history in histories]
+        )
+        print(json.dumps(payload, indent=2))
+        return 0
+    print("\n\n".join(_format_history(history) for history in histories))
+    return 0
+
+
+def _format_history(history: EnvelopeHistory) -> str:
+    """Render one envelope's history as a headed ledger.
+
+    Args:
+        history: The envelope history.
+
+    Returns:
+        The rendered ledger: a running line per action, grouped by month, each
+        month preceded by its opening, allocated, activity and closing.
+    """
+    lines = [f"Envelope history: {history.name}"]
+    if history.currency:
+        lines.append(f"Amounts in {history.currency}")
+    if not history.found:
+        lines.extend(("", f"no such envelope: {history.name}"))
+        return "\n".join(lines)
+    header = ("Date", "Action", "Description", "Amount", "Balance")
+    rows = [
+        (
+            line.date.isoformat(),
+            line.kind,
+            line.description,
+            "" if line.kind in _HISTORY_DIRECTIVES else f"{line.amount:+.2f}",
+            _money(line.balance),
+        )
+        for month in history.months
+        for line in month.lines
+    ]
+    widths = [len(cell) for cell in header]
+    for row in rows:
+        widths = [
+            max(width, len(cell)) for width, cell in zip(widths, row, strict=True)
+        ]
+
+    def render(cells: tuple[str, ...]) -> str:
+        return "  ".join(
+            cell.ljust(widths[index])
+            if index < _HISTORY_TEXT_COLUMNS
+            else cell.rjust(widths[index])
+            for index, cell in enumerate(cells)
+        )
+
+    body = [render(header), "  ".join("-" * width for width in widths)]
+    index = 0
+    for month in history.months:
+        body.append(
+            f"{month.month:%Y-%m}  opening {_money(month.opening)}  "
+            f"allocated {_money(month.allocated)}  activity {_money(month.activity)}  "
+            f"closing {_money(month.closing)}"
+        )
+        body.extend(
+            f"  {render(rows[index + offset])}" for offset in range(len(month.lines))
+        )
+        index += len(month.lines)
+    return "\n".join([*lines, "", *body])
 
 
 def _cmd_completion(args: argparse.Namespace) -> int:
@@ -2074,6 +2180,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pool.set_defaults(func=_cmd_pool)
 
+    _add_history_parser(subparsers)
+
     fund = subparsers.add_parser(
         "fund",
         help="print allocate directives to backfill or roll the budget",
@@ -2370,6 +2478,38 @@ def _add_suggest_parser(subparsers: argparse._SubParsersAction) -> None:
         help="print the suggestions as JSON instead of tables",
     )
     suggest.set_defaults(func=_cmd_suggest)
+
+
+def _add_history_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``history`` subcommand.
+
+    Args:
+        subparsers: The subparsers action to extend.
+    """
+    history = subparsers.add_parser(
+        "history",
+        help="print one envelope's history as a ledger",
+        description=(
+            "Print one envelope's whole history as a vertical ledger, grouped by "
+            "month: its open and plan directives, every allocation, the postings "
+            "that moved it and its close, each line with the running balance. "
+            "--envelope selects the envelope by regular expression."
+        ),
+    )
+    _ledger_argument(history)
+    envelope_action = history.add_argument(
+        "--envelope",
+        required=True,
+        metavar="REGEX",
+        help="the envelope to show, by regular expression",
+    )
+    setattr(envelope_action, "completer", _complete_envelopes)  # noqa: B010
+    history.add_argument(
+        "--json",
+        action="store_true",
+        help="print the history as JSON instead of a table",
+    )
+    history.set_defaults(func=_cmd_history)
 
 
 def _add_explain_parser(subparsers: argparse._SubParsersAction) -> None:
