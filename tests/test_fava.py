@@ -1228,6 +1228,36 @@ def test_js_module_closes_popovers_after_save() -> None:
     assert "open_pop = null;" in cleanup
 
 
+def test_js_module_consolidates_in_place() -> None:
+    """The module submits a consolidation without a page navigation (#78).
+
+    There is no JavaScript runtime in this project, so this only pins the
+    contract: a ``data-consolidate`` form posts with ``format=json`` and then
+    refreshes the report in place, like a created directive, rather than doing
+    the browser's full navigation a plain form submit would.
+    """
+    source = (Path(fava_ext.__file__).parent / "Envelopes.js").read_text()
+    hook = source.split("onExtensionPageLoad(ctx)")[1]
+    assert "form[data-consolidate]" in hook
+    assert "consolidate(form, api)" in hook
+    body = source.split("async function consolidate(")[1].split("function refresh()")[0]
+    assert 'body.append("format", "json")' in body
+    assert 'api.post("commit", body)' in body
+    assert "close_open_popover();" in body
+    assert "refresh();" in body
+
+
+def test_js_module_right_aligns_month_popovers() -> None:
+    """The month actions popover always hangs right-aligned (#78).
+
+    The other popovers flip to the side with more room, but the first month's
+    header sits near the left edge, so it would flip left and read differently
+    from every other month.
+    """
+    source = (Path(fava_ext.__file__).parent / "Envelopes.js").read_text()
+    assert 'host.classList.contains("envelope-month-host")' in source
+
+
 def test_template_popovers_size_to_content() -> None:
     """The stylesheet sizes ledger popovers to their widest line (#43)."""
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
@@ -1547,6 +1577,7 @@ def test_template_shows_consolidate_for_multiple_allocations(tmp_path: Path) -> 
     html = _render(extension, {"month": "2024-01", "months": "1"})
     assert "Consolidate 2 directives" in html
     assert "Consolidate this month" in html
+    assert html.count("data-consolidate") == 2
 
 
 def test_template_plan_popover_shows_read_only_info() -> None:

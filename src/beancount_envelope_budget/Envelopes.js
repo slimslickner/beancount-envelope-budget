@@ -7,6 +7,10 @@
 // posts the result to `commit` — so the ledger is still written by the server,
 // through Fava's own file API, and the client talks to it through Fava's
 // extension API (which builds the endpoint URLs correctly).
+//
+// A consolidate form has no directive to edit, so this module submits it
+// straight to `commit` and refreshes, giving it the same in-place reload a
+// created allocation gets rather than a full page navigation.
 
 /** @type {{ init(): void, onPageLoad(): void, onExtensionPageLoad(ctx: unknown): void }} */
 export default {
@@ -25,6 +29,12 @@ export default {
       form.addEventListener("submit", (event) => {
         event.preventDefault();
         create(form, api);
+      });
+    }
+    for (const form of document.querySelectorAll("form[data-consolidate]")) {
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        consolidate(form, api);
       });
     }
   },
@@ -294,8 +304,12 @@ function place_popover(host, pop) {
 
   const left_space = host_box.right - POPOVER_MARGIN;
   const right_space = viewport_width - host_box.left - POPOVER_MARGIN;
-  // Grow left, matching the stylesheet default, unless the left has less room.
-  const grow_left = left_space >= right_space || natural_width > right_space;
+  // The month actions popover always hangs right-aligned under its header, so
+  // every month's "actions" reads the same; the other popovers grow from the
+  // side with more room, matching the stylesheet default (right) unless the
+  // left has less room.
+  const is_month = host.classList.contains("envelope-month-host");
+  const grow_left = is_month || left_space >= right_space || natural_width > right_space;
   const available = Math.max(
     grow_left ? left_space : right_space,
     POPOVER_MIN_WIDTH,
@@ -409,6 +423,38 @@ async function create(form, api) {
   // We made the change, so refresh now rather than waiting for Fava's watcher to
   // notice it (up to five seconds, then only the yellow reload button when
   // auto-reload is off). The refresh's own request reloads the ledger first.
+  refresh();
+}
+
+/**
+ * Submit a consolidation form and refresh the report in place.
+ *
+ * Unlike :func:`create` there is no directive to preview or edit — the server
+ * only merges existing ones — so this posts the form's own fields with
+ * `format=json` and then refreshes, giving the same in-place reload a created
+ * allocation gets instead of a full page navigation.
+ *
+ * @param {Element} form
+ * @param {{ post(endpoint: string, body: FormData): Promise<any> }} api
+ */
+async function consolidate(form, api) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const body = new FormData(form);
+  body.append("format", "json");
+  let result;
+  try {
+    result = await api.post("commit", body);
+  } catch (error) {
+    window.alert(`Could not consolidate:\n\n${describe(error)}`);
+    return;
+  }
+  if (result && result.error) {
+    window.alert(`Could not consolidate:\n\n${result.error}`);
+    return;
+  }
+  close_open_popover();
   refresh();
 }
 
