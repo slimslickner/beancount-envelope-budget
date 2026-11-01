@@ -1469,8 +1469,8 @@ def test_template_plan_popover_shows_read_only_info() -> None:
 
 def test_reports_tab_is_rendered() -> None:
     """The reports view offers the balance row and every ranking table."""
-    html = _render(_extension("parent_groups.bean"), {"view": "reports"})
-    assert "Reports" in html
+    html = _render(_extension("parent_groups.bean"), {"view": "monthly_reports"})
+    assert "Monthly Reports" in html
     assert "Cash and pool" in html
     assert "Top spending" in html
     assert "Top allocated" in html
@@ -1485,7 +1485,7 @@ def test_reports_tab_is_rendered() -> None:
 
 def test_reports_balance_row_is_first() -> None:
     """The cash and pool balance row comes before the ranking rows."""
-    html = _render(_extension("parent_groups.bean"), {"view": "reports"})
+    html = _render(_extension("parent_groups.bean"), {"view": "monthly_reports"})
     assert html.index(">Cash and pool<") < html.index(">Top spending<")
 
 
@@ -1494,7 +1494,7 @@ def test_reports_is_not_shown_by_default() -> None:
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
     assert "Cash and pool" not in html
     assert "<svg" not in html
-    assert 'href="?view=reports"' in html
+    assert 'href="?view=monthly_reports"' in html
 
 
 def test_template_puts_tabs_on_the_nav_row() -> None:
@@ -1507,27 +1507,27 @@ def test_template_puts_tabs_on_the_nav_row() -> None:
     assert 'class="envelope-month ' in nav
     assert "envelope-nav-tabs" in nav
     assert ">Envelopes<" in nav
-    assert ">Reports<" in nav
+    assert ">Monthly Reports<" in nav
     assert "envelope-tabs" not in html
 
 
 def test_reports_tabs_share_the_row() -> None:
     """On the reports the tabs sit in the same row, with no month strip."""
-    html = _render(_extension("basic.bean"), {"view": "reports"})
+    html = _render(_extension("basic.bean"), {"view": "monthly_reports"})
     nav = html[html.index('<p class="envelope-nav">') : html.index("</p>")]
-    assert ">Reports<" in nav
+    assert ">Monthly Reports<" in nav
     assert "envelope-months" not in nav
 
 
 def test_reports_nav_is_not_sticky() -> None:
     """The nav only sticks on the ledger grid; on the reports it scrolls away."""
-    html = _render(_extension("basic.bean"), {"view": "reports"})
+    html = _render(_extension("basic.bean"), {"view": "monthly_reports"})
     assert ".envelope-report:not(:has(.envelope-reports)) .envelope-nav" in html
 
 
 def test_reports_rows_share_one_scroll() -> None:
     """Every report row sits in one scroll, with fixed aligned month columns."""
-    html = _render(_extension("parent_groups.bean"), {"view": "reports"})
+    html = _render(_extension("parent_groups.bean"), {"view": "monthly_reports"})
     assert html.count('class="envelope-reports-strip"') == 1
     assert html.count('class="envelope-reports-row"') == 4
     assert "envelope-reports-months" in html
@@ -1545,7 +1545,7 @@ def test_reports_rows_share_one_scroll() -> None:
 
 def test_reports_without_start() -> None:
     """A ledger with no start still has nothing to show on the reports."""
-    html = _render(_extension("no_start.bean"), {"view": "reports"})
+    html = _render(_extension("no_start.bean"), {"view": "monthly_reports"})
     assert "nothing to show" in html
 
 
@@ -1590,7 +1590,7 @@ def test_template_reports_hide_months_outside_the_filter(
         "_filter_range",
         lambda _self: (date(2024, 2, 1), date(2024, 2, 28)),
     )
-    html = _render(extension, {"view": "reports"})
+    html = _render(extension, {"view": "monthly_reports"})
     assert "2024-02" in html
     assert "2024-01" not in html
     assert "2024-03" not in html
@@ -1606,7 +1606,7 @@ def test_template_reports_show_a_note_when_the_filter_is_empty(
         "_filter_range",
         lambda _self: (date(2030, 1, 1), date(2030, 1, 31)),
     )
-    html = _render(extension, {"view": "reports"})
+    html = _render(extension, {"view": "monthly_reports"})
     assert "No months in the selected date range." in html
     assert "Top spending" not in html
 

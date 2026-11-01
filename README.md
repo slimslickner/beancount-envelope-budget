@@ -72,7 +72,7 @@ plugin "beancount_envelope_budget.plugin"
 2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext"
 ```
 
-Validation errors then appear as ordinary Beancount errors (on Fava's errors page). Add `"resolved"` after the plugin path to also write each posting's resolved envelope to `envelope-resolved` metadata for BQL. The report has an **Envelopes** tab (the ledger grid) and a **Reports** tab, which shows the cash and pool balances and the per-month top envelopes over the budget's whole history.
+Validation errors then appear as ordinary Beancount errors (on Fava's errors page). Add `"resolved"` after the plugin path to also write each posting's resolved envelope to `envelope-resolved` metadata for BQL. The report has an **Envelopes** tab (the ledger grid) and a **Monthly Reports** tab, which shows the cash and pool balances and the per-month top envelopes over the budget's whole history.
 
 ### Backfilling history
 

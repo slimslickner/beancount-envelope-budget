@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** the Fava **Reports** tab is now **Monthly Reports**, at
+  `?view=monthly_reports` (was `?view=reports`); no alias is kept (#68).
 - Both Fava plan popovers — the closing figure's and the allocated figure's —
   lead with the plan verdict beside the funded fraction (e.g.
   `on plan - 24.0% funded`), then the level/funded derivation and any top-up, so

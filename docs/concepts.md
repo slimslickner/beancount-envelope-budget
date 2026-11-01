@@ -498,19 +498,19 @@ still overrides it:
 2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext" "{'months': 2}"
 ```
 
-### Reports
+### Monthly Reports
 
-The **Reports** tab (the link beside *Envelopes*, or `?view=reports`) shows the
-budget's whole history rather than one to three months, as table rows of month
-columns that scroll together horizontally. The first row is the cash and pool
-balance per month; the rest rank the top spending, allocated and ending-balance
-envelopes. Every column is the same fixed width, and each row's title stays
-pinned as its months scroll past. The tab is plain tables — no JavaScript and no
-charting dependency.
+The **Monthly Reports** tab (the link beside *Envelopes*, or
+`?view=monthly_reports`) shows the budget's whole history rather than one to
+three months, as table rows of month columns that scroll together horizontally.
+The first row is the cash and pool balance per month; the rest rank the top
+spending, allocated and ending-balance envelopes. Every column is the same fixed
+width, and each row's title stays pinned as its months scroll past. The tab is
+plain tables — no JavaScript and no charting dependency.
 
-When a date filter is set at the top of the Fava window, the Reports tab narrows
-to the months that fall inside it, and shows only those columns. The balances
-are cumulative, so they are still drawn from the whole budget and simply
+When a date filter is set at the top of the Fava window, the Monthly Reports tab
+narrows to the months that fall inside it, and shows only those columns. The
+balances are cumulative, so they are still drawn from the whole budget and simply
 *displayed* for the months in range, never recomputed from a truncated history.
 With no filter the tab spans full history, as does the CLI `report`, which has no
 window.

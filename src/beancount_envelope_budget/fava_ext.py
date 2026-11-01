@@ -25,9 +25,9 @@ from :mod:`beancount_envelope_budget.actions`, the same module the CLI uses.
 The extension recomputes the budget in :meth:`Envelopes.after_load_file` and
 renders a Jinja template. It is the only module that imports Fava. The view it
 renders is built by :func:`beancount_envelope_budget.report.build_view`, the
-same function the CLI uses, so the two cannot disagree. The Reports tab spans
-the budget's whole history, narrowed to Fava's window date filter when one is
-set.
+same function the CLI uses, so the two cannot disagree. The Monthly Reports tab
+spans the budget's whole history, narrowed to Fava's window date filter when one
+is set.
 """
 
 from __future__ import annotations
@@ -421,7 +421,7 @@ class Envelopes(FavaExtensionBase):
         )
 
     def reports(self) -> Reports:
-        """Build the table-only reports view, for the Reports tab.
+        """Build the table-only reports view, for the Monthly Reports tab.
 
         Delegates to :func:`beancount_envelope_budget.report.build_reports`, the
         single implementation, so the reports tab's numbers come from the same

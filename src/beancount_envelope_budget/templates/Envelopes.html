@@ -1,4 +1,4 @@
-{% set reports = request.args.get('view') == 'reports' %}
+{% set reports = request.args.get('view') == 'monthly_reports' %}
 {% set dash = extension.reports() if reports else none %}
 {% set view = none if reports else extension.report(request.args.get('month'), request.args.get('months')) %}
 {% set has_start = dash.has_start if reports else view.has_start %}
@@ -620,7 +620,7 @@
       }
     </style>
 
-    <h2>{{ 'Reports' if reports else 'Envelopes' }} <small>in {{ currency }}</small></h2>
+    <h2>{{ 'Monthly Reports' if reports else 'Envelopes' }} <small>in {{ currency }}</small></h2>
 
     <p class="envelope-nav">
       {% if not reports %}
@@ -643,7 +643,7 @@
       {% endif %}
       <span class="envelope-nav-tabs">
         <a class="envelope-tab{{ '' if reports else ' envelope-tab-active' }}" href="?">Envelopes</a>
-        <a class="envelope-tab{{ ' envelope-tab-active' if reports else '' }}" href="?view=reports">Reports</a>
+        <a class="envelope-tab{{ ' envelope-tab-active' if reports else '' }}" href="?view=monthly_reports">Monthly Reports</a>
       </span>
     </p>
 
