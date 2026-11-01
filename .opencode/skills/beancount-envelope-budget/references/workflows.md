@@ -163,3 +163,27 @@ beancount-envelope-budget pin main.bean --account '^Expenses:Groceries$' --throu
 already have one), using literal line edits that preserve comments and line
 endings. After step 2, changing the account's `open` metadata only affects
 postings after `--through`.
+
+## Tidy up allocations
+
+When an envelope has been funded several times in a month, its history is
+scattered across many `allocate` directives. Consolidate them into one per month,
+dated month-end (today, in the current month).
+
+```sh
+# 1. review the whole ledger's diff
+beancount-envelope-budget consolidate main.bean
+
+# 2. narrow to one envelope, or one month, if you prefer
+beancount-envelope-budget consolidate main.bean --envelope '^Groceries$'
+beancount-envelope-budget consolidate main.bean --month 2025-12
+
+# 3. write once you are happy, then re-check
+beancount-envelope-budget consolidate main.bean --write
+beancount-envelope-budget check main.bean
+```
+
+The net amount for each envelope-month is unchanged, so balances, the pool and
+the invariant are unchanged. A month with a single directive is left alone. If a
+directive has no source location to edit, its month is skipped and reported
+rather than half-merged.

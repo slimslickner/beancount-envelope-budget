@@ -50,6 +50,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A **consolidate** command and Fava action that merge an envelope-month's
+  several `allocate` directives into one, dated the last day of the month (or
+  today, for the current month). The net amount is unchanged, so balances, the
+  pool and the invariant are unchanged — it is a readability change only. The
+  CLI walks the whole ledger by default and narrows with `--envelope`/`--month`;
+  a bare run prints a diff and `--write` applies it in place, by literal line
+  edits. A month with a single directive is left alone, and one whose allocations
+  net to zero loses them all. The Fava report offers *Consolidate N directives*
+  in an allocation popover and *Consolidate this month* in the month actions,
+  sharing the CLI's planner and applying through Fava's own file API (#78).
 - **Experimental:** a **Plan Review** tab (`?view=plan_review`) and a matching
   `suggest` review. Each open, non-goal envelope's spending over the trailing
   window of completed months is compared against its plan as written — average

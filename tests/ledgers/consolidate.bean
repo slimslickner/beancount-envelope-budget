@@ -1,0 +1,19 @@
+option "operating_currency" "USD"
+
+; Two allocations for one envelope-month, so a consolidation has something to
+; merge, and a second month with a single allocation to leave alone.
+2020-01-01 open Assets:Checking USD
+  on-budget: TRUE
+2020-01-01 open Equity:Opening-Balances USD
+2020-01-01 open Expenses:Groceries USD
+  envelope: "Groceries"
+
+2023-12-31 * "Opening"
+  Assets:Checking           1000.00 USD
+  Equity:Opening-Balances -1000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Groceries"
+2024-01-05 custom "envelope" "allocate" "Groceries" 400.00 USD
+2024-01-20 custom "envelope" "allocate" "Groceries" 250.00 USD
+2024-02-05 custom "envelope" "allocate" "Groceries" 100.00 USD

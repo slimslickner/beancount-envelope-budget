@@ -1289,6 +1289,87 @@ def test_render_source_expands_a_month_action() -> None:
     assert any('"Groceries"' in line and "50.00 USD" in line for line in lines)
 
 
+def test_rewrite_source_applies_edits(tmp_path: Path) -> None:
+    """A consolidation rewrite reads, edits and writes a source file."""
+    text = (
+        '2024-01-05 custom "envelope" "allocate" "A" 100.00 USD\n'
+        '2024-01-20 custom "envelope" "allocate" "A" 250.00 USD\n'
+    )
+
+    class _FakeFileModule:
+        written: str | None = None
+
+        def get_source(self, _path: object) -> tuple[str, str]:
+            return text, "sha"
+
+        def set_source(self, _path: object, source: str, _sha: str) -> None:
+            self.written = source
+
+    fake = _FakeFileModule()
+    ledger = cast("FavaLedger", SimpleNamespace(file=fake))
+    replacement = actions.allocate("A", D("350"), date(2024, 1, 31), "USD")
+    fava_ext._rewrite_source(
+        ledger, tmp_path / "main.bean", [(2, replacement), (1, None)]
+    )
+    assert fake.written == ('2024-01-31 custom "envelope" "allocate" "A" 350.00 USD\n')
+
+
+def test_perform_consolidates_through_the_writer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A consolidate action rewrites matching allocations and appends nothing."""
+    recorded: list[tuple[Path, list[tuple[int, object]]]] = []
+    monkeypatch.setattr(
+        fava_ext,
+        "_rewrite_source",
+        lambda _ledger, path, edits: recorded.append((path, edits)),
+    )
+    extension = _extension(
+        "consolidate.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    entries = extension.perform(
+        {"action": "consolidate", "envelope": "Groceries", "month": "2024-01"}
+    )
+    assert entries == []
+    assert len(recorded) == 1
+    _path, edits = recorded[0]
+    # One replacement and one delete, the replacement first.
+    assert [entry is None for _lineno, entry in edits] == [False, True]
+
+
+def test_perform_consolidate_skips_a_single_month(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A month with nothing to merge rewrites nothing."""
+    recorded: list[object] = []
+    monkeypatch.setattr(
+        fava_ext, "_rewrite_source", lambda *args: recorded.append(args)
+    )
+    extension = _extension(
+        "consolidate.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    assert extension.perform({"action": "consolidate", "month": "2024-02"}) == []
+    assert recorded == []
+
+
+def test_perform_consolidate_rejects_a_bad_pattern(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A malformed envelope regex is a value error."""
+    monkeypatch.setattr(fava_ext, "_rewrite_source", lambda *_args: None)
+    extension = _extension(
+        "consolidate.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    with pytest.raises(ValueError, match="invalid envelope pattern"):
+        extension.perform({"action": "consolidate", "envelope": "("})
+
+
 def test_perform_rejects_an_empty_month_action(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1451,8 +1532,21 @@ def test_template_shows_edit_popovers_when_writable(tmp_path: Path) -> None:
     assert 'name="action" value="unplan"' in html
     assert 'name="action" value="fully_fund"' in html
     assert 'name="action" value="fund_available"' in html
+    assert 'name="action" value="consolidate"' in html
     assert "envelope-month-pop" in html
     assert "title=" not in html
+
+
+def test_template_shows_consolidate_for_multiple_allocations(tmp_path: Path) -> None:
+    """A month with several allocations offers a consolidate button."""
+    extension = _extension(
+        "consolidate.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    html = _render(extension, {"month": "2024-01", "months": "1"})
+    assert "Consolidate 2 directives" in html
+    assert "Consolidate this month" in html
 
 
 def test_template_plan_popover_shows_read_only_info() -> None:
