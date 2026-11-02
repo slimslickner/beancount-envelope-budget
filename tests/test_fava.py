@@ -720,12 +720,14 @@ def test_template_colors_funding_status() -> None:
 
 
 def test_template_funding_legend_spells_out_each_status() -> None:
-    """The legend keys each non-colour marker: on plan, over plan, under plan."""
+    """The legend hides behind a "?" and keys each non-colour marker."""
     html = _render(
         _extension("funding_colors.bean"), {"month": "2024-01", "months": "1"}
     )
-    start = html.index('class="envelope-legend"')
+    start = html.index('class="envelope-pop-host envelope-legend-host"')
     legend = html[start : html.index("envelope-nav-tabs", start)]
+    assert "envelope-legend-label" in legend
+    assert ">?</label>" in legend
     assert "envelope-legend-swatch" in legend
     assert "envelope-legend-over" in legend
     assert "envelope-legend-under" in legend
@@ -912,7 +914,8 @@ def test_template_has_collapse_all() -> None:
     )
     assert ":has(.envelope-collapse-all:checked)" in html
     assert 'id="envelope-collapse-all"' in _row(html, 'rowspan="2">Envelope')
-    nav = html[html.index('<p class="envelope-nav">') : html.index("</p>")]
+    start = html.index('<div class="envelope-nav">')
+    nav = html[start : html.index("</div>", html.index("envelope-nav-tabs", start))]
     assert 'id="envelope-collapse-all"' not in nav
     flat = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
     assert 'id="envelope-collapse-all"' not in flat
@@ -1774,7 +1777,8 @@ def test_template_puts_tabs_on_the_nav_row() -> None:
     html = _render(
         _extension("parent_groups.bean"), {"month": "2024-01", "months": "1"}
     )
-    nav = html[html.index('<p class="envelope-nav">') : html.index("</p>")]
+    start = html.index('<div class="envelope-nav">')
+    nav = html[start : html.index("</div>", html.index("envelope-nav-tabs", start))]
     assert "envelope-months" in nav
     assert 'class="envelope-month ' in nav
     assert "envelope-nav-tabs" in nav
@@ -1786,7 +1790,8 @@ def test_template_puts_tabs_on_the_nav_row() -> None:
 def test_reports_tabs_share_the_row() -> None:
     """On the reports the tabs sit in the same row, with no month strip."""
     html = _render(_extension("basic.bean"), {"view": "monthly_reports"})
-    nav = html[html.index('<p class="envelope-nav">') : html.index("</p>")]
+    start = html.index('<div class="envelope-nav">')
+    nav = html[start : html.index("</div>", html.index("envelope-nav-tabs", start))]
     assert ">Monthly Reports<" in nav
     assert "envelope-months" not in nav
 

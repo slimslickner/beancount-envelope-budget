@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The Fava **Envelopes** legend now hides behind a `?` beside the month strip
+  instead of sitting inline, keeping the sticky nav compact. It opens the same
+  no-JS popover the table cells use and still keys on plan, over plan and under
+  plan by shape (#76).
 - `W001` (negative pool) now judges **month ends only**. A dip within a month
   that recovers by its end is cash-flow timing — the money arrived after it was
   assigned — not a shortfall, and is no longer reported; a month that actually
