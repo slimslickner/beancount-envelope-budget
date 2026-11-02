@@ -129,6 +129,19 @@ def test_config_rejects_bad_months() -> None:
         _extension("basic.bean", config="{'months': 'lots'}")
 
 
+def test_config_color_closing_balance() -> None:
+    """The closing-balance colour is on by default and off when configured so."""
+    assert _extension("basic.bean").color_closing_balance is True
+    extension = _extension("basic.bean", config="{'color-closing-balance': False}")
+    assert extension.color_closing_balance is False
+
+
+def test_config_rejects_bad_color() -> None:
+    """A color-closing-balance that is not a boolean is an extension error."""
+    with pytest.raises(ExtensionConfigError):
+        _extension("basic.bean", config="{'color-closing-balance': 'nope'}")
+
+
 def test_report_values() -> None:
     """The view carries the same numbers as the core."""
     view = _extension("basic.bean").report("2024-01", "1")
@@ -409,7 +422,7 @@ def test_template_closing_popover_shows_plan_status() -> None:
     assert "envelope-closing-host" in under
     # The status now shows the funding fraction and the full derivation.
     assert "50.0% funded" in under
-    assert "underfunded by 50.00" in under
+    assert "under plan by 50.00" in under
     assert "level 100.00 = monthly 100.00" in under
 
 
@@ -692,7 +705,7 @@ def test_template_colors_overspent_closing() -> None:
 
 
 def test_template_colors_funding_status() -> None:
-    """Closing balances are green when funded, amber when underfunded, and an
+    """Closing balances are green when funded, amber when under plan, and an
     over-funded balance carries an extra marker distinct from on-plan."""
     html = _render(
         _extension("funding_colors.bean"), {"month": "2024-01", "months": "1"}
@@ -704,14 +717,74 @@ def test_template_colors_funding_status() -> None:
     over = _row(html, ">Over<")
     assert "envelope-funded" in over
     assert "envelope-over" in over
-    assert "envelope-legend-swatch" in html
+
+
+def test_template_funding_legend_spells_out_each_status() -> None:
+    """The legend keys each non-colour marker: on plan, over plan, under plan."""
+    html = _render(
+        _extension("funding_colors.bean"), {"month": "2024-01", "months": "1"}
+    )
+    start = html.index('class="envelope-legend"')
+    legend = html[start : html.index("envelope-nav-tabs", start)]
+    assert "envelope-legend-swatch" in legend
+    assert "envelope-legend-over" in legend
+    assert "envelope-legend-under" in legend
+    assert "on plan" in legend
+    assert "over plan" in legend
+    assert "under plan" in legend
+
+
+def test_template_color_suppression() -> None:
+    """With colour off, plan status reads by ring shape and no colour class."""
+    html = _render(
+        _extension("funding_colors.bean", config="{'color-closing-balance': False}"),
+        {"month": "2024-01", "months": "1"},
+    )
+    under = _row(html, ">Under<")
+    assert "envelope-under" in under
+    assert "envelope-partial" not in under
+    on = _row(html, ">On<")
+    assert "envelope-funded" not in on
+    assert "envelope-over" not in on
+    over = _row(html, ">Over<")
+    assert "envelope-over" in over
+    assert "envelope-funded" not in over
+    assert 'class="envelope-ring"' in html
+    assert "envelope-legend-nocolor" in html
+
+
+def test_template_month_status_marker() -> None:
+    """The month header summarises the month's worst envelope status."""
+    html = _render(
+        _extension("funding_colors.bean"), {"month": "2024-01", "months": "1"}
+    )
+    header = _row(html, 'rowspan="2">Envelope')
+    assert "envelope-month-status" in header
+    # The worst status is under plan, not over plan, and it is tinted.
+    assert "envelope-under" in header
+    assert "envelope-partial" in header
+    assert "envelope-over" not in header
+    assert "1 under plan · 1 over plan · 1 on plan" in header
+
+
+def test_template_month_status_marker_without_colour() -> None:
+    """The month marker keeps its shape when colour is off."""
+    html = _render(
+        _extension("funding_colors.bean", config="{'color-closing-balance': False}"),
+        {"month": "2024-01", "months": "1"},
+    )
+    header = _row(html, 'rowspan="2">Envelope')
+    assert "envelope-month-status" in header
+    assert "envelope-under" in header
+    assert "envelope-partial" not in header
+    assert "envelope-funded" not in header
 
 
 def test_template_marks_current_month(monkeypatch: pytest.MonkeyPatch) -> None:
     """The current month is labelled in the header and marked in the strip."""
     monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2024, 1, 1))
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
-    assert "(current)" in _row(html, ">Envelope<")
+    assert "(current)" in _row(html, 'rowspan="2">Envelope')
     strip = _month_strip(html)
     assert (
         'class="envelope-month envelope-month-visible envelope-month-current"' in strip
@@ -727,7 +800,7 @@ def test_template_no_current_month_outside_window(
     """No month is labelled current when today is outside the view."""
     monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2019, 6, 1))
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
-    assert "(current)" not in _row(html, ">Envelope<")
+    assert "(current)" not in _row(html, 'rowspan="2">Envelope')
     assert "envelope-month-current" not in _month_strip(html)
 
 
@@ -833,13 +906,14 @@ def test_template_freezes_header_and_footer() -> None:
 
 
 def test_template_has_collapse_all() -> None:
-    """One control collapses every parent group, and only when there are some."""
+    """The collapse control sits in the name header, and only with parent groups."""
     html = _render(
         _extension("parent_groups.bean"), {"month": "2024-01", "months": "1"}
     )
     assert ":has(.envelope-collapse-all:checked)" in html
+    assert 'id="envelope-collapse-all"' in _row(html, 'rowspan="2">Envelope')
     nav = html[html.index('<p class="envelope-nav">') : html.index("</p>")]
-    assert 'id="envelope-collapse-all"' in nav
+    assert 'id="envelope-collapse-all"' not in nav
     flat = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
     assert 'id="envelope-collapse-all"' not in flat
 
@@ -1130,7 +1204,7 @@ def test_funding_text_shows_up_to() -> None:
     car = next(e for e in view.envelopes if e.name == "Car")
     text = extension.funding_text(car.cells[0])
     lines = text.split("\n")
-    assert lines[0] == "underfunded by 100.00 - 83.3% funded"
+    assert lines[0] == "under plan by 100.00 - 83.3% funded"
     assert "level 600.00 = min(ceiling 600.00, opening 500.00 + monthly 250.00)" in text
     assert "funded 500.00 = closing balance" in text
     assert text.endswith("top up 100.00")
@@ -1823,7 +1897,7 @@ def test_template_shows_the_prefill_reason(
     )
     html = _render(extension, {"month": "2024-03", "months": "1"})
     assert "envelope-prefill-reason" in html
-    assert "underfunded by 100.00 - 83.3% funded" in html
+    assert "under plan by 100.00 - 83.3% funded" in html
     assert "top up 100.00" in html
 
 
