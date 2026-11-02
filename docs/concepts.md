@@ -519,8 +519,9 @@ Parent categories collapse to their subtotal when their name is clicked.
 The table is a self-contained scroll area: its header, envelope column and
 pool/cash rows stay in place, and the month links stay reachable at the top, so
 you can move around a long or wide report. Each parent heading pins under the
-table header while its group scrolls, and a single "Collapse all" control folds
-every parent. The current month's header is labelled `(current)`, alongside the
+table header while its group scrolls, and a chevron in the name column's header
+folds every parent at once. The parents you collapse stay collapsed as you
+change months, so the report keeps the shape you left it in. The current month's header is labelled `(current)`, alongside the
 `(projected)` label, and a "this month" link jumps to it. Closing balances are
 colour-coded — red when overspent, green when funded to their plan, amber when
 under plan — and an opening balance turns red when negative. Whether an

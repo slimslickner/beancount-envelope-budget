@@ -419,9 +419,34 @@
       .envelope-table tbody.envelope-group-body:has(.envelope-toggle:checked) label::before {
         content: "\25B8";
       }
-      /* A single control collapses every parent; the group toggles still work. */
+      /* A single chevron in the name header collapses every parent; the group
+         toggles still work. The checkbox is hidden and the label draws it. */
+      .envelope-collapse-all {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: 0;
+        padding: 0;
+        opacity: 0;
+        pointer-events: none;
+      }
       .envelope-collapse {
+        float: right;
         cursor: pointer;
+        font-size: 0.85em;
+        font-weight: 400;
+        opacity: 0.7;
+      }
+      .envelope-collapse:hover,
+      .envelope-collapse:focus-within {
+        opacity: 1;
+      }
+      .envelope-collapse::before {
+        content: "\25BE\25BE";
+        letter-spacing: -0.18em;
+      }
+      .envelope-report:has(.envelope-collapse-all:checked) .envelope-collapse::before {
+        content: "\25B8\25B8";
       }
       .envelope-report:has(.envelope-collapse-all:checked) .envelope-child {
         display: none;
@@ -834,12 +859,6 @@
             <a class="envelope-month{{ ' envelope-month-visible' if link.visible else '' }}{{ ' envelope-month-current' if link.current else '' }}" href="?{{ link.query }}" aria-label="{{ link.month.strftime('%B %Y') }}">{{ link.label }}</a>
           {% endfor %}
         </span>
-        {% if view.groups | selectattr('parent', 'ne', none) | list %}
-          <label class="envelope-collapse">
-            <input type="checkbox" class="envelope-collapse-all" id="envelope-collapse-all">
-            Collapse all
-          </label>
-        {% endif %}
         <span class="envelope-legend{{ '' if colors else ' envelope-legend-nocolor' }}">
           <span class="envelope-legend-pair"><span class="envelope-legend-swatch"></span> on plan</span>
           <span class="envelope-legend-pair"><span class="envelope-legend-swatch envelope-legend-over"></span> over plan</span>
@@ -1040,7 +1059,11 @@
         </colgroup>
         <thead>
           <tr>
-            <th rowspan="2">Envelope</th>
+            <th rowspan="2">Envelope
+              {% if view.groups | selectattr('parent', 'ne', none) | list %}
+                <label class="envelope-collapse" title="Collapse all" aria-label="Collapse all"><input type="checkbox" class="envelope-collapse-all" id="envelope-collapse-all"></label>
+              {% endif %}
+            </th>
             {% for index in range(view.months|length) %}
               {% set header_month = view.months[index] %}
               {% set status = view.month_status[index] %}

@@ -20,6 +20,7 @@ export default {
     discard_stray_popovers();
     track_scroll();
     scroll_to_window();
+    setup_collapse();
     setup_popovers();
     const api = ctx && ctx.api;
     if (!api) {
@@ -92,6 +93,84 @@ function track_scroll() {
     },
     { passive: true },
   );
+}
+
+// Remember which parent groups are collapsed across reloads.
+//
+// A month change (or any in-place reload) recreates the group toggles, so
+// without this the collapsed state would reset on every navigation. The set of
+// collapsed parents is kept in sessionStorage keyed by path, like the scroll
+// position, so it survives a month change but not a move to another report.
+// Groups are matched by their label text, not their id, since the id index
+// shifts when a group is not visible in the chosen window.
+const COLLAPSE_KEY = "beancount-envelope:collapsed";
+
+/** @returns {string} The sessionStorage key for the current report page. */
+function collapse_key() {
+  return `${COLLAPSE_KEY}:${window.location.pathname}`;
+}
+
+/**
+ * The parent name a group toggle belongs to.
+ *
+ * @param {Element} toggle
+ * @returns {string | null}
+ */
+function group_name(toggle) {
+  const label = toggle.closest("tr")?.querySelector("th label");
+  return label ? label.textContent.trim() : null;
+}
+
+/** Restore the collapsed parents, then keep them saved as they change. */
+function setup_collapse() {
+  const all = document.querySelector(".envelope-collapse-all");
+  const toggles = document.querySelectorAll(".envelope-toggle");
+  let saved = { all: false, groups: [] };
+  try {
+    const raw = JSON.parse(sessionStorage.getItem(collapse_key()) || "null");
+    if (raw) {
+      saved = { all: !!raw.all, groups: raw.groups || [] };
+    }
+  } catch {
+    saved = { all: false, groups: [] };
+  }
+  if (all instanceof HTMLInputElement) {
+    all.checked = saved.all;
+  }
+  for (const toggle of toggles) {
+    if (toggle instanceof HTMLInputElement) {
+      const name = group_name(toggle);
+      toggle.checked = name !== null && saved.groups.includes(name);
+    }
+  }
+  const save = () => {
+    const groups = [];
+    for (const toggle of toggles) {
+      if (toggle instanceof HTMLInputElement && toggle.checked) {
+        const name = group_name(toggle);
+        if (name !== null) {
+          groups.push(name);
+        }
+      }
+    }
+    try {
+      sessionStorage.setItem(
+        collapse_key(),
+        JSON.stringify({
+          all: all instanceof HTMLInputElement && all.checked,
+          groups,
+        }),
+      );
+    } catch {
+      // Storage can be unavailable (private mode); losing the state is fine.
+    }
+  };
+  for (const toggle of toggles) {
+    toggle.addEventListener("change", save);
+  }
+  if (all instanceof HTMLElement) {
+    all.addEventListener("change", save);
+  }
 }
 
 /**

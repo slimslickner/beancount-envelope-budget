@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The funding verdict now reads **under plan**, not *underfunded*, pairing it
   with `on plan` and `over plan`. This shows in the Fava closing popover and
   month summary and in the CLI's `explain` (#76).
+- The Fava report's **Collapse all** control moves into the Envelope column's
+  header as a small chevron, and the parents you collapse now stay collapsed as
+  you change months — the state is kept for the session, keyed by the report
+  page (#76).
 
 ### Removed
 

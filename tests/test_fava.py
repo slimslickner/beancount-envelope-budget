@@ -758,7 +758,7 @@ def test_template_month_status_marker() -> None:
     html = _render(
         _extension("funding_colors.bean"), {"month": "2024-01", "months": "1"}
     )
-    header = _row(html, ">Envelope<")
+    header = _row(html, 'rowspan="2">Envelope')
     assert "envelope-month-status" in header
     # The worst status is under plan, not over plan, and it is tinted.
     assert "envelope-under" in header
@@ -773,7 +773,7 @@ def test_template_month_status_marker_without_colour() -> None:
         _extension("funding_colors.bean", config="{'color-closing-balance': False}"),
         {"month": "2024-01", "months": "1"},
     )
-    header = _row(html, ">Envelope<")
+    header = _row(html, 'rowspan="2">Envelope')
     assert "envelope-month-status" in header
     assert "envelope-under" in header
     assert "envelope-partial" not in header
@@ -784,7 +784,7 @@ def test_template_marks_current_month(monkeypatch: pytest.MonkeyPatch) -> None:
     """The current month is labelled in the header and marked in the strip."""
     monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2024, 1, 1))
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
-    assert "(current)" in _row(html, ">Envelope<")
+    assert "(current)" in _row(html, 'rowspan="2">Envelope')
     strip = _month_strip(html)
     assert (
         'class="envelope-month envelope-month-visible envelope-month-current"' in strip
@@ -800,7 +800,7 @@ def test_template_no_current_month_outside_window(
     """No month is labelled current when today is outside the view."""
     monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2019, 6, 1))
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
-    assert "(current)" not in _row(html, ">Envelope<")
+    assert "(current)" not in _row(html, 'rowspan="2">Envelope')
     assert "envelope-month-current" not in _month_strip(html)
 
 
@@ -906,13 +906,14 @@ def test_template_freezes_header_and_footer() -> None:
 
 
 def test_template_has_collapse_all() -> None:
-    """One control collapses every parent group, and only when there are some."""
+    """The collapse control sits in the name header, and only with parent groups."""
     html = _render(
         _extension("parent_groups.bean"), {"month": "2024-01", "months": "1"}
     )
     assert ":has(.envelope-collapse-all:checked)" in html
+    assert 'id="envelope-collapse-all"' in _row(html, 'rowspan="2">Envelope')
     nav = html[html.index('<p class="envelope-nav">') : html.index("</p>")]
-    assert 'id="envelope-collapse-all"' in nav
+    assert 'id="envelope-collapse-all"' not in nav
     flat = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
     assert 'id="envelope-collapse-all"' not in flat
 
