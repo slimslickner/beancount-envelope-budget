@@ -250,16 +250,34 @@
         color: light-dark(#7d6100, #edd431);
       }
       /* A small key for the markers that are not a colour: a centre dot for an
-         over-funded envelope and a dashed ring for an under-plan one. */
-      .envelope-legend {
-        display: inline-flex;
-        align-items: center;
+         over-funded envelope and a dashed ring for an under-plan one. It hides
+         behind a "?" beside the month strip to keep the sticky nav compact, and
+         opens through the same no-JS checkbox popover the table cells use. */
+      .envelope-legend-host {
+        flex: 0 0 auto;
+      }
+      .envelope-legend-label {
+        display: inline-block;
+        padding: 0 0.4em;
+        border: 1px solid rgba(128, 128, 128, 0.5);
+        border-radius: 3px;
+        line-height: 1.5;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .envelope-legend-pop {
+        min-width: 0;
         white-space: nowrap;
         color: rgba(128, 128, 128, 1);
-        gap: 0.75em;
+      }
+      /* Reveal the legend as a column, not the popover's default block. */
+      .envelope-pop-host:has(.envelope-pop-toggle:checked) .envelope-pop.envelope-legend-pop {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35em;
       }
       .envelope-legend-pair {
-        display: inline-flex;
+        display: flex;
         align-items: center;
         gap: 0.3em;
       }
@@ -850,7 +868,7 @@
 
     <h2>{{ 'Plan Review' if review else 'Monthly Reports' if reports else 'Envelopes' }} <small>in {{ currency }}</small></h2>
 
-    <p class="envelope-nav">
+    <div class="envelope-nav">
       {% if not reports and not review and not history_mode %}
         <a class="envelope-today" href="?month={{ today.strftime('%Y-%m') }}&amp;months={{ view.months|length }}">Today</a>
         <span class="envelope-months">
@@ -859,10 +877,15 @@
             <a class="envelope-month{{ ' envelope-month-visible' if link.visible else '' }}{{ ' envelope-month-current' if link.current else '' }}" href="?{{ link.query }}" aria-label="{{ link.month.strftime('%B %Y') }}">{{ link.label }}</a>
           {% endfor %}
         </span>
-        <span class="envelope-legend{{ '' if colors else ' envelope-legend-nocolor' }}">
-          <span class="envelope-legend-pair"><span class="envelope-legend-swatch"></span> on plan</span>
-          <span class="envelope-legend-pair"><span class="envelope-legend-swatch envelope-legend-over"></span> over plan</span>
-          <span class="envelope-legend-pair"><span class="envelope-legend-swatch envelope-legend-under"></span> under plan</span>
+        <span class="envelope-pop-host envelope-legend-host">
+          <input type="checkbox" class="envelope-pop-toggle" id="legend">
+          <label class="envelope-pop-label envelope-legend-label" for="legend" aria-label="Legend key">?</label>
+          <label class="envelope-pop-backdrop" for="legend"></label>
+          <div class="envelope-pop envelope-legend-pop{{ '' if colors else ' envelope-legend-nocolor' }}">
+            <span class="envelope-legend-pair"><span class="envelope-legend-swatch"></span> on plan</span>
+            <span class="envelope-legend-pair"><span class="envelope-legend-swatch envelope-legend-over"></span> over plan</span>
+            <span class="envelope-legend-pair"><span class="envelope-legend-swatch envelope-legend-under"></span> under plan</span>
+          </div>
         </span>
       {% endif %}
       <span class="envelope-nav-tabs">
@@ -871,7 +894,7 @@
         <a class="envelope-tab{{ ' envelope-tab-active' if review else '' }}" href="?view=plan_review">Plan Review</a>
         <a class="envelope-tab{{ ' envelope-tab-active' if history_mode else '' }}" href="?view=envelope">Envelope History</a>
       </span>
-    </p>
+    </div>
 
     {% if review %}
       <div class="envelope-review">

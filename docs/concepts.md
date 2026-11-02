@@ -536,8 +536,8 @@ ring's shape, not just its colour, tells the three statuses apart: a solid ring
 is on plan, a dashed ring is under plan, and a filled dot in the ring's centre
 marks a balance above its plan level — an over-funded `monthly` or goal
 envelope — with the amount above plan in the closing popover. So the status
-reads without relying on colour, and a small legend beside the month strip keys
-each shape. The colours come from Fava's own variables, so they follow its light
+reads without relying on colour, and a `?` beside the month strip opens a
+legend that keys each shape. The colours come from Fava's own variables, so they follow its light
 and dark schemes, save the amber, which is darkened in the light scheme so it
 clears the WCAG AA contrast level.
 
