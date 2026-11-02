@@ -523,19 +523,30 @@ table header while its group scrolls, and a single "Collapse all" control folds
 every parent. The current month's header is labelled `(current)`, alongside the
 `(projected)` label, and a "this month" link jumps to it. Closing balances are
 colour-coded — red when overspent, green when funded to their plan, amber when
-underfunded — and an opening balance turns red when negative. Whether an
+under plan — and an opening balance turns red when negative. Whether an
 envelope is funded is judged by its funded amount, as above: a `monthly`
 envelope stays green once it has received its month's money even if it has since
 been spent, while an `up-to` envelope is measured by its balance and a goal
 envelope by its cumulative contributions, so it too stays green after the money
 is spent. A planned envelope also carries a small ring beside its closing
 balance, filled in proportion to that funded amount against its goal (its
-`goal`, its `up-to` ceiling, or its monthly `level` when it has neither); the
-ring takes the balance's colour. A balance above its plan level — an over-funded
-`monthly` or goal envelope — shows a filled dot in the ring's centre, set apart
-from an on-plan balance by shape rather than a second colour, with the amount
-above plan in the closing popover. The colours come from Fava's own variables, so they follow its
-light and dark schemes.
+`goal`, its `up-to` ceiling, or its monthly `level` when it has neither). The
+ring's shape, not just its colour, tells the three statuses apart: a solid ring
+is on plan, a dashed ring is under plan, and a filled dot in the ring's centre
+marks a balance above its plan level — an over-funded `monthly` or goal
+envelope — with the amount above plan in the closing popover. So the status
+reads without relying on colour, and a small legend beside the month strip keys
+each shape. The colours come from Fava's own variables, so they follow its light
+and dark schemes, save the amber, which is darkened in the light scheme so it
+clears the WCAG AA contrast level.
+
+Each month's header also carries one summary ring for the whole month, keyed by
+the worst status among the envelopes open in it: any negative balance outranks
+an under-plan envelope, which outranks an over-plan one, which outranks a month
+where every planned envelope is on plan. It uses the same shapes — a solid ring,
+a dashed ring, a ring with a centre dot, or, for a negative balance, a filled
+disc — and opening it lists how many envelopes fall in each state. When writing
+is configured, that popover also holds the month's bulk funding actions.
 
 Set the default number of months (1 to 3) with an optional config, a
 stringified Python mapping on the extension line; the `months` URL parameter
@@ -544,6 +555,12 @@ still overrides it:
 ```beancount
 2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext" "{'months': 2}"
 ```
+
+Add `'color-closing-balance': False` to drop the red, green and amber from the
+closing balances (the envelope, pool and cash closing figures alike); the ring's
+shape still tells the plan status, so nothing is lost to a colour-blind reader
+who prefers no colour at all. The opening balance's red for a negative balance
+is unaffected.
 
 ### Monthly Reports
 

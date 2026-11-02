@@ -52,6 +52,7 @@ __all__ = [
     "HistoryLine",
     "HistoryMonth",
     "MonthReport",
+    "MonthStatus",
     "PlanLine",
     "PoolEntry",
     "PoolLedger",
@@ -399,7 +400,7 @@ class EnvelopeHistory:
 
 
 #: How each funding status reads in an explanation.
-_FUNDING_TEXT = {"under": "underfunded", "on": "on plan", "over": "over plan"}
+_FUNDING_TEXT = {"under": "under plan", "on": "on plan", "over": "over plan"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -587,6 +588,59 @@ class EnvelopeGroup:
 
 
 @dataclass(frozen=True, slots=True)
+class MonthStatus:
+    """A month's funding health, summed over the visible envelopes.
+
+    For each month the grid shows, every visible envelope is tallied by its
+    status, so the report can summarise the month in its header. The
+    ``negative`` count covers any visible envelope whose closing balance is
+    negative, planned or not; the funding counts cover the visible planned
+    envelopes only, since an unplanned envelope has no level to be judged
+    against. A cell that is both negative and under plan is counted in both.
+
+    Attributes:
+        negative: How many visible envelopes close negative this month.
+        under: How many visible planned envelopes are under plan.
+        over: How many visible planned envelopes are over plan.
+        on: How many visible planned envelopes are on plan.
+    """
+
+    negative: int = 0
+    under: int = 0
+    over: int = 0
+    on: int = 0
+
+    @property
+    def worst(self) -> str | None:
+        """The month's most pressing status, or ``None`` when nothing applies.
+
+        The ladder runs negative, then under plan, then over plan, then on
+        plan, so a month with any overspend reads as such, and a month with no
+        planned envelopes and no negative balance has no status at all.
+
+        Returns:
+            ``"negative"``, ``"under"``, ``"over"``, ``"on"`` or ``None``.
+
+        Examples:
+            >>> MonthStatus(negative=1, under=2).worst
+            'negative'
+            >>> MonthStatus(on=3).worst
+            'on'
+            >>> MonthStatus().worst is None
+            True
+        """
+        if self.negative:
+            return "negative"
+        if self.under:
+            return "under"
+        if self.over:
+            return "over"
+        if self.on:
+            return "on"
+        return None
+
+
+@dataclass(frozen=True, slots=True)
 class BudgetView:
     """The rendered-ready view of a budget over one to three months.
 
@@ -595,6 +649,8 @@ class BudgetView:
         currency: The operating currency.
         months: The months shown, ascending.
         projected: Whether each month is beyond the computed range.
+        month_status: One :class:`MonthStatus` per month, aligned with
+            :attr:`months`, summarising the visible envelopes.
         envelopes: The envelopes, in alphabetical order.
         groups: The envelopes grouped by parent category, with the parent
             headings in alphabetical order. Envelopes with no parent form a
@@ -617,6 +673,7 @@ class BudgetView:
     warnings: tuple[Diagnostic, ...]
     errors: tuple[Diagnostic, ...]
     nav: Mapping[str, str]
+    month_status: tuple[MonthStatus, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1199,7 +1256,7 @@ def funding_verdict(
 ) -> str | None:
     """Describe how an envelope's funded amount compares with its level.
 
-    Splits the "underfunded by X" / "on plan" / "over plan by X" verdict out of
+    Splits the "under plan by X" / "on plan" / "over plan by X" verdict out of
     :func:`funding_explanation_lines` so the Fava closing popover can lead with
     it, beside the funded fraction.
 
@@ -1219,7 +1276,7 @@ def funding_verdict(
         ...     funding="under",
         ... )
         >>> funding_verdict(explanation)
-        'underfunded by 50.00'
+        'under plan by 50.00'
     """
     if explanation.funding is None:
         return None
@@ -1293,7 +1350,7 @@ def funding_explanation_lines(
         ...     monthly=Decimal("550"),
         ... )
         >>> funding_explanation_lines(explanation)
-        ('monthly 550.00 = plan', 'level 550.00 = monthly 550.00', 'funded 500.00 = opening 0.00 + allocated 500.00', 'underfunded by 50.00', 'top up 50.00')
+        ('monthly 550.00 = plan', 'level 550.00 = monthly 550.00', 'funded 500.00 = opening 0.00 + allocated 500.00', 'under plan by 50.00', 'top up 50.00')
     """
     lines = list(funding_derivation_lines(explanation, currency))
     verdict = funding_verdict(explanation, currency)
@@ -1671,6 +1728,7 @@ def build_view(
             currency=result.operating_currency,
             months=(),
             projected=(),
+            month_status=(),
             envelopes=(),
             groups=(),
             pool=(),
@@ -1713,6 +1771,7 @@ def build_view(
         currency=result.operating_currency,
         months=months,
         projected=projected,
+        month_status=tuple(_month_status(envelopes, index) for index in range(count)),
         envelopes=envelopes,
         groups=_group(envelopes),
         pool=pool,
@@ -2450,6 +2509,32 @@ def _envelope_view(
     )
 
 
+def _month_status(envelopes: tuple[EnvelopeView, ...], index: int) -> MonthStatus:
+    """Tally one month's envelope statuses for the header summary.
+
+    Args:
+        envelopes: The envelopes, each with cells aligned to the view's months.
+        index: The month's position in the view.
+
+    Returns:
+        The month's :class:`MonthStatus`.
+    """
+    negative = under = over = on = 0
+    for envelope in envelopes:
+        cell = envelope.cells[index]
+        if not cell.visible:
+            continue
+        if cell.closing < 0:
+            negative += 1
+        if cell.funding == "under":
+            under += 1
+        elif cell.funding == "over":
+            over += 1
+        elif cell.funding == "on":
+            on += 1
+    return MonthStatus(negative=negative, under=under, over=over, on=on)
+
+
 def _group(envelopes: tuple[EnvelopeView, ...]) -> tuple[EnvelopeGroup, ...]:
     """Group envelopes by parent category.
 
@@ -2618,6 +2703,16 @@ def to_jsonable(view: BudgetView) -> dict[str, object]:
         "currency": view.currency,
         "months": [month.isoformat() for month in view.months],
         "projected": list(view.projected),
+        "month_status": [
+            {
+                "negative": status.negative,
+                "under": status.under,
+                "over": status.over,
+                "on": status.on,
+                "worst": status.worst,
+            }
+            for status in view.month_status
+        ],
         "envelopes": [
             {
                 "name": envelope.name,

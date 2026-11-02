@@ -39,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `suggest` follow the same contributions measure, so they no longer re-fund
   spending. To hold and refill a balance instead, use `monthly` with `up-to`
   (#22). Update ledgers to the new key; there are no users before 1.0.
+- The funding verdict now reads **under plan**, not *underfunded*, pairing it
+  with `on plan` and `over plan`. This shows in the Fava closing popover and
+  month summary and in the CLI's `explain` (#76).
 
 ### Removed
 
@@ -79,6 +82,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contributions — against the average monthly pool inflow, so an over-committed
   budget is visible. Goal envelopes are excluded. `suggest` gains `--window` and
   `--json` (#68).
+- The Fava report now tells on-plan, under-plan and over-plan closing balances
+  apart by **shape as well as colour**: the ring is solid when on plan, dashed
+  when under plan, and carries a filled centre dot when over plan. A legend
+  beside the month strip keys each shape, and the amber is darkened in the light
+  scheme so it clears the WCAG AA contrast level (#76).
+- Each Fava month header carries a one-ring **summary** of the envelopes open in
+  it, keyed by the worst status — a negative balance, then under plan, then over
+  plan, then all on plan — using the same shapes, with the counts in its popover
+  (which the month's bulk actions share when writing is configured) (#76).
+- The Fava report's `fava-extension` config accepts a `color-closing-balance`
+  key (a boolean). Set it `False` to drop the red, green and amber from the
+  envelope, pool and cash closing balances; the ring's shape still tells the plan
+  status, so the colour is optional. Defaults to coloured (#76).
 - The Fava report marks an **over-funded** closing balance — green, with a
   filled dot in its ring — so a balance above its plan level reads apart from
   one exactly on it. The marker is a shape cue rather than a second colour, the
@@ -133,7 +149,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Fava report labels the current month's header `(current)` and adds a
   "this month" link that jumps to it.
 - The Fava report balances are colour-coded: a closing balance is red when
-  overspent, green when funded to its plan, and amber when underfunded; an
+  overspent, green when funded to its plan, and amber when under plan; an
   opening balance turns red when negative. The colours follow Fava's light/dark
   scheme.
 - The CLI `allocate`, `move`, `plan` and `unplan` commands print one directive,

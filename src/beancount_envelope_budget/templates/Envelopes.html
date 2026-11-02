@@ -9,12 +9,16 @@
 {% set has_start = dash.has_start if reports else suggestions.has_start if review else history.has_start if history_mode else view.has_start %}
 {% set currency = dash.currency if reports else suggestions.currency if review else history.currency if history_mode else view.currency %}
 {% set today = extension.today_month() %}
+{% set colors = extension.color_closing_balance %}
 {% set base = request.path if request.path.endswith('/') else request.path ~ '/' %}
 {% macro opening(cell, blank=false) -%}
   <td class="num envelope-sep{{ ' envelope-neg' if cell.visible and cell.opening < 0 else '' }}">{% if cell.visible and not (blank and cell.opening == 0) %}{{ extension.money(cell.opening) }}{% endif %}</td>
 {%- endmacro %}
 {% macro closing_class(cell) -%}
-{%- if cell.visible and cell.closing < 0 %} envelope-neg{% elif cell.visible and cell.funding == 'over' %} envelope-funded envelope-over{% elif cell.visible and cell.funding == 'on' %} envelope-funded{% elif cell.visible and cell.funding == 'under' %} envelope-partial{% endif -%}
+{%- if cell.visible and cell.closing >= 0 and cell.funding == 'over' %} envelope-over{% elif cell.visible and cell.closing >= 0 and cell.funding == 'under' %} envelope-under{% endif -%}
+{%- endmacro %}
+{% macro closing_color(cell) -%}
+{%- if not colors %}{% elif cell.visible and cell.closing < 0 %} envelope-neg{% elif cell.visible and cell.funding == 'over' %} envelope-funded{% elif cell.visible and cell.funding == 'on' %} envelope-funded{% elif cell.visible and cell.funding == 'under' %} envelope-partial{% endif -%}
 {%- endmacro %}
 {% macro amounts(cell, sep=false, blank=false, name=none, plans=()) -%}
   {%- set editable = name is not none and extension.writable and cell.visible -%}
@@ -24,13 +28,13 @@
   {%- set base = request.path if request.path.endswith('/') else request.path ~ '/' -%}
   <td class="num{{ ' envelope-sep' if sep else '' }}{{ ' envelope-pop-host envelope-alloc-host' if shows else '' }}">{% if shows %}<input type="checkbox" class="envelope-pop-toggle" id="alloc-{{ ident }}"><label class="envelope-pop-label" for="alloc-{{ ident }}">{% if editable and (blank and cell.allocated == 0) %}+{% elif cell.visible and not (blank and cell.allocated == 0) %}{{ extension.money(cell.allocated) }}{% endif %}</label><label class="envelope-pop-backdrop" for="alloc-{{ ident }}"></label><div class="envelope-pop envelope-alloc-pop">{% for line in cell.allocations %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ extension.money(line.amount) }}</a>{% endfor %}{% if editable %}{%- set suggest = extension.prefill(name, cell.month) -%}{%- set cover = extension.cover_prefill(name, cell.month) -%}<form method="post" action="{{ base ~ 'commit' }}" data-create><input type="hidden" name="action" value="allocate"><input type="hidden" name="envelope" value="{{ name }}"><label>Amount <input name="amount" size="8" value="{{ suggest }}"></label><input type="date" name="date" value="{{ extension.fill_date(cell.month) }}"><button type="submit">Add allocation</button></form>{% if cover != '0.00' and cover != suggest %}<form method="post" action="{{ base ~ 'commit' }}" data-create><input type="hidden" name="action" value="allocate"><input type="hidden" name="envelope" value="{{ name }}"><input type="hidden" name="amount" value="{{ cover }}"><input type="hidden" name="date" value="{{ extension.fill_date(cell.month) }}"><button type="submit">Cover overspending ({{ cover }})</button></form>{% endif %}{% if cell.allocations | length > 1 %}<form method="post" action="{{ base ~ 'commit' }}" data-consolidate><input type="hidden" name="action" value="consolidate"><input type="hidden" name="envelope" value="{{ name }}"><input type="hidden" name="month" value="{{ cell.month.strftime('%Y-%m') }}"><button type="submit">Consolidate {{ cell.allocations | length }} directives</button></form>{% endif %}{%- set reason = extension.funding_lines(cell) -%}{% if reason %}<div class="envelope-prefill-reason">{% for line in reason %}<div>{{ line }}</div>{% endfor %}</div>{% endif %}{% endif %}</div>{% else %}{% if cell.visible and not (blank and cell.allocated == 0) %}{{ extension.money(cell.allocated) }}{% endif %}{% endif %}</td>
   <td class="num envelope-activity{{ ' envelope-pop-host' if cell.detail else '' }}">{% if cell.detail %}<input type="checkbox" class="envelope-pop-toggle" id="act-{{ ident }}"><label class="envelope-pop-label" for="act-{{ ident }}">{% if cell.visible and not (blank and cell.activity == 0) %}{{ extension.money(cell.activity) }}{% endif %}</label><label class="envelope-pop-backdrop" for="act-{{ ident }}"></label><div class="envelope-detail">{% for line in cell.detail %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ extension.detail_text(line) }} &middot; {{ extension.money(line.amount) }}</a>{% endfor %}{% if cell.detail_total > cell.detail | length %}<span class="envelope-detail-more">and {{ cell.detail_total - cell.detail | length }} more</span>{% endif %}</div>{% else %}{% if cell.visible and not (blank and cell.activity == 0) %}{{ extension.money(cell.activity) }}{% endif %}{% endif %}</td>
-  <td class="num{{ closing_class(cell) }}{{ ' envelope-pop-host envelope-closing-host' if plan_info else '' }}">{% if plan_info %}<input type="checkbox" class="envelope-pop-toggle" id="close-{{ ident }}"><label class="envelope-pop-label" for="close-{{ ident }}">{% if cell.fill is not none %}<span class="envelope-ring" style="--envelope-fill: {{ extension.fill_percent(cell) }}"></span>{% endif %}{% if not (blank and cell.closing == 0) %}{{ extension.money(cell.closing) }}{% endif %}</label><label class="envelope-pop-backdrop" for="close-{{ ident }}"></label><div class="envelope-pop envelope-closing-pop"><div class="envelope-closing-status">{% for line in extension.funding_lines(cell) %}<div>{{ line }}</div>{% endfor %}</div>{% set active = extension.active_plan(plans, cell.month) %}{% if active %}<a href="#context-{{ active.entry_hash }}">{{ active.date.isoformat() }} &middot; {{ extension.plan_text(active) }}</a>{% endif %}</div>{% else %}{% if cell.visible and cell.fill is not none %}<span class="envelope-ring" style="--envelope-fill: {{ extension.fill_percent(cell) }}"></span>{% endif %}{% if cell.visible and not (blank and cell.closing == 0) %}{{ extension.money(cell.closing) }}{% endif %}{% endif %}</td>
+  <td class="num{{ closing_class(cell) }}{{ closing_color(cell) }}{{ ' envelope-pop-host envelope-closing-host' if plan_info else '' }}">{% if plan_info %}<input type="checkbox" class="envelope-pop-toggle" id="close-{{ ident }}"><label class="envelope-pop-label" for="close-{{ ident }}">{% if cell.fill is not none %}<span class="envelope-ring" style="--envelope-fill: {{ extension.fill_percent(cell) }}"></span>{% endif %}{% if not (blank and cell.closing == 0) %}{{ extension.money(cell.closing) }}{% endif %}</label><label class="envelope-pop-backdrop" for="close-{{ ident }}"></label><div class="envelope-pop envelope-closing-pop"><div class="envelope-closing-status">{% for line in extension.funding_lines(cell) %}<div>{{ line }}</div>{% endfor %}</div>{% set active = extension.active_plan(plans, cell.month) %}{% if active %}<a href="#context-{{ active.entry_hash }}">{{ active.date.isoformat() }} &middot; {{ extension.plan_text(active) }}</a>{% endif %}</div>{% else %}{% if cell.visible and cell.fill is not none %}<span class="envelope-ring" style="--envelope-fill: {{ extension.fill_percent(cell) }}"></span>{% endif %}{% if cell.visible and not (blank and cell.closing == 0) %}{{ extension.money(cell.closing) }}{% endif %}{% endif %}</td>
 {%- endmacro %}
 {% macro pool_amounts(cell, sep=false) -%}
   {%- set ident = 'pool-' ~ cell.month.strftime('%Y%m') -%}
   <td class="num{{ ' envelope-sep' if sep else '' }}">{{ extension.money(cell.allocated) }}</td>
   <td class="num envelope-activity{{ ' envelope-pop-host' if cell.pool else '' }}">{% if cell.pool %}<input type="checkbox" class="envelope-pop-toggle" id="{{ ident }}"><label class="envelope-pop-label" for="{{ ident }}">{{ extension.money(cell.activity) }}</label><label class="envelope-pop-backdrop" for="{{ ident }}"></label><div class="envelope-detail">{% for line in cell.pool %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ extension.pool_text(line) }} &middot; {{ extension.money(line.amount) }} &rarr; {{ extension.money(line.balance) }}</a>{% endfor %}</div>{% else %}{{ extension.money(cell.activity) }}{% endif %}</td>
-  <td class="num{{ ' envelope-neg' if cell.visible and cell.closing < 0 else '' }}">{{ extension.money(cell.closing) }}</td>
+  <td class="num{{ ' envelope-neg' if colors and cell.visible and cell.closing < 0 else '' }}">{{ extension.money(cell.closing) }}</td>
 {%- endmacro %}
 {% macro name_cell(envelope, month) -%}
   {%- set has_plan = envelope.plan.monthly is not none or envelope.plan.up_to is not none or envelope.plan.goal is not none or envelope.plan.priority is not none -%}
@@ -238,17 +242,26 @@
       .envelope-table .envelope-funded {
         color: var(--diff-positive, #35973d);
       }
+      /* Amber is darkened in the light scheme to clear WCAG AA (Fava's own
+         #edd431 is only ~1.5:1 on white); the dark scheme keeps Fava's amber.
+         `light-dark()` follows Fava's colour-scheme, which it sets on :root. */
       .envelope-table .envelope-partial {
         color: var(--warning, #edd431);
+        color: light-dark(#7d6100, #edd431);
       }
-      /* A small key for the one marker that is not a colour: the centre dot on
-         a planned envelope that is above its level. */
+      /* A small key for the markers that are not a colour: a centre dot for an
+         over-funded envelope and a dashed ring for an under-plan one. */
       .envelope-legend {
         display: inline-flex;
         align-items: center;
-        gap: 0.3em;
         white-space: nowrap;
         color: rgba(128, 128, 128, 1);
+        gap: 0.75em;
+      }
+      .envelope-legend-pair {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3em;
       }
       .envelope-legend-swatch {
         position: relative;
@@ -264,12 +277,28 @@
         border-radius: 50%;
         border: 1px solid currentColor;
       }
-      .envelope-legend-swatch::after {
+      /* The over-plan swatch adds the filled centre dot to the base ring. */
+      .envelope-legend-over::after {
         content: "";
         position: absolute;
         inset: 30%;
         border-radius: 50%;
         background: currentColor;
+      }
+      /* The under-plan swatch is a dashed ring, in the same darkened amber as
+         the balance it explains. */
+      .envelope-legend-under {
+        color: var(--warning, #edd431);
+        color: light-dark(#7d6100, #edd431);
+      }
+      .envelope-legend-under::before {
+        border-style: dashed;
+      }
+      /* With colour off, the legend keys shape alone, so its swatches drop to
+         the legend's own grey. */
+      .envelope-legend-nocolor .envelope-legend-swatch,
+      .envelope-legend-nocolor .envelope-legend-under {
+        color: currentColor;
       }
       /* Activity drill-down: clicking the activity figure reveals the
          contributing postings, each linking to Fava's entry context popup.
@@ -338,6 +367,20 @@
         );
         -webkit-mask: radial-gradient(closest-side, transparent 56%, #000 57%);
         mask: radial-gradient(closest-side, transparent 56%, #000 57%);
+      }
+      /* An under-plan balance gets a dashed ring, so "not yet funded" reads by
+         texture, not colour alone. The mask intersects the thin annulus above
+         with a dash pattern, which needs multi-layer mask compositing (current
+         browsers all support it). */
+      .envelope-under .envelope-ring::before {
+        -webkit-mask:
+          radial-gradient(closest-side, transparent 56%, #000 57%),
+          repeating-conic-gradient(#000 0 15deg, transparent 15deg 30deg);
+        -webkit-mask-composite: source-in;
+        mask:
+          radial-gradient(closest-side, transparent 56%, #000 57%),
+          repeating-conic-gradient(#000 0 15deg, transparent 15deg 30deg);
+        mask-composite: intersect;
       }
       /* An over-funded balance — above its plan level — gets a filled centre
          dot. It is a shape cue, not a colour, so "above the level" stays
@@ -504,6 +547,33 @@
         font-size: 0.75em;
         font-weight: 400;
         cursor: pointer;
+      }
+      /* The month's funding summary: one ring, keyed by the worst status in the
+         month (solid = on plan, dotted = over plan, dashed = under plan, a
+         filled disc = a negative balance). It sits in the header dead space and
+         opens the month popover. */
+      .envelope-month-status {
+        display: inline-block;
+        margin-left: 0.4em;
+        vertical-align: middle;
+        cursor: pointer;
+      }
+      .envelope-month-status .envelope-month-status-mark {
+        width: 0.9em;
+        height: 0.9em;
+        margin-right: 0;
+        vertical-align: middle;
+      }
+      /* An all-negative month reads as a filled disc, not a ring. */
+      .envelope-status-negative .envelope-ring::before {
+        background: currentColor;
+        -webkit-mask: none;
+        mask: none;
+      }
+      /* The counts listed at the top of the month popover. */
+      .envelope-status-summary {
+        margin-bottom: 0.35rem;
+        font-weight: 600;
       }
       /* The generic popover host is `position: relative`; keep the header cell
          sticky so the popover stays with its pinned month. */
@@ -770,8 +840,10 @@
             Collapse all
           </label>
         {% endif %}
-        <span class="envelope-legend">
-          <span class="envelope-legend-swatch"></span> over plan
+        <span class="envelope-legend{{ '' if colors else ' envelope-legend-nocolor' }}">
+          <span class="envelope-legend-pair"><span class="envelope-legend-swatch"></span> on plan</span>
+          <span class="envelope-legend-pair"><span class="envelope-legend-swatch envelope-legend-over"></span> over plan</span>
+          <span class="envelope-legend-pair"><span class="envelope-legend-swatch envelope-legend-under"></span> under plan</span>
         </span>
       {% endif %}
       <span class="envelope-nav-tabs">
@@ -971,19 +1043,26 @@
             <th rowspan="2">Envelope</th>
             {% for index in range(view.months|length) %}
               {% set header_month = view.months[index] %}
-              <th colspan="{{ 4 if loop.first else 3 }}" class="envelope-sep{{ ' envelope-pop-host envelope-month-host' if extension.writable else '' }}">
+              {% set status = view.month_status[index] %}
+              {% set worst = status.worst %}
+              {% set month_ident = header_month.strftime('%Y%m') %}
+              {% set month_host = extension.writable or worst %}
+              <th colspan="{{ 4 if loop.first else 3 }}" class="envelope-sep{{ ' envelope-pop-host envelope-month-host' if month_host else '' }}">
                 {{ header_month.strftime('%Y-%m') }}
                 {% if header_month == today %}<small>(current)</small>{% endif %}
                 {% if view.projected[index] %}<small>(projected)</small>{% endif %}
-                {% if extension.writable %}
-                  {% set month_ident = header_month.strftime('%Y%m') %}
+                {% if month_host %}
                   <input type="checkbox" class="envelope-pop-toggle" id="month-{{ month_ident }}">
-                  <label class="envelope-month-label" for="month-{{ month_ident }}">actions</label>
+                  {% if worst %}<label class="envelope-month-status{{ ' envelope-over' if worst == 'over' else '' }}{{ ' envelope-under' if worst == 'under' else '' }}{{ ' envelope-status-negative' if worst == 'negative' else '' }}{% if colors %}{{ ' envelope-funded' if worst in ('on', 'over') else '' }}{{ ' envelope-partial' if worst == 'under' else '' }}{{ ' envelope-neg' if worst == 'negative' else '' }}{% endif %}" for="month-{{ month_ident }}" title="{{ extension.month_status_text(status) }}"><span class="envelope-ring envelope-month-status-mark" style="--envelope-fill: 100%"></span></label>{% endif %}
+                  {% if extension.writable %}<label class="envelope-month-label" for="month-{{ month_ident }}">actions</label>{% endif %}
                   <label class="envelope-pop-backdrop" for="month-{{ month_ident }}"></label>
                   <div class="envelope-pop envelope-month-pop">
-                    <form method="post" action="{{ base ~ 'commit' }}" data-create><input type="hidden" name="action" value="fully_fund"><input type="hidden" name="month" value="{{ header_month.strftime('%Y-%m') }}"><button type="submit">Fully fund</button></form>
-                    <form method="post" action="{{ base ~ 'commit' }}" data-create><input type="hidden" name="action" value="fund_available"><input type="hidden" name="month" value="{{ header_month.strftime('%Y-%m') }}"><button type="submit">Fund with available</button></form>
-                    <form method="post" action="{{ base ~ 'commit' }}" data-consolidate><input type="hidden" name="action" value="consolidate"><input type="hidden" name="month" value="{{ header_month.strftime('%Y-%m') }}"><button type="submit">Consolidate this month</button></form>
+                    {% if worst %}<div class="envelope-status-summary">{{ extension.month_status_text(status) }}</div>{% endif %}
+                    {% if extension.writable %}
+                      <form method="post" action="{{ base ~ 'commit' }}" data-create><input type="hidden" name="action" value="fully_fund"><input type="hidden" name="month" value="{{ header_month.strftime('%Y-%m') }}"><button type="submit">Fully fund</button></form>
+                      <form method="post" action="{{ base ~ 'commit' }}" data-create><input type="hidden" name="action" value="fund_available"><input type="hidden" name="month" value="{{ header_month.strftime('%Y-%m') }}"><button type="submit">Fund with available</button></form>
+                      <form method="post" action="{{ base ~ 'commit' }}" data-consolidate><input type="hidden" name="action" value="consolidate"><input type="hidden" name="month" value="{{ header_month.strftime('%Y-%m') }}"><button type="submit">Consolidate this month</button></form>
+                    {% endif %}
                   </div>
                 {% endif %}
               </th>
@@ -1047,7 +1126,7 @@
             {% for cell in view.cash %}
               <td class="num{{ ' envelope-sep' if not loop.first else '' }}"></td>
               <td class="num"></td>
-              <td class="num{{ ' envelope-neg' if cell.closing < 0 else '' }}">{{ extension.money(cell.closing) }}</td>
+              <td class="num{{ ' envelope-neg' if colors and cell.closing < 0 else '' }}">{{ extension.money(cell.closing) }}</td>
             {% endfor %}
           </tr>
         </tbody>

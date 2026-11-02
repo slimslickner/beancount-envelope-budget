@@ -278,6 +278,40 @@ def test_build_view_with_a_prepared_index_matches() -> None:
         assert to_jsonable(view) == to_jsonable(cached)
 
 
+def test_month_status_counts_and_worst() -> None:
+    """A month's summary tallies each status and reports the worst one."""
+    view = build_view(_compute("funding_colors.bean"), date(2024, 1, 1), 1)
+    status = view.month_status[0]
+    assert status.under == 1
+    assert status.on == 1
+    assert status.over == 1
+    assert status.negative == 0
+    assert status.worst == "under"
+
+
+def test_month_status_negative_wins() -> None:
+    """A negative closing balance outranks every funding status."""
+    view = build_view(_compute("overspend_carry.bean"), date(2024, 1, 1), 1)
+    status = view.month_status[0]
+    assert status.negative == 1
+    assert status.worst == "negative"
+
+
+def test_month_status_without_a_plan_is_none() -> None:
+    """A month with no planned envelopes and no negative balance has no status."""
+    view = build_view(_compute("basic.bean"), date(2024, 1, 1), 1)
+    assert view.month_status[0].worst is None
+
+
+def test_month_status_is_serialised() -> None:
+    """``to_jsonable`` carries the per-month status counts and worst reading."""
+    view = build_view(_compute("funding_colors.bean"), date(2024, 1, 1), 1)
+    as_json = cast("list[dict[str, object]]", to_jsonable(view)["month_status"])
+    assert as_json == [
+        {"negative": 0, "under": 1, "over": 1, "on": 1, "worst": "under"}
+    ]
+
+
 def test_funding_explanation_for_monthly() -> None:
     """A monthly plan's explanation shows its level, funded amount and top-up."""
     result = _compute("funding_colors.bean")
@@ -294,7 +328,7 @@ def test_funding_explanation_for_monthly() -> None:
         "monthly 100.00 = plan",
         "level 100.00 = monthly 100.00",
         "funded 50.00 = opening 0.00 + allocated 50.00",
-        "underfunded by 50.00",
+        "under plan by 50.00",
         "top up 50.00",
     )
 
@@ -330,7 +364,7 @@ def test_funding_explanation_for_up_to() -> None:
     assert funding_explanation_lines(explanation) == (
         "level 600.00 = min(ceiling 600.00, opening 500.00 + monthly 250.00)",
         "funded 500.00 = closing balance",
-        "underfunded by 100.00",
+        "under plan by 100.00",
         "top up 100.00",
     )
 

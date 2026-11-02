@@ -11,6 +11,11 @@ Set the default number of months shown (1 to
 
 The ``months`` query parameter overrides it.
 
+Set ``color-closing-balance`` to ``False`` to drop the colour coding from the
+closing balances (the ring's shape still tells the plan status)::
+
+    2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext" "{'color-closing-balance': False}"
+
 The report is **read-only unless a write goal is configured**. Add a ``write``
 key naming a Beancount file, relative to the ledger's directory, to let the
 report append ``custom "envelope"`` directives::
@@ -58,6 +63,7 @@ from beancount_envelope_budget.report import (
     ActivityLine,
     BudgetView,
     Cell,
+    MonthStatus,
     PlanLine,
     PoolEntry,
     Reports,
@@ -143,11 +149,13 @@ class Envelopes(FavaExtensionBase):
             ledger: The Fava ledger.
             config: The optional extension config. A mapping may set a ``months``
                 key (1 to :data:`~beancount_envelope_budget.report.MAX_MONTHS`,
-                the default number of months shown) and a ``write`` key (the
+                the default number of months shown), a ``write`` key (the
                 Beancount file to append directives to, relative to the ledger
-                directory; writing stays off when it is absent). A whole number
-                sets the month count. The ``months`` query parameter overrides
-                the month count.
+                directory; writing stays off when it is absent), and a
+                ``color-closing-balance`` key (a boolean; the closing balances
+                are colour-coded unless it is ``False``). A whole number sets the
+                month count. The ``months`` query parameter overrides the month
+                count.
 
         Raises:
             ExtensionConfigError: If the config is not valid, or the write goal
@@ -159,6 +167,7 @@ class Envelopes(FavaExtensionBase):
         try:
             self.default_months = _default_months(self.config)
             self.write_target = self._resolve_write(_write_setting(self.config))
+            self._color_closing_balance = _color_setting(self.config)
         except (TypeError, ValueError) as error:
             raise ExtensionConfigError(SyntaxError(str(error)), config or "") from error
 
@@ -185,6 +194,19 @@ class Envelopes(FavaExtensionBase):
         """
         return self.write_target is not None
 
+    @property
+    def color_closing_balance(self) -> bool:
+        """Whether the closing balances are colour-coded.
+
+        The ring beside a planned balance still shows the plan status by shape
+        (solid, dashed or dotted) when this is off; only the red/green/amber is
+        dropped.
+
+        Returns:
+            True unless ``color-closing-balance`` is configured ``False``.
+        """
+        return self._color_closing_balance
+
     def _result(self) -> BudgetResult:
         """Return the computed budget, computing it once on first use.
 
@@ -201,7 +223,7 @@ class Envelopes(FavaExtensionBase):
 
         The suggestion leads with the envelope's plan top-up; when there is
         nothing left to fund, it falls back to covering the month's overspend,
-        and to zero when the month is neither underfunded nor overspent. It is
+        and to zero when the month is neither under plan nor overspent. It is
         used to prefill the "add allocation" form and modal.
 
         Args:
@@ -628,6 +650,28 @@ class Envelopes(FavaExtensionBase):
         """
         return f"{cell.fill * 100:.1f}%" if cell.fill is not None else "0%"
 
+    def month_status_text(self, status: MonthStatus) -> str:
+        """Describe a month's envelope status counts in one line.
+
+        Used by the month header's popover, which opens from the summary marker.
+        Only the non-zero counts are shown, so a month reads as, for example,
+        ``2 under plan · 1 over plan``.
+
+        Args:
+            status: The month's :class:`MonthStatus`.
+
+        Returns:
+            The counts, or ``no plan`` when nothing applies.
+        """
+        counts = (
+            (status.negative, "negative"),
+            (status.under, "under plan"),
+            (status.over, "over plan"),
+            (status.on, "on plan"),
+        )
+        parts = [f"{count} {label}" for count, label in counts if count]
+        return " · ".join(parts) or "no plan"
+
     def funding_lines(self, cell: Cell) -> tuple[str, ...]:
         """Describe how a cell's plan is evaluated, one line per part.
 
@@ -963,6 +1007,30 @@ def _write_setting(config: object) -> str | None:
         return None
     if not isinstance(value, str):
         message = "write must be a path string"
+        raise TypeError(message)
+    return value
+
+
+def _color_setting(config: object) -> bool:
+    """Read the optional ``color-closing-balance`` flag from an extension config.
+
+    Args:
+        config: The parsed extension config.
+
+    Returns:
+        Whether the closing balances are colour-coded; ``True`` when the key is
+        absent.
+
+    Raises:
+        TypeError: If ``color-closing-balance`` is present but not a boolean.
+    """
+    if not isinstance(config, dict):
+        return True
+    value = config.get("color-closing-balance")
+    if value is None:
+        return True
+    if not isinstance(value, bool):
+        message = "color-closing-balance must be true or false"
         raise TypeError(message)
     return value
 
