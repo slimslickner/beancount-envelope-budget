@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "beancount-envelope-budget"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Ledger-driven envelope budgeting for Beancount, with a Fava report."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -46,6 +46,17 @@ Repository = "https://github.com/slimslickner/beancount-envelope-budget"
 
 [tool.uv]
 default-groups = ["dev"]
+
+# The version is derived from the git tag (the source of truth); the release
+# workflow tags a commit and the build stamps that version.
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+fallback_version = "0.0.0"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/beancount_envelope_budget/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/beancount_envelope_budget"]

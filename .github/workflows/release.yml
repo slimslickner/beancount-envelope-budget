@@ -1,0 +1,172 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Which digit to increment"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      target:
+        description: "Where to publish"
+        type: choice
+        options: [testpypi, pypi]
+        default: testpypi
+      version:
+        description: "Override the version (X.Y.Z); leave blank to compute from bump"
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      release_version: ${{ steps.version.outputs.release_version }}
+      build_version: ${{ steps.version.outputs.build_version }}
+      previous: ${{ steps.version.outputs.previous }}
+    steps:
+      - name: Release is restricted to the repository owner
+        if: github.actor != github.repository_owner
+        run: |
+          echo "::error::releasing is restricted to ${{ github.repository_owner }}"
+          exit 1
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Compute the version
+        id: version
+        env:
+          REQUESTED: ${{ inputs.version }}
+          BUMP: ${{ inputs.bump }}
+          TARGET: ${{ inputs.target }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          latest=$(git tag --list 'v*' --sort=-v:refname \
+                   | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
+          [ -n "$latest" ] || latest="v0.0.0"
+          echo "previous=$latest" >> "$GITHUB_OUTPUT"
+          base="$REQUESTED"
+          if [ -n "$base" ]; then
+            echo "$base" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || {
+              echo "::error::version '$base' is not MAJOR.MINOR.PATCH"; exit 1; }
+          else
+            IFS=. read -r maj min pat <<< "${latest#v}"
+            case "$BUMP" in
+              major) maj=$((maj + 1)); min=0; pat=0 ;;
+              minor) min=$((min + 1)); pat=0 ;;
+              patch) pat=$((pat + 1)) ;;
+            esac
+            base="$maj.$min.$pat"
+          fi
+          echo "release_version=$base" >> "$GITHUB_OUTPUT"
+          # A rehearsal gets a unique rc number so it never collides and always
+          # sorts below the real release; PyPI rejects local (+hash) versions.
+          if [ "$TARGET" = "testpypi" ]; then
+            echo "build_version=${base}rc${RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_version=$base" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Tag the build commit (local only; hatch-vcs reads it)
+        env:
+          BUILD_VERSION: ${{ steps.version.outputs.build_version }}
+        run: git tag -f "v$BUILD_VERSION"
+
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+
+      - run: uv build
+      - run: uvx twine check dist/*
+
+      - name: Assert the built version matches the tag
+        env:
+          BUILD_VERSION: ${{ steps.version.outputs.build_version }}
+        run: |
+          built="$(basename dist/*.whl | cut -d- -f2)"
+          test "$built" = "$BUILD_VERSION" || {
+            echo "built $built != tag v$BUILD_VERSION"; exit 1; }
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist
+          path: dist/
+
+  publish-testpypi:
+    needs: build
+    if: inputs.target == 'testpypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/beancount-envelope-budget
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  publish-pypi:
+    needs: build
+    if: inputs.target == 'pypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/beancount-envelope-budget
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+
+      # Publish first: if this fails, no tag exists, so re-running the workflow
+      # recomputes the same version (skip-existing makes the retry idempotent).
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          attestations: true
+          skip-existing: true
+
+      - name: Tag and push the release commit
+        env:
+          RELEASE_VERSION: ${{ needs.build.outputs.release_version }}
+        run: |
+          git tag -f "v$RELEASE_VERSION"
+          git push origin "v$RELEASE_VERSION"
+
+      - name: Create the GitHub Release with generated notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.build.outputs.release_version }}
+          PREVIOUS: ${{ needs.build.outputs.previous }}
+        run: |
+          gh release create "v$RELEASE_VERSION" \
+            --title "v$RELEASE_VERSION" \
+            --generate-notes \
+            --notes-start-tag "$PREVIOUS" \
+            --verify-tag \
+            dist/*

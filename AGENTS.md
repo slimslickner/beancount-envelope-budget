@@ -25,7 +25,9 @@ in [`docs/original_design.md`](docs/original_design.md).
 | `tests/` | pytest; `tests/ledgers/` has one fixture per case, plus the generated all-features `sample.bean`. |
 | `scripts/sample_ledger.py` | Generates `tests/ledgers/sample.bean`; `--check` fails when it is stale. |
 | `scripts/benchmark.py` | Times the loader and the budget over the sample at scale; also a smoke test. |
-| `docs/` | `concepts.md`, `style-guide.md`, `original_design.md`; generated `cli.md`, `schema.md`, `errors.md`. |
+| `.github/workflows/` | The CI gate and the manual `release` job (tag, build, publish to TestPyPI or PyPI). |
+| `.github/release.yml` | Categories for GitHub's generated release notes. |
+| `docs/` | `concepts.md`, `style-guide.md`, `releasing.md`, `original_design.md`; generated `cli.md`, `schema.md`, `errors.md`. |
 | `examples/household.bean` | Complete example ledger; also an integration test. |
 | `.opencode/skills/` | The CLI-usage skill. |
 
@@ -54,7 +56,8 @@ symbol has a Google-style docstring with doctests where useful; `core.py` import
 only `beancount` (plus our `schema` and the standard library), and only
 `fava_ext.py` imports Fava; only `pin --write` edits a
 ledger file; the registries in `schema.py` are the source of truth for schema and
-errors; update `CHANGELOG.md` for every user-visible change.
+errors; the release notes are generated from merged pull requests, so title and
+label each PR (there is no `CHANGELOG.md`).
 
 ## Commits
 
@@ -66,7 +69,8 @@ fix(topup): fund goal envelopes to their on-track level (#8)
 ```
 
 Use `feat`, `fix`, `docs`, `test`, `refactor` or `chore` as the type. Keep the
-subject imperative and under about 72 characters.
+subject imperative and under about 72 characters. A PR's title and labels become
+the generated release notes, so keep the title descriptive and label the PR.
 
 ## Gotchas
 
@@ -76,5 +80,8 @@ subject imperative and under about 72 characters.
   parser or the registry, then run `docs`.
 - `tests/ledgers/sample.bean` is generated too — add the feature to
   `scripts/sample_ledger.py`, regenerate, and keep `test_sample.py` green.
+- The version comes from the git tag (`hatch-vcs`), not a file. A release is the
+  manual `release.yml` workflow; never edit a version or create a release tag by
+  hand. See `docs/releasing.md`.
 - The `report`/`fava_ext` numbers must come from `report.build_view`, not be
   recomputed, so the CLI and the web report never disagree.

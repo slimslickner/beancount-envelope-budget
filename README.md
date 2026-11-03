@@ -140,6 +140,7 @@ See `docs/cli.md` for the full reference and `beancount-envelope-budget --help`.
 - [`docs/schema.md`](docs/schema.md) — generated directive, metadata and reserved-value reference.
 - [`docs/errors.md`](docs/errors.md) — generated error and warning reference.
 - [`docs/style-guide.md`](docs/style-guide.md) — conventions for code and docs.
+- [`docs/releasing.md`](docs/releasing.md) — how a release is tagged and published.
 - [`docs/original_design.md`](docs/original_design.md) — the original design spec (historical).
 - [`AGENTS.md`](AGENTS.md) — repository guide for AI agents.
 - [`examples/household.bean`](examples/household.bean) — a complete example ledger that also runs as an integration test.
@@ -154,6 +155,10 @@ uv run ruff format --check && uv run ruff check && uv run ty check && uv run pyt
 
 `pytest` runs the doctests, enforces a coverage floor on the core, and the fixture ledgers double as tests. `scripts/benchmark.py` times the loader and the budget over a generated ledger at scale; `scripts/sample_ledger.py` produces it, and the gate keeps the committed instance current with `--check`.
 
+### Releasing
+
+The version comes from the git tag, so a release is a button: **Actions → Release → Run workflow**, choose a `patch`/`minor`/`major` bump and publish to TestPyPI or PyPI. See [`docs/releasing.md`](docs/releasing.md).
+
 ### Commit messages
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/). Use a type and an optional scope, a short imperative subject, and reference the issue with `(#N)`:
@@ -164,3 +169,5 @@ docs: document the plan level and overfunded note (#8)
 ```
 
 Common types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`.
+
+Release notes are generated from **merged pull requests**, so give each PR a descriptive title and a label (`enhancement`, `bug`, …) — they become the notes.
