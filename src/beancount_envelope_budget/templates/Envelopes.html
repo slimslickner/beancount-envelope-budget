@@ -100,7 +100,7 @@
       .envelope-report:not(:has(.envelope-reports)):not(:has(.envelope-review)):not(:has(.envelope-history)) .envelope-nav {
         position: sticky;
         top: 0;
-        z-index: 4;
+        z-index: 5;
       }
       /* The selectable month strip shows a sliding block of months, scrolling
          sideways if it still will not fit on a narrow screen. */
@@ -143,12 +143,14 @@
         gap: 0.5rem;
         margin-left: auto;
       }
-      /* Sticky layering, low to high: name column (1), parent heading (2),
-         table header and pool/cash rows (3), nav bar (4), header corner (5). */
+      /* Sticky layering, low to high, so a row's own first cell always paints
+         above the cells that scroll under it while a pinned row still covers
+         the data rows: name column (1), parent heading and pool/cash rows (2),
+         their first cells (3), table header (4), nav bar (5), corner (6). */
       .envelope-table thead th {
         position: sticky;
         top: 0;
-        z-index: 3;
+        z-index: 4;
         text-align: right;
         background: var(--table-header-background, var(--background, #fff));
       }
@@ -159,8 +161,10 @@
       .envelope-table thead tr:last-child th {
         top: var(--envelope-header-row-height);
       }
-      /* The envelope name column stays put during horizontal scroll. */
-      .envelope-table thead th:first-child,
+      /* The envelope name column stays put during horizontal scroll. In the
+         header only the rowspan corner is the name column; the metric row's
+         first cell ("Opening") must scroll like the rest of its row. */
+      .envelope-table thead tr:first-child > th:first-child,
       .envelope-table tbody th:first-child,
       .envelope-table tbody td:first-child {
         position: sticky;
@@ -172,13 +176,13 @@
         box-shadow: inset -1px 0 0 rgba(128, 128, 128, 0.5);
       }
       /* The corner cell is sticky in both axes, so it sits above the rest. */
-      .envelope-table thead th:first-child {
-        z-index: 5;
+      .envelope-table thead tr:first-child > th:first-child {
+        z-index: 6;
         background: var(--table-header-background, var(--background, #fff));
       }
       /* The header keeps its bottom rule while it is stuck. */
       .envelope-table thead tr:last-child > *,
-      .envelope-table thead th:first-child {
+      .envelope-table thead tr:first-child > th:first-child {
         border-bottom: 1px solid rgba(128, 128, 128, 0.5);
       }
       .envelope-table .envelope-sep {
@@ -205,15 +209,19 @@
       .envelope-table .envelope-total-body tr:last-child > * {
         position: sticky;
         bottom: 0;
-        z-index: 3;
+        z-index: 2;
         background: var(--background, #fff);
         border-bottom: 1px solid rgba(128, 128, 128, 0.5);
       }
       .envelope-table .envelope-total-body tr:first-child > * {
         position: sticky;
         bottom: var(--envelope-total-row-height);
-        z-index: 3;
+        z-index: 2;
         background: var(--background, #fff);
+      }
+      /* The pool/cash labels stay above the figures scrolling under them. */
+      .envelope-table .envelope-total-body tr.envelope-total > td:first-child {
+        z-index: 3;
       }
       /* A parent heading pins under the table header while its group is in
          view, and the next group pushes it up. Above the name column's cells
@@ -223,6 +231,10 @@
         top: calc(2 * var(--envelope-header-row-height));
         z-index: 2;
         background: var(--background, #fff);
+      }
+      /* The heading's own name stays above the subtotal cells scrolling under it. */
+      .envelope-table tbody.envelope-group-body > tr.envelope-group > th:first-child {
+        z-index: 3;
       }
       .envelope-group th {
         font-weight: 600;
@@ -382,6 +394,14 @@
         background: conic-gradient(
           currentColor var(--envelope-fill, 0%),
           rgba(128, 128, 128, 0.25) 0
+        );
+        /* The unfilled track is tinted with the status colour, so a ring at a low
+           or zero fill still reads its colour (and matches the legend's amber
+           "under plan" swatch) rather than looking grey. The grey above is the
+           fallback where `color-mix` is unsupported. */
+        background: conic-gradient(
+          currentColor var(--envelope-fill, 0%),
+          color-mix(in srgb, currentColor 30%, transparent) 0
         );
         -webkit-mask: radial-gradient(closest-side, transparent 56%, #000 57%);
         mask: radial-gradient(closest-side, transparent 56%, #000 57%);
@@ -548,12 +568,14 @@
         right: 0;
       }
       /* Once the JavaScript module measures and places a popover, it switches it
-         to a fixed overlay so the report's scroll box cannot clip it and Fava's
-         sidebar cannot cover it. Position and size then come from inline styles;
-         this rule strips the CSS fallback anchors and must win over the
-         per-variant rules above, so it comes last. */
+         to a document-anchored overlay so the report's scroll box cannot clip it
+         and Fava's sidebar cannot cover it. Absolute, not fixed: an absolutely
+         positioned element magnifies and pans with the page under a pinch-zoom,
+         so it stays glued to its cell, where a fixed one drifts. Position and
+         size come from inline styles; this rule strips the CSS fallback anchors
+         and must win over the per-variant rules above, so it comes last. */
       .envelope-pop-floating {
-        position: fixed;
+        position: absolute;
         top: auto;
         right: auto;
         bottom: auto;
