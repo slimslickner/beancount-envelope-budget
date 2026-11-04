@@ -369,7 +369,7 @@ def test_report_subcent_goal_is_on_track() -> None:
     goal = next(e for e in view.envelopes if e.name == "Goal")
     cell = goal.cells[0]
     # 1000 / 7 = 142.857142..., which the 142.86 allocation is on track for.
-    assert cell.level == D("142.86")
+    assert cell.target == D("142.86")
     assert cell.funding == "on"
 
 
@@ -423,7 +423,7 @@ def test_template_closing_popover_shows_plan_status() -> None:
     # The status now shows the funding fraction and the full derivation.
     assert "50.0% funded" in under
     assert "under plan by 50.00" in under
-    assert "level 100.00 = monthly 100.00" in under
+    assert "target 100.00 = monthly 100.00" in under
 
 
 def test_template_closing_popover_shows_the_active_plan() -> None:
@@ -1157,7 +1157,7 @@ def test_prefill_interprets_the_actioned_month() -> None:
     extension = _extension_from_text(_monthly_ledger())
     this_month = _today().replace(day=1)
     assert extension.prefill("Groceries", this_month) == "0.00"
-    assert extension.prefill("Groceries", _next_month()) == "120.00"
+    assert extension.prefill("Groceries", _next_month()) == "300.00"
 
 
 def test_month_action_dates_a_future_month() -> None:
@@ -1208,7 +1208,9 @@ def test_funding_text_shows_up_to() -> None:
     text = extension.funding_text(car.cells[0])
     lines = text.split("\n")
     assert lines[0] == "under plan by 100.00 - 83.3% funded"
-    assert "level 600.00 = min(ceiling 600.00, opening 500.00 + monthly 250.00)" in text
+    assert (
+        "target 600.00 = min(ceiling 600.00, opening 500.00 + monthly 250.00)" in text
+    )
     assert "funded 500.00 = closing balance" in text
     assert text.endswith("top up 100.00")
 
@@ -1535,7 +1537,7 @@ def test_prefill_covers_uncovered_spending() -> None:
     assert extension.prefill("Nope", date(2024, 1, 1)) == "0.00"
 
 
-def test_prefill_funds_the_plan_level() -> None:
+def test_prefill_funds_the_plan_target() -> None:
     """A planned envelope is prefilled with its plan top-up, not its spending."""
     extension = _extension("topup_plan.bean")
     assert extension.prefill("Mortgage", date(2024, 1, 1)) == "2500.00"

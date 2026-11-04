@@ -221,7 +221,7 @@ class GoalSchedule:
 
     A goal is grown linearly from the month it first took effect to its ``by``
     month, counting both ends. This records the schedule behind
-    :meth:`Envelope.funding_level`, so a report can explain the level: the
+    :meth:`Envelope.funding_target`, so a report can explain the target: the
     ``goal`` is reached over ``total`` months, of which ``elapsed`` have passed.
 
     Attributes:
@@ -229,14 +229,14 @@ class GoalSchedule:
         by: The deadline the goal should be reached by.
         elapsed: The number of months counted so far, capped at ``total``.
         total: The total number of months from ``start`` to ``by``, inclusive.
-        level: The on-track contribution level at the evaluated date.
+        target: The on-track contribution target at the evaluated date.
     """
 
     start: date
     by: date
     elapsed: int
     total: int
-    level: Decimal
+    target: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,13 +302,13 @@ class Envelope:
             )
         return plan
 
-    def funding_level(self, on: date) -> Decimal | None:
-        """Return the on-track contribution level for a goal envelope.
+    def funding_target(self, on: date) -> Decimal | None:
+        """Return the on-track contribution target for a goal envelope.
 
-        A goal envelope is one funded by a ``goal``. Its level is the total it
+        A goal envelope is one funded by a ``goal``. Its target is the total it
         should have contributed at ``on`` to be on schedule: ``goal`` grown
         linearly from the month the goal first took effect to its ``by`` month,
-        both ends inclusive, so the level is ``goal`` once ``by`` arrives and a
+        both ends inclusive, so the target is ``goal`` once ``by`` arrives and a
         fraction of it before. It is compared against the envelope's cumulative
         contributions (see
         :meth:`EnvelopeReport.funded_at`), not its balance.
@@ -317,7 +317,7 @@ class Envelope:
             on: The date to evaluate.
 
         Returns:
-            The level, or ``None`` when the envelope has no goal (or no
+            The target, or ``None`` when the envelope has no goal (or no
             ``by``).
 
         Examples:
@@ -332,24 +332,24 @@ class Envelope:
             ...     ),
             ...     (),
             ... )
-            >>> emergency.funding_level(date(2026, 6, 15))
+            >>> emergency.funding_target(date(2026, 6, 15))
             Decimal('3000')
-            >>> emergency.funding_level(date(2026, 12, 31))
+            >>> emergency.funding_target(date(2026, 12, 31))
             Decimal('6000')
-            >>> Envelope("Misc", date(2026, 1, 1), None, Plan(), ()).funding_level(
+            >>> Envelope("Misc", date(2026, 1, 1), None, Plan(), ()).funding_target(
             ...     date(2026, 6, 15)
             ... ) is None
             True
         """
         schedule = self.goal_schedule(on)
-        return None if schedule is None else schedule.level
+        return None if schedule is None else schedule.target
 
     def goal_schedule(self, on: date) -> GoalSchedule | None:
         """Return the funding schedule for a goal envelope.
 
-        The schedule is the arithmetic behind :meth:`funding_level`: the month
+        The schedule is the arithmetic behind :meth:`funding_target`: the month
         the goal first took effect, its deadline, the months elapsed and total,
-        and the resulting level. A report uses it to explain why a goal reads
+        and the resulting target. A report uses it to explain why a goal reads
         under, on or over plan.
 
         Args:
@@ -374,7 +374,7 @@ class Envelope:
             >>> schedule = emergency.goal_schedule(date(2026, 3, 15))
             >>> schedule.start, schedule.elapsed, schedule.total
             (datetime.date(2026, 1, 1), 3, 6)
-            >>> schedule.level
+            >>> schedule.target
             Decimal('3000')
         """
         plan = self.effective(on)
@@ -495,17 +495,16 @@ class EnvelopeReport:
     def funded_at(self, on: date) -> Decimal:
         """Return the amount credited toward the envelope's plan on a date.
 
-        A goal envelope — one with a ``goal`` and no ``monthly`` — is funded by
-        its cumulative contributions, not its balance: the goal-start month's
-        opening balance plus allocations, income and refunds since.
-        Spending is ignored, so a goal that has been fully saved still reads as
-        funded after the money is spent. An envelope with an ``up-to`` ceiling is
-        measured by its closing balance, the balance the ceiling caps. A
-        ``monthly`` envelope is funded by the money made available that month:
-        the opening balance plus the month's allocation (its closing balance less
-        the month's activity), so receiving the planned amount reads as funded
-        even after the month's spending. The precedence matches
-        :func:`~beancount_envelope_budget.report.plan_level`: a plan with a
+        A ``monthly`` envelope is funded by the money assigned that month — the
+        month's allocation — so the plan is judged as a flow: a month with no
+        allocation reads as unfunded even when a balance carried in. An envelope
+        with an ``up-to`` ceiling is measured by its closing balance, the balance
+        the ceiling caps. A goal envelope — one with a ``goal`` and no
+        ``monthly`` — is funded by its cumulative contributions, not its balance:
+        the goal-start month's opening balance plus allocations, income and
+        refunds since. Spending is ignored, so a goal that has been fully saved
+        still reads as funded after the money is spent. The precedence matches
+        :func:`~beancount_envelope_budget.report.plan_target`: a plan with a
         ``monthly`` and an ``up-to`` is measured as an up-to plan.
 
         Args:
@@ -532,14 +531,33 @@ class EnvelopeReport:
             Decimal('550')
             >>> report.closing_at(date(2026, 10, 31))
             Decimal('146.31')
+
+            A month funded by carryover alone is not counted: the flow is the
+            month's own allocation.
+
+            >>> carried = EnvelopeReport(
+            ...     Envelope(
+            ...         "Rent",
+            ...         date(2026, 10, 1),
+            ...         None,
+            ...         Plan(monthly=Decimal("550")),
+            ...         (),
+            ...     ),
+            ...     (
+            ...         MonthRow(
+            ...             date(2026, 11, 1), Decimal("550"), Decimal(0), Decimal(0)
+            ...         ),
+            ...     ),
+            ... )
+            >>> carried.funded_at(date(2026, 11, 30))
+            Decimal('0')
         """
         plan = self.envelope.effective(on)
         if plan.up_to is not None:
             return row_for(self.rows, on).closing
         if plan.monthly is None and plan.goal is not None:
             return self._goal_progress(on)
-        row = row_for(self.rows, on)
-        return row.opening + row.allocated
+        return row_for(self.rows, on).allocated
 
     def _goal_progress(self, on: date) -> Decimal:
         """Return the cumulative contributions toward a goal envelope.
@@ -549,7 +567,7 @@ class EnvelopeReport:
         allocation, income and refund since is added, while spending and
         other outflows are ignored. It equals the balance at ``on`` plus
         everything spent since the goal began, and it is what a goal's funding
-        level is compared against. Month granularity matches the rest of the
+        target is compared against. Month granularity matches the rest of the
         budget.
 
         Args:

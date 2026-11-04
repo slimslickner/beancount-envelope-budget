@@ -35,17 +35,17 @@ date. Everything before it is ignored.
 
 ## Business as usual
 
-After a paycheck, top the envelopes back up to their planned levels.
+After a paycheck, top the envelopes back up to their planned targets.
 
 ```sh
 beancount-envelope-budget fund main.bean --mode topup --date 2027-03-01 --reserve 500
 ```
 
-This prints `allocate` directives, funding envelopes in priority order up to
-their level — `monthly`, the capped allowance of a `monthly` + `up-to` plan, or
-the on-track balance for a goal — and holding `--reserve` back in the pool.
-Anything that could not be funded prints as a comment, and a goal already above
-its level prints as overfunded:
+This prints `allocate` directives, funding envelopes in priority order to their
+target — what is left of a `monthly` envelope's month, the capped allowance of a
+`monthly` + `up-to` plan, or the on-track contribution for a goal — and holding
+`--reserve` back in the pool. Anything that could not be funded prints as a
+comment, and a goal already above its target prints as overfunded:
 
 ```beancount
 2027-03-01 custom "envelope" "allocate" "Mortgage" 2500.00 USD
@@ -59,8 +59,8 @@ paycheck prints only what is still missing; once nothing is missing it prints
 nothing. With `--strict` it exits non-zero when anything is unfunded.
 
 `topup` sizes each envelope from its plan (`monthly`, `monthly` + `up-to`, or a
-`target` + `by`), so with no plan directives it prints nothing — there is no
-level to fund to. If you would rather not write any plans, top spent envelopes
+`goal` + `by`), so with no plan directives it prints nothing — there is no
+target to fund to. If you would rather not write any plans, top spent envelopes
 back to zero instead by running `overspend` over a single month:
 
 ```sh
@@ -74,7 +74,7 @@ want each month to close flat.
 
 To fund a whole month in one pass — meeting each plan *and* covering any
 overspend — use the month actions. `fully-fund` funds every envelope to its plan
-level or its overspend, whichever is greater, and `fund-available` does the same
+target or its overspend, whichever is greater, and `fund-available` does the same
 in priority order while keeping the pool non-negative:
 
 ```sh

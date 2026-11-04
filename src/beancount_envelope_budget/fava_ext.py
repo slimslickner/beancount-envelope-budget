@@ -646,7 +646,7 @@ class Envelopes(FavaExtensionBase):
 
         Returns:
             The fill from ``0%`` to ``100%``, or ``0%`` when the cell has no
-            goal or level to measure against.
+            goal or target to measure against.
         """
         return f"{cell.fill * 100:.1f}%" if cell.fill is not None else "0%"
 
@@ -677,7 +677,7 @@ class Envelopes(FavaExtensionBase):
 
         Composes the shared pieces from
         :mod:`beancount_envelope_budget.report`, so the closing popover shows
-        the same derivation the CLI's ``explain`` command prints — the level's
+        the same derivation the CLI's ``explain`` command prints — the target's
         formula, what the funded amount is measured from, and the top-up still
         needed — but leads with the verdict and the funded fraction together,
         such as ``on plan - 24.0% funded``, so the status and how full the
@@ -724,7 +724,7 @@ class Envelopes(FavaExtensionBase):
 
         Delegates to :func:`~beancount_envelope_budget.report.active_plan`, the
         single implementation, so the directive the popover shows agrees with the
-        funding level beside it.
+        funding target beside it.
 
         Args:
             plans: The envelope's plan directives, base first.

@@ -214,7 +214,7 @@ def test_goal_progress_survives_spending(load_budget) -> None:
     assert trip.closing_at(date(2028, 3, 31)) == D("5000")
     assert trip.funded_at(date(2028, 7, 31)) == D("10000")
     assert trip.closing_at(date(2028, 7, 31)) == D("0")
-    assert trip.envelope.funding_level(date(2028, 6, 15)) == D("10000")
+    assert trip.envelope.funding_target(date(2028, 6, 15)) == D("10000")
 
 
 def test_goal_schedule_exposes_the_arithmetic(load_budget) -> None:
@@ -225,7 +225,7 @@ def test_goal_schedule_exposes_the_arithmetic(load_budget) -> None:
     assert schedule.start == date(2024, 1, 15)
     assert schedule.by == date(2028, 6, 1)
     assert (schedule.elapsed, schedule.total) == (3, 54)
-    assert schedule.level == car.envelope.funding_level(date(2024, 3, 31))
+    assert schedule.target == car.envelope.funding_target(date(2024, 3, 31))
 
 
 def test_goal_progress_seeds_with_existing_balance() -> None:

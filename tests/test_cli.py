@@ -542,7 +542,7 @@ def test_explain_prints_the_plan_derivation(capsys: pytest.CaptureFixture[str]) 
     out = capsys.readouterr().out
     assert "Plan evaluation for 2024-03" in out
     assert "Amounts in USD" in out
-    assert "level 600.00 = min(ceiling 600.00, opening 500.00 + monthly 250.00)" in out
+    assert "target 600.00 = min(ceiling 600.00, opening 500.00 + monthly 250.00)" in out
     assert "top up 100.00" in out
 
 
@@ -565,7 +565,7 @@ def test_explain_json_carries_the_lines(capsys: pytest.CaptureFixture[str]) -> N
     assert payload["currency"] == "USD"
     car = next(entry for entry in payload["envelopes"] if entry["name"] == "Car")
     assert car["lines"][0] == (
-        "level 833.33 = goal 15000.00 (3/54 months) to 2028-06-01"
+        "target 833.33 = goal 15000.00 (3/54 months) to 2028-06-01"
     )
 
 

@@ -9,7 +9,8 @@ envelope or sits in an unassigned pool, and balances carry month to month. It
 ships a Beancount plugin, a CLI, and a read-only Fava report, all built on one
 pure core. The ledger is the only source of truth. A slimmed-down user overview
 is in [`README.md`](README.md); the model is in
-[`docs/concepts.md`](docs/concepts.md); the original design spec (historical) is
+[`docs/concepts.md`](docs/concepts.md), with the funding reference in
+[`docs/funding.md`](docs/funding.md); the original design spec (historical) is
 in [`docs/original_design.md`](docs/original_design.md).
 
 ## Structure
@@ -27,7 +28,7 @@ in [`docs/original_design.md`](docs/original_design.md).
 | `scripts/benchmark.py` | Times the loader and the budget over the sample at scale; also a smoke test. |
 | `.github/workflows/` | The CI gate and the manual `release` job (tag, build, publish to TestPyPI or PyPI). |
 | `.github/release.yml` | Categories for GitHub's generated release notes. |
-| `docs/` | `concepts.md`, `style-guide.md`, `releasing.md`, `original_design.md`; generated `cli.md`, `schema.md`, `errors.md`. |
+| `docs/` | `concepts.md`, `funding.md`, `style-guide.md`, `releasing.md`, `original_design.md`; generated `cli.md`, `schema.md`, `errors.md`. |
 | `examples/household.bean` | Complete example ledger; also an integration test. |
 | `.opencode/skills/` | The CLI-usage skill. |
 
@@ -65,7 +66,7 @@ Write [Conventional Commits](https://www.conventionalcommits.org/) and reference
 the issue with `(#N)`:
 
 ```
-fix(topup): fund goal envelopes to their on-track level (#8)
+fix(topup): fund goal envelopes to their on-track target (#8)
 ```
 
 Use `feat`, `fix`, `docs`, `test`, `refactor` or `chore` as the type. Keep the

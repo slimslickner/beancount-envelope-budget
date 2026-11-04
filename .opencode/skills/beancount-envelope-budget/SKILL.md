@@ -35,12 +35,12 @@ When working inside this repository, prefix commands with `uv run`.
 | --- | --- |
 | `check LEDGER` | Validate and check the invariant. Exits non-zero on any error. |
 | `report LEDGER [--month YYYY-MM] [--months N] [--json]` | One table spanning one to three months: a row per envelope (opening once, then allocated / activity / closing per month) plus pool and cash. |
-| `explain LEDGER [--month YYYY-MM] [--envelope REGEX] [--json]` | How each planned envelope is evaluated for a month: the level's formula (the resolved `monthly`, an `avgN`'s averaged months, the `up-to` ceiling, or the goal schedule), the funded amount, the under/on/over verdict and the suggested top-up. |
+| `explain LEDGER [--month YYYY-MM] [--envelope REGEX] [--json]` | How each planned envelope is evaluated for a month: the target's formula (the resolved `monthly`, an `avgN`'s averaged months, the `up-to` ceiling, or the goal schedule), the funded amount, the under/on/over verdict and the suggested top-up. |
 | `pool LEDGER [--all\|--month YYYY-MM\|--date YYYY-MM-DD] [--json]` | The pool's per-transaction ledger with the running balance after each line; a bare run opens on the pool's lowest month (or the latest when it never went negative). |
 | `history LEDGER --envelope REGEX [--json]` | One envelope's whole history as a vertical ledger, grouped by month: its `open` and plan directives, allocations, spending and `close`, each with the running balance. |
-| `suggest LEDGER` | The monthly amount each goal envelope (`target` + `by`) needs. |
+| `suggest LEDGER` | The monthly amount each goal envelope (`goal` + `by`) needs. |
 | `fund LEDGER --from YYYY-MM --to YYYY-MM [--mode actuals\|overspend\|copy] [--envelopes REGEX] [--force]` | Print `allocate` directives to backfill or roll a range forward. |
-| `fund LEDGER --mode topup [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]` | Print `allocate` directives funding envelopes up to their level, in priority order. |
+| `fund LEDGER --mode topup [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]` | Print `allocate` directives funding envelopes to their target, in priority order. |
 | `fund LEDGER --mode fully-fund\|fund-available [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]` | Print `allocate` directives funding every envelope to its plan or its overspend, whichever is greater; `fund-available` caps the run by the pool. |
 | `pin LEDGER --account REGEX [--through YYYY-MM-DD] [--write]` | Freeze the resolved envelope onto existing postings so an account can be remapped without changing history. |
 | `consolidate LEDGER [--envelope REGEX] [--month YYYY-MM] [--write]` | Merge an envelope-month's several `allocate` directives into one, dated month-end (today, in the current month). Prints a diff; the net amount, the pool and the invariant are unchanged. |
@@ -53,12 +53,13 @@ When working inside this repository, prefix commands with `uv run`.
   openings. The backfill mode.
 - `overspend` — allocate only enough to bring a negative envelope back to zero.
 - `copy` — repeat the previous month's allocation (roll one month forward).
-- `topup` — fund each envelope up to its level, in priority order, from the
-  pool. A `monthly` envelope's level is that amount; a goal envelope's is the
-  on-track balance for the run month. An `up-to` envelope spends what is left of
-  the month's `monthly` allowance, never past the ceiling.
-- `fully-fund` — the month-level action: fund every envelope to its plan level or
-  its overspend, whichever is greater, in priority order. Unlike `topup`,
+- `topup` — fund each envelope to its target, in priority order, from the pool.
+  A `monthly` envelope is a flow: it funds what is left of the month's amount
+  after the month's allocations. A goal envelope's target is the on-track
+  contribution for the run month. An `up-to` envelope funds what is left of the
+  month's `monthly` allowance, never past the ceiling.
+- `fully-fund` — the month-level action: fund every envelope to its plan target
+  or its overspend, whichever is greater, in priority order. Unlike `topup`,
   envelopes with no plan are still funded their overspend.
 - `fund-available` — the same as `fully-fund`, but stop before the pool would go
   negative; anything left unfunded prints as `; UNFUNDED`.
@@ -68,15 +69,15 @@ The three range modes skip any envelope-month that already has an allocation;
 because they measure from current balances — rerun them after each paycheck and
 append the new output.
 
-An envelope's plan is its `monthly`, `up-to`, `priority`, `target` and `by`
+An envelope's plan is its `monthly`, `up-to`, `priority`, `goal` and `by`
 metadata, set on `open` or changed from a date with `plan`
 (`custom "envelope" "plan" "<name>"` plus the same metadata), and cleared with
 `unplan`. `monthly` may be a number or `"avgN"`, the average of the last N
 completed months of spending. `up-to` pairs with `monthly` to cap the balance: it
-requires `monthly` and cannot be combined with `target`.
+requires `monthly` and cannot be combined with `goal`.
 
-**`topup` needs a plan.** With no `monthly` (and no `target` + `by`) it has no
-level to fund to and prints nothing. Use `fully-fund` for a whole month instead:
+**`topup` needs a plan.** With no `monthly` (and no `goal` + `by`) it has no
+target to fund to and prints nothing. Use `fully-fund` for a whole month instead:
 it funds every envelope to its plan or its overspend, whichever is greater, and
 `fund-available` does the same while keeping the pool non-negative. To top spent
 envelopes back up without any plan directives over a range, use `overspend` —
@@ -114,5 +115,7 @@ net spending, so months close flat.
   "raw"` opts out.
 - The invariant `E007` compares the pool plus envelopes against cash at each month
   end; a mismatch means a posting was missed.
-- `topup` measures what is on hand at the run date; run it after the month's last
-  bill and paycheck, not mid-month.
+- `topup` funds each envelope to its target at the run date — for a `monthly`
+  envelope what is left of the month's amount, for an `up-to` or `goal` envelope
+  what is on hand — so run it after the month's last bill and paycheck, not
+  mid-month.

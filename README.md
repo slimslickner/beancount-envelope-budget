@@ -99,11 +99,11 @@ An envelope's **plan** is its `monthly`, `priority`, `goal` and `by` metadata. S
 2029-01-01 custom "envelope" "unplan" "Mortgage"  ;; stop funding, keep balance
 ```
 
-`plan` takes the same metadata as `open` and changes only the fields it names, so `open` and `plan` resolve to the same plan. `monthly` may be a number or `"avgN"` — the average of the last N completed months of spending — so `"avg3"` tracks spending without a fixed figure. A plan funds an envelope one of three ways: `monthly` holds about a month's spending, `monthly` with an `up-to` ceiling funds by that amount each month but stops at a balance, or a `goal` with a `by` date is a one-shot savings goal. A `goal` is mutually exclusive with `monthly` and with `up-to`, and a `goal` needs a `by`. A plan that names only one half of a pair, or conflicts, is reported as `E010` rather than silently ignored. `unplan` stops `fund --mode topup` funding the envelope while it keeps its balance.
+`plan` takes the same metadata as `open` and changes only the fields it names, so `open` and `plan` resolve to the same plan. `monthly` may be a number or `"avgN"` — the average of the last N completed months of spending — so `"avg3"` tracks spending without a fixed figure. A plan funds an envelope one of three ways: `monthly` is the month's funding target, `monthly` with an `up-to` ceiling adds that amount each month but stops at a balance, or a `goal` with a `by` date is a one-shot savings goal. A `goal` is mutually exclusive with `monthly` and with `up-to`, and a `goal` needs a `by`. A plan that names only one half of a pair, or conflicts, is reported as `E010` rather than silently ignored. `unplan` stops `fund --mode topup` funding the envelope while it keeps its balance.
 
 An `up-to` envelope treats `monthly` as a per-month contribution allowance: each month `fund` adds up to that amount, but never past the ceiling. Once it is full the allowance goes unspent and funding stops; spending re-opens room, but only the current month's remaining allowance can refill it.
 
-A goal envelope's **level** is the contributions it should have made to stay on schedule — its `goal`, grown linearly from the month the goal took effect to its `by` month, counting both ends. `fund --mode topup` funds up to that level and reports `; OVERFUNDED <name>: ... above plan` when a reduced plan leaves the envelope above it; `suggest` prints the monthly pace to reach the goal on time. A goal is funded by cumulative contributions, so spending before `by` — even paying for the thing you saved for — never un-funds it.
+A goal envelope's **target** is the contributions it should have made to stay on schedule — its `goal`, grown linearly from the month the goal took effect to its `by` month, counting both ends. `fund --mode topup` funds up to that target and reports `; OVERFUNDED <name>: ... above plan` when a reduced plan leaves the envelope above it; `suggest` prints the monthly pace to reach the goal on time. A goal is funded by cumulative contributions, so spending before `by` — even paying for the thing you saved for — never un-funds it. A `monthly` envelope is a flow: it is funded by the money assigned that month, so a month with no allocation reads as unfunded even when a balance carried in. See [`docs/funding.md`](docs/funding.md) for each plan shape and every figure.
 
 ## Commands
 
@@ -125,9 +125,9 @@ beancount-envelope-budget completion SHELL   # bash or zsh
 
 - `check` exits non-zero on any error.
 - `report` prints one table spanning one to three months: a row per envelope with its opening once and then allocated, activity and closing per month, plus the pool and cash rows. Parent headings and envelopes are ordered alphabetically; a zero-padded number prefix (`01`, `02`, `10`) puts a name in a chosen place.
-- `explain` shows how each planned envelope is evaluated for a month: the resolved `monthly` and the completed months an `avgN` averaged, the `up-to` ceiling formula, or the goal schedule, plus the funding level, the funded amount, the under/on/over verdict and the suggested top-up.
+- `explain` shows how each planned envelope is evaluated for a month: the resolved `monthly` and the completed months an `avgN` averaged, the `up-to` ceiling formula, or the goal schedule, plus the funding target, the funded amount, the under/on/over verdict and the suggested top-up.
 - `history` prints one envelope's whole history as a vertical ledger, grouped by month — its `open` and plan directives, every allocation, the postings that moved it and its `close`, each with the running balance. `--envelope` selects the envelope; the Fava report has an **Envelope History** tab that shows the same and links each line to its source.
-- `fund` prints `allocate` directives to stdout (redirect them into a file you include); it never edits your ledger. The `actuals`, `overspend` and `copy` modes backfill a month range and skip months that already have an allocation; `topup` funds envelopes up to their level in priority order from the pool, and reports any envelope already above its level. `fully-fund` and `fund-available` fund every envelope to its plan or its overspend, whichever is greater, the latter stopping before the pool would go negative — the same actions the Fava report offers on each month heading.
+- `fund` prints `allocate` directives to stdout (redirect them into a file you include); it never edits your ledger. The `actuals`, `overspend` and `copy` modes backfill a month range and skip months that already have an allocation; `topup` funds envelopes up to their target in priority order from the pool, and reports any envelope already above its target. `fully-fund` and `fund-available` fund every envelope to its plan or its overspend, whichever is greater, the latter stopping before the pool would go negative — the same actions the Fava report offers on each month heading.
 - `pin` freezes the resolved envelope onto matching postings as metadata, so you can change an account's envelope afterwards without reclassifying history. It prints a diff by default; `--write` edits the files in place.
 - `consolidate` merges an envelope-month's several `allocate` directives into one, dated the last day of the month (or today, for the current month), so a history funded in several passes reads as one line. The net amount is unchanged, so balances, the pool and the invariant are unchanged. With no filter it walks the whole ledger; `--envelope` and `--month` narrow it. It prints a diff by default; `--write` edits the files in place. The Fava report offers the same for one envelope-month or one month.
 
@@ -136,6 +136,7 @@ See `docs/cli.md` for the full reference and `beancount-envelope-budget --help`.
 ## Documentation
 
 - [`docs/concepts.md`](docs/concepts.md) — the model, syntax, resolution rules and computation, written for users.
+- [`docs/funding.md`](docs/funding.md) — the funding reference: each plan shape, its target, funded amount, status, ring fill and top-up.
 - [`docs/cli.md`](docs/cli.md) — generated CLI reference.
 - [`docs/schema.md`](docs/schema.md) — generated directive, metadata and reserved-value reference.
 - [`docs/errors.md`](docs/errors.md) — generated error and warning reference.
@@ -164,8 +165,8 @@ The version comes from the git tag, so a release is a button: **Actions → Rele
 Commits follow [Conventional Commits](https://www.conventionalcommits.org/). Use a type and an optional scope, a short imperative subject, and reference the issue with `(#N)`:
 
 ```
-fix(topup): fund goal envelopes to their on-track level (#8)
-docs: document the plan level and overfunded note (#8)
+fix(topup): fund goal envelopes to their on-track target (#8)
+docs: document the plan target and the monthly flow (#8)
 ```
 
 Common types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`.

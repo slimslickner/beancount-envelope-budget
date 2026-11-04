@@ -5,8 +5,13 @@
 ;;   plugin "beancount_envelope_budget.plugin"
 ;;   2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext"
 ;;
-;; It covers cash accounts, per-posting and per-transaction-style overrides,
-;; a pool posting, a goal envelope and a move between envelopes.
+;; It spans three months — the default width of the Fava report — and shows
+;; every plan shape and funding outcome in one place: an unplanned envelope, a
+;; monthly envelope funded in full, one partly funded and then left unfunded
+;; (a monthly plan is a flow), an over-funded monthly one, a monthly + up-to
+;; envelope, a goal saving up and then spent, an overspent envelope, per-posting
+;; and per-transaction overrides, a pool posting and a move between envelopes.
+;; See docs/funding.md for the model.
 
 option "operating_currency" "USD"
 
@@ -16,15 +21,25 @@ option "operating_currency" "USD"
   on-budget: TRUE
 2020-01-01 open Liabilities:CreditCard:Visa USD
   on-budget: TRUE
-2020-01-01 open Assets:401k USD
-  envelope: "Retirement"
 2020-01-01 open Income:Salary USD
-2020-01-01 open Income:Bonus USD
-  envelope: "Bonus"
 2020-01-01 open Expenses:Groceries USD
   envelope: "Groceries"
 2020-01-01 open Expenses:Restaurants USD
   envelope: "Groceries"
+2020-01-01 open Expenses:Rent USD
+  envelope: "Rent"
+2020-01-01 open Expenses:Utilities USD
+  envelope: "Utilities"
+2020-01-01 open Expenses:Subscriptions USD
+  envelope: "Subscriptions"
+2020-01-01 open Expenses:Mortgage USD
+  envelope: "Mortgage"
+2020-01-01 open Expenses:Dining USD
+  envelope: "Dining"
+2020-01-01 open Expenses:Car USD
+  envelope: "Car"
+2020-01-01 open Expenses:Vacation USD
+  envelope: "Vacation"
 2020-01-01 open Expenses:Taxes:Federal USD
   envelope: "pool"
 2020-01-01 open Equity:Opening-Balances USD
@@ -38,52 +53,174 @@ option "operating_currency" "USD"
 2024-01-01 custom "envelope" "start"
 2024-01-01 custom "envelope" "open" "Groceries"
 2024-01-01 custom "envelope" "open" "Gifts"
-2024-01-01 custom "envelope" "open" "Retirement"
+2024-01-01 custom "envelope" "open" "Rent"
+  monthly: 2000.00
+2024-01-01 custom "envelope" "open" "Utilities"
+  monthly: 200.00
+  up-to: 600.00
+2024-01-01 custom "envelope" "open" "Subscriptions"
+  monthly: 30.00
+2024-01-01 custom "envelope" "open" "Mortgage"
+  monthly: 2500.00
+2024-01-01 custom "envelope" "open" "Dining"
+  monthly: 300.00
 2024-01-01 custom "envelope" "open" "Car"
   goal: 15000.00 USD
   by: 2028-06-01
   priority: 1
-2024-01-01 custom "envelope" "open" "Car Repairs"
-  monthly: 250.00
-  up-to: 600.00
+2024-01-01 custom "envelope" "open" "Vacation"
+  goal: 3000.00 USD
+  by: 2024-06-30
 
-2024-01-01 custom "envelope" "allocate" "Groceries" 600.00 USD
-2024-01-01 custom "envelope" "allocate" "Gifts" 100.00 USD
-2024-01-01 custom "envelope" "allocate" "Car" 500.00 USD
-2024-01-01 custom "envelope" "allocate" "Car Repairs" 250.00 USD
+;; --- January 2024 -----------------------------------------------------------
+
+;; Groceries is unplanned and funded by hand; Gifts too.
+2024-01-31 custom "envelope" "allocate" "Groceries" 600.00 USD
+2024-01-31 custom "envelope" "allocate" "Gifts" 100.00 USD
+;; Rent is monthly and funded in full every month.
+2024-01-31 custom "envelope" "allocate" "Rent" 2000.00 USD
+;; Utilities is monthly + up-to; January is a part allowance, so it reads under.
+2024-01-31 custom "envelope" "allocate" "Utilities" 100.00 USD
+;; Subscriptions is monthly and funded in full in January.
+2024-01-31 custom "envelope" "allocate" "Subscriptions" 30.00 USD
+2024-01-31 custom "envelope" "allocate" "Mortgage" 2500.00 USD
+2024-01-31 custom "envelope" "allocate" "Dining" 300.00 USD
+;; Car is a goal saving toward 15000 by 2028: 200 a month is under its pace.
+2024-01-31 custom "envelope" "allocate" "Car" 200.00 USD
+;; Vacation is a goal met over January and February, then spent.
+2024-01-31 custom "envelope" "allocate" "Vacation" 1500.00 USD
 
 2024-01-05 * "Employer" "Payroll"
-  Assets:Checking             3500.00 USD
-  Assets:401k                  500.00 USD
-    envelope: "pool"
+  Assets:Checking             6000.00 USD
   Expenses:Taxes:Federal      1000.00 USD
-  Income:Salary              -5000.00 USD
+  Income:Salary              -7000.00 USD
 
 2024-01-06 * "Supermarket"
   Expenses:Groceries           120.00 USD
   Liabilities:CreditCard:Visa -120.00 USD
 
-2024-01-10 * "Restaurant"
-  Expenses:Restaurants          60.00 USD
-  Liabilities:CreditCard:Visa  -60.00 USD
-
-2024-01-15 * "Costco" "Groceries and a birthday gift"
+2024-01-08 * "Costco" "Groceries and a birthday gift"
   Liabilities:CreditCard:Visa -140.00 USD
   Expenses:Groceries           100.00 USD
   Expenses:Groceries            40.00 USD
     envelope: "Gifts"
 
-2024-01-20 * "Pay the card"
+2024-01-10 * "Restaurant"
+  Expenses:Restaurants          60.00 USD
+  Liabilities:CreditCard:Visa  -60.00 USD
+
+2024-01-15 * "Landlord" "Rent"
+  Expenses:Rent               2000.00 USD
+  Assets:Checking            -2000.00 USD
+
+2024-01-18 * "Utility" "Electricity"
+  Expenses:Utilities           100.00 USD
+  Assets:Checking             -100.00 USD
+
+2024-01-20 * "Bank" "Mortgage"
+  Expenses:Mortgage           2500.00 USD
+  Assets:Checking            -2500.00 USD
+
+2024-01-22 * "Dinner out"
+  Expenses:Dining              400.00 USD
+  Liabilities:CreditCard:Visa -400.00 USD
+
+2024-01-25 * "Streaming" "Subscriptions"
+  Expenses:Subscriptions        30.00 USD
+  Liabilities:CreditCard:Visa  -30.00 USD
+
+2024-01-28 * "Pay the card"
   Liabilities:CreditCard:Visa  320.00 USD
   Assets:Checking             -320.00 USD
 
-2024-01-25 * "Transfer to savings"
-  Assets:Savings               500.00 USD
-  Assets:Checking             -500.00 USD
+;; --- February 2024 ----------------------------------------------------------
 
-2024-01-31 custom "envelope" "plan" "Car"
-  goal: 16000.00 USD
-  priority: 1
+2024-02-01 custom "envelope" "allocate" "Groceries" 450.00 USD
+;; A move between envelopes: 50 back to the pool from Gifts, 50 into Groceries.
+2024-02-01 custom "envelope" "allocate" "Gifts" -50.00 USD
+2024-02-01 custom "envelope" "allocate" "Groceries" 50.00 USD
+2024-02-29 custom "envelope" "allocate" "Rent" 2000.00 USD
+2024-02-29 custom "envelope" "allocate" "Utilities" 200.00 USD
+;; Subscriptions is only part funded in February, so it reads under 50%.
+2024-02-29 custom "envelope" "allocate" "Subscriptions" 15.00 USD
+2024-02-29 custom "envelope" "allocate" "Mortgage" 2500.00 USD
+2024-02-29 custom "envelope" "allocate" "Dining" 300.00 USD
+2024-02-29 custom "envelope" "allocate" "Car" 200.00 USD
+2024-02-29 custom "envelope" "allocate" "Vacation" 1500.00 USD
 
-2024-02-01 custom "envelope" "allocate" "Groceries" -50.00 USD
-2024-02-01 custom "envelope" "allocate" "Gifts" 50.00 USD
+2024-02-05 * "Employer" "Payroll"
+  Assets:Checking             6000.00 USD
+  Expenses:Taxes:Federal      1000.00 USD
+  Income:Salary              -7000.00 USD
+
+2024-02-06 * "Supermarket"
+  Expenses:Groceries           140.00 USD
+  Liabilities:CreditCard:Visa -140.00 USD
+
+2024-02-15 * "Landlord" "Rent"
+  Expenses:Rent               2000.00 USD
+  Assets:Checking            -2000.00 USD
+
+2024-02-18 * "Utility" "Electricity"
+  Expenses:Utilities           150.00 USD
+  Assets:Checking             -150.00 USD
+
+2024-02-20 * "Bank" "Mortgage"
+  Expenses:Mortgage           2500.00 USD
+  Assets:Checking            -2500.00 USD
+
+2024-02-22 * "Dinner out"
+  Expenses:Dining              250.00 USD
+  Liabilities:CreditCard:Visa -250.00 USD
+
+2024-02-25 * "Streaming" "Subscriptions"
+  Expenses:Subscriptions        10.00 USD
+  Liabilities:CreditCard:Visa  -10.00 USD
+
+2024-02-28 * "Pay the card"
+  Liabilities:CreditCard:Visa  400.00 USD
+  Assets:Checking             -400.00 USD
+
+;; --- March 2024 -------------------------------------------------------------
+
+2024-03-31 custom "envelope" "allocate" "Groceries" 600.00 USD
+2024-03-31 custom "envelope" "allocate" "Rent" 2000.00 USD
+2024-03-31 custom "envelope" "allocate" "Utilities" 200.00 USD
+;; Subscriptions is left unfunded in March: the flow is zero, so it reads under
+;; even though February's balance carried in.
+2024-03-31 custom "envelope" "allocate" "Mortgage" 3000.00 USD
+2024-03-31 custom "envelope" "allocate" "Dining" 300.00 USD
+2024-03-31 custom "envelope" "allocate" "Car" 200.00 USD
+
+2024-03-05 * "Employer" "Payroll"
+  Assets:Checking             6000.00 USD
+  Expenses:Taxes:Federal      1000.00 USD
+  Income:Salary              -7000.00 USD
+
+2024-03-06 * "Supermarket"
+  Expenses:Groceries           160.00 USD
+  Liabilities:CreditCard:Visa -160.00 USD
+
+2024-03-15 * "Landlord" "Rent"
+  Expenses:Rent               2000.00 USD
+  Assets:Checking            -2000.00 USD
+
+2024-03-18 * "Utility" "Electricity"
+  Expenses:Utilities           150.00 USD
+  Assets:Checking             -150.00 USD
+
+2024-03-20 * "Bank" "Mortgage"
+  Expenses:Mortgage           2500.00 USD
+  Assets:Checking            -2500.00 USD
+
+2024-03-22 * "Dinner out"
+  Expenses:Dining              250.00 USD
+  Liabilities:CreditCard:Visa -250.00 USD
+
+2024-03-26 * "Book the trip"
+  Expenses:Vacation           3000.00 USD
+  Assets:Checking            -3000.00 USD
+
+2024-03-28 * "Pay the card"
+  Liabilities:CreditCard:Visa  260.00 USD
+  Assets:Checking             -260.00 USD

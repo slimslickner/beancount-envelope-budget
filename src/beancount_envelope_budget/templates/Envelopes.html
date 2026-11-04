@@ -23,7 +23,7 @@
 {% macro amounts(cell, sep=false, blank=false, name=none, plans=()) -%}
   {%- set editable = name is not none and extension.writable and cell.visible -%}
   {%- set shows = name is not none and (cell.allocations or editable) -%}
-  {%- set plan_info = cell.visible and (cell.level is not none or cell.goal is not none or cell.up_to is not none) -%}
+  {%- set plan_info = cell.visible and (cell.target is not none or cell.goal is not none or cell.up_to is not none) -%}
   {%- set ident = ((name or 'pool') | replace(' ', '_')) ~ '-' ~ cell.month.strftime('%Y%m') -%}
   {%- set base = request.path if request.path.endswith('/') else request.path ~ '/' -%}
   <td class="num{{ ' envelope-sep' if sep else '' }}{{ ' envelope-pop-host envelope-alloc-host' if shows else '' }}">{% if shows %}<input type="checkbox" class="envelope-pop-toggle" id="alloc-{{ ident }}"><label class="envelope-pop-label" for="alloc-{{ ident }}">{% if editable and (blank and cell.allocated == 0) %}+{% elif cell.visible and not (blank and cell.allocated == 0) %}{{ extension.money(cell.allocated) }}{% endif %}</label><label class="envelope-pop-backdrop" for="alloc-{{ ident }}"></label><div class="envelope-pop envelope-alloc-pop">{% for line in cell.allocations %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ extension.money(line.amount) }}</a>{% endfor %}{% if editable %}{%- set suggest = extension.prefill(name, cell.month) -%}{%- set cover = extension.cover_prefill(name, cell.month) -%}<form method="post" action="{{ base ~ 'commit' }}" data-create><input type="hidden" name="action" value="allocate"><input type="hidden" name="envelope" value="{{ name }}"><label>Amount <input name="amount" size="8" value="{{ suggest }}"></label><input type="date" name="date" value="{{ extension.fill_date(cell.month) }}"><button type="submit">Add allocation</button></form>{% if cover != '0.00' and cover != suggest %}<form method="post" action="{{ base ~ 'commit' }}" data-create><input type="hidden" name="action" value="allocate"><input type="hidden" name="envelope" value="{{ name }}"><input type="hidden" name="amount" value="{{ cover }}"><input type="hidden" name="date" value="{{ extension.fill_date(cell.month) }}"><button type="submit">Cover overspending ({{ cover }})</button></form>{% endif %}{% if cell.allocations | length > 1 %}<form method="post" action="{{ base ~ 'commit' }}" data-consolidate><input type="hidden" name="action" value="consolidate"><input type="hidden" name="envelope" value="{{ name }}"><input type="hidden" name="month" value="{{ cell.month.strftime('%Y-%m') }}"><button type="submit">Consolidate {{ cell.allocations | length }} directives</button></form>{% endif %}{%- set reason = extension.funding_lines(cell) -%}{% if reason %}<div class="envelope-prefill-reason">{% for line in reason %}<div>{{ line }}</div>{% endfor %}</div>{% endif %}{% endif %}</div>{% else %}{% if cell.visible and not (blank and cell.allocated == 0) %}{{ extension.money(cell.allocated) }}{% endif %}{% endif %}</td>
@@ -360,7 +360,7 @@
         opacity: 0.7;
       }
       /* A planned envelope carries a small ring beside its closing balance,
-         filled in proportion to its goal (or monthly level). It inherits the
+         filled in proportion to its goal (or monthly target). It inherits the
          closing balance's funding colour, and is sized in ems so it adds no
          height to the row. */
       .envelope-ring {
@@ -400,8 +400,8 @@
           repeating-conic-gradient(#000 0 15deg, transparent 15deg 30deg);
         mask-composite: intersect;
       }
-      /* An over-funded balance — above its plan level — gets a filled centre
-         dot. It is a shape cue, not a colour, so "above the level" stays
+      /* An over-funded balance — above its plan target — gets a filled centre
+         dot. It is a shape cue, not a colour, so "above the target" stays
          distinct from "exactly on plan" for colour-blind users; the amount
          above plan itself is in the closing popover. */
       .envelope-over .envelope-ring::after {

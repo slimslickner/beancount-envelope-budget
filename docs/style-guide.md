@@ -60,8 +60,8 @@ Two kinds of files live in `docs/`:
   generated from it. Every command and flag needs help text (a test enforces it).
 - **Voice**: concise, second person, present tense. Prefer "moves money from the
   pool" to "money is moved". For errors, always state the fix.
-- **Markdown**: ATX headings, one sentence per line is fine, wrap prose near 80
-  columns, and use relative links between docs.
+- **Markdown**: ATX headings, one sentence per line is fine, and use relative
+  links between docs.
 
 ## Release notes
 

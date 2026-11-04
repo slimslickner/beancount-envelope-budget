@@ -221,11 +221,11 @@ One directive name, `"envelope"`, with a verb as the first argument. See
   as `open` and changes only the fields it names, so `monthly: 2600.00` alone
   leaves `priority`, `up-to`, `goal` and `by` as they were. `open` and `plan`
   therefore resolve to the same object.
-- A plan funds an envelope one of three ways: `monthly` holds about a month's
-  spending, `monthly` with an `up-to` ceiling funds by that amount but stops at a
-  balance, or a `goal` with a `by` date is a one-shot savings goal. A `goal` is
-  mutually exclusive with both `monthly` and `up-to`, and a `goal` needs a `by`.
-  A plan that names only one half of a pair, combines keys that cannot go
+- A plan funds an envelope one of three ways: `monthly` is the month's funding
+  target, `monthly` with an `up-to` ceiling adds that amount each month but stops
+  at a balance, or a `goal` with a `by` date is a one-shot savings goal. A `goal`
+  is mutually exclusive with both `monthly` and `up-to`, and a `goal` needs a
+  `by`. A plan that names only one half of a pair, combines keys that cannot go
   together, or sets an `up-to` without a `monthly`, is reported as `E010` rather
   than being silently ignored.
 - An `up-to` envelope's `monthly` is a per-month contribution allowance: each
@@ -234,27 +234,28 @@ One directive name, `"envelope"`, with a verb as the first argument. See
   funding stops; spending re-opens room, but only the current month's remaining
   allowance can refill it. So an envelope that is full, or whose month's
   allowance is used up, reads as funded.
-- A goal envelope's **level** is the contributions it should have made to stay
-  on schedule: its `goal`, grown linearly from the month the goal first took
-  effect to its `by` month, counting both ends, so the level is the full `goal`
-  once `by` arrives. `fund --mode topup` funds up to that level, and the report
-  shows each envelope's level and whether it is under, on or over it.
-- An envelope's **funded amount** is what its level is compared against. A
-  `monthly` envelope is funded by the money made available that month — its
-  opening balance plus the month's allocation — so receiving the planned amount
-  reads as funded even after the month's spending. An `up-to` envelope is funded
-  by its closing balance, the balance the ceiling caps. A goal envelope is funded
-  by its **cumulative contributions**: the goal month's opening balance plus every
-  allocation, income and refund since, with spending ignored. So a goal
-  that has been fully saved stays funded after the money is spent — take the trip
-  and the envelope still reads green, with a full ring. Only an explicit un-save
-  (a negative allocation) reduces it. The report colours and
-  rings envelopes by this comparison, and `fund --mode topup` funds up to it.
+- An envelope's **target** is what it should reach this month, and its **funded
+  amount** is what is credited toward it; the report reads it as under, on or
+  over plan by comparing the two. A `monthly` envelope is a **flow**: funded by
+  the money assigned that month — the month's allocation — so receiving the
+  planned amount reads as funded even after the month's spending, while a month
+  that allocates nothing reads as unfunded even when a balance carried in. An
+  `up-to` envelope is measured by its closing balance, the balance the ceiling
+  caps. A goal envelope's target is the on-track contribution — its `goal`, grown
+  linearly from the month the goal first took effect to its `by` month, counting
+  both ends, so the target is the full `goal` once `by` arrives — and it is
+  funded by its **cumulative contributions**: the goal month's opening balance
+  plus every allocation, income and refund since, with spending ignored. So a
+  goal that has been fully saved stays funded after the money is spent — take the
+  trip and the envelope still reads green, with a full ring. Only an explicit
+  un-save (a negative allocation) reduces it. The report colours and rings
+  envelopes by this comparison, and `fund --mode topup` funds up to it.
+  [`funding.md`](funding.md) is the reference for every plan shape and figure.
 - `explain` and the Fava closing popover spell out that comparison rather than
   just the verdict: an `avgN` envelope lists the completed months it averaged,
   an `up-to` envelope shows `min(ceiling, opening + monthly)` and the room left,
   and a goal shows its `goal`, deadline and elapsed/total months behind the
-  level. Each also shows how full the envelope is, the amount credited, and the
+  target. Each also shows how full the envelope is, the amount credited, and the
   top-up still suggested.
 - To save for a second round from the same goal envelope, either **raise the
   `goal`** — the contributions carry, so only the difference is saved — or
@@ -434,7 +435,7 @@ See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget
   not spending, and the review is flagged as experimental.
 - `explain` prints how each planned envelope is evaluated for a month — the
   resolved `monthly` (and the completed months an `avgN` averaged), the `up-to`
-  ceiling formula, or the goal schedule — alongside the funding level, the
+  ceiling formula, or the goal schedule — alongside the funding target, the
   funded amount, whether the envelope is under, on or over, and the suggested
   top-up, so a funding suggestion is never a bare number. `--envelope` filters
   by name and `--json` prints the lines per envelope.
@@ -449,7 +450,7 @@ See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget
   `--all` shows the whole history, and `--month`/`--date` window it.
 - `fund` prints `allocate` directives (redirect them into a file you include), or
   appends them with `--write FILE`; plain `fund` never edits your ledger. Besides
-  the backfill modes it has `topup`, which funds planned envelopes to their level
+  the backfill modes it has `topup`, which funds planned envelopes to their target
   in priority order, and `fully-fund`/`fund-available`, which fund every
   envelope to its plan or its overspend, whichever is greater — the latter
   stopping before the pool would go negative. The month actions in the Fava
@@ -496,7 +497,7 @@ Add the extension line and an **Envelopes** report appears in the sidebar:
 
 It is read-only unless you configure a write target; by default it shows one to
 three months. Clicking a planned envelope's closing figure opens a popover that
-explains its evaluation — the level's formula, the funded amount, how full it is
+explains its evaluation — the target's formula, the funded amount, how full it is
 and the under/on/over verdict — matching the CLI's `explain` output, with a link
 to the plan directive in force. Hovering or focusing an activity figure reveals
 a popover listing the postings behind it; each line links to that transaction in
@@ -531,10 +532,10 @@ been spent, while an `up-to` envelope is measured by its balance and a goal
 envelope by its cumulative contributions, so it too stays green after the money
 is spent. A planned envelope also carries a small ring beside its closing
 balance, filled in proportion to that funded amount against its goal (its
-`goal`, its `up-to` ceiling, or its monthly `level` when it has neither). The
+`goal`, its `up-to` ceiling, or its monthly `target` when it has neither). The
 ring's shape, not just its colour, tells the three statuses apart: a solid ring
 is on plan, a dashed ring is under plan, and a filled dot in the ring's centre
-marks a balance above its plan level — an over-funded `monthly` or goal
+marks a balance above its plan target — an over-funded `monthly` or goal
 envelope — with the amount above plan in the closing popover. So the status
 reads without relying on colour, and a `?` beside the month strip opens a
 legend that keys each shape. The colours come from Fava's own variables, so they follow its light
@@ -641,7 +642,7 @@ clicking anywhere else, and none needing JavaScript:
   links to Fava's own editor, where it can be changed or deleted through Fava's
   conflict-guarded source-slice machinery; the popover also has a form to add a
   new allocation. Its amount is prefilled with the envelope's plan top-up — the
-  gap to its funding level, so money already allocated is not asked for twice —
+  gap to its funding target, so money already allocated is not asked for twice —
   falling back to covering the month's overspend when the plan is met or there
   is none; the popover also shows the derivation behind that prefill, so the
   suggested number is not a bare figure. A second, labelled quick-fill covers

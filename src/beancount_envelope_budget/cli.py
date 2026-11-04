@@ -50,7 +50,7 @@ from beancount_envelope_budget.report import (
     envelope_history_json,
     funding_explanation_lines,
     month_funding,
-    plan_level,
+    plan_target,
     plan_top_up,
     pool_entry_text,
     pool_ledger,
@@ -1262,7 +1262,7 @@ def _plan_topup(
 
     Returns:
         The directives, the unfunded shortfalls, and the amounts by which goal
-        envelopes already exceed their level.
+        envelopes already exceed their target.
     """
     currency = result.operating_currency
     remaining = row_for(result.pool, month_of(on)).closing - reserve
@@ -1273,13 +1273,13 @@ def _plan_topup(
         if pattern is not None and not pattern.search(envelope.name):
             continue
         plan = envelope.effective(on)
-        level = plan_level(report, on)
-        if level is None:
+        target = plan_target(report, on)
+        if target is None:
             continue
         need = plan_top_up(report, on)
         if need <= 0:
             credited = report.funded_at(on)
-            excess = (credited - level).quantize(_CENT, rounding=ROUND_FLOOR)
+            excess = (credited - target).quantize(_CENT, rounding=ROUND_FLOOR)
             if plan.goal is not None and excess > 0:
                 overfunded.append((envelope.name, excess))
             continue
@@ -2524,7 +2524,7 @@ def _add_explain_parser(subparsers: argparse._SubParsersAction) -> None:
         description=(
             "For a month, print how each planned envelope's funding is "
             "evaluated: the resolved monthly amount (and the spending an avgN "
-            "averaged), the up-to ceiling or goal schedule, the funding level, "
+            "averaged), the up-to ceiling or goal schedule, the funding target, "
             "the amount credited toward it, whether the envelope is under, on "
             "or over plan, and the top-up still needed."
         ),
