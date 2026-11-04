@@ -78,6 +78,7 @@ __all__ = [
     "funding_top_up_line",
     "funding_verdict",
     "month_funding",
+    "month_statuses",
     "overspend_cover",
     "plan_line_text",
     "plan_target",
@@ -732,6 +733,9 @@ class Reports:
             every table's name column can be the same width.
         amount_chars: The length of the longest formatted amount across the
             rows, so every table's amount column can fit it.
+        months: The report months, ascending, aligned with every row's columns.
+        month_status: One :class:`MonthStatus` per month, aligned with
+            :attr:`months`, for the funding-by-month overview.
     """
 
     has_start: bool
@@ -739,6 +743,8 @@ class Reports:
     rows: tuple[ReportRow, ...]
     name_chars: int = 0
     amount_chars: int = 0
+    months: tuple[date, ...] = ()
+    month_status: tuple[MonthStatus, ...] = ()
 
 
 #: The titles of the report's ranking rows, in display order.
@@ -1782,11 +1788,56 @@ def build_view(
     )
 
 
+def month_statuses(
+    result: BudgetResult,
+    months: tuple[date, ...],
+    *,
+    index: ViewIndex | None = None,
+) -> tuple[MonthStatus, ...]:
+    """Summarise each month's funding health, for any months.
+
+    The same tally :func:`build_view` puts in a view's ``month_status``, but for
+    an arbitrary set of months, so a caller listing months outside the visible
+    window — the Fava report's month strip — can label each with the status the
+    grid shows for it. A month's status depends only on that month: each
+    envelope's ``visible`` flag follows its own open and close months, not the
+    window, so a month summarised here reads the same as in any view that shows
+    it. It reuses the envelope views and :func:`_month_status` the grid uses, so
+    the two can never disagree.
+
+    Args:
+        result: The computed budget.
+        months: The months to summarise, ascending.
+        index: The precomputed :func:`prepare_view`, or ``None`` to build one
+            here. Pass one to avoid rebuilding the history-wide lookups.
+
+    Returns:
+        One :class:`MonthStatus` per month, aligned with ``months``.
+
+    Examples:
+        >>> from beancount_envelope_budget.core import BudgetResult
+        >>> empty = BudgetResult(None, "USD", (), (), (), (), ())
+        >>> month_statuses(empty, ())
+        ()
+    """
+    if not months:
+        return ()
+    if index is None:
+        index = prepare_view(result)
+    available = set(result.months)
+    envelopes = tuple(
+        _envelope_view(report, months, available, index.details, index.allocations)
+        for report in result.envelopes
+    )
+    return tuple(_month_status(envelopes, position) for position in range(len(months)))
+
+
 def build_reports(
     result: BudgetResult,
     *,
     start: date | None = None,
     end: date | None = None,
+    index: ViewIndex | None = None,
 ) -> Reports:
     """Build a table-only reports view of a budget over a month range.
 
@@ -1804,10 +1855,16 @@ def build_reports(
     history. The CLI, which has no window, passes neither and spans full
     history.
 
+    Alongside the rows it carries each month's :class:`MonthStatus` (from
+    :func:`month_statuses`), so the tab can show a funding-by-month overview that
+    lines up with the columns.
+
     Args:
         result: The computed budget.
         start: The first month to show, or ``None`` for the beginning.
         end: The last month to show, or ``None`` for the end.
+        index: The precomputed :func:`prepare_view`, or ``None`` to build one
+            here. Pass one to avoid rebuilding the history-wide lookups.
 
     Returns:
         The :class:`Reports`. When tracking is not configured it has
@@ -1844,6 +1901,8 @@ def build_reports(
         rows=rows,
         name_chars=_report_name_chars(rows),
         amount_chars=_report_amount_chars(rows),
+        months=months,
+        month_status=month_statuses(result, months, index=index),
     )
 
 

@@ -21,6 +21,7 @@ from beancount_envelope_budget.report import (
     build_view,
     funding_explanation,
     funding_explanation_lines,
+    month_statuses,
     plan_top_up,
     pool_ledger,
     pool_ledger_json,
@@ -350,6 +351,66 @@ def test_month_status_is_serialised() -> None:
     assert as_json == [
         {"negative": 0, "under": 1, "over": 1, "on": 1, "worst": "under"}
     ]
+
+
+def test_month_statuses_match_a_view() -> None:
+    """Statuses for a view's own months agree with the view's month_status."""
+    result = _compute("funding_colors.bean")
+    view = build_view(result, date(2024, 1, 1), 3)
+    assert month_statuses(result, view.months) == view.month_status
+
+
+def test_month_statuses_reach_outside_the_window() -> None:
+    """A month's status is the same whether or not it is in the window."""
+    result = _compute("disney_2028.bean")
+    months = (result.months[0], result.months[3], result.months[6])
+    for month, status in zip(months, month_statuses(result, months), strict=True):
+        assert status == build_view(result, month, 1).month_status[0]
+
+
+def test_month_statuses_with_a_prepared_index_matches() -> None:
+    """A prepared index gives the same statuses as building one each time."""
+    result = _compute("funding_colors.bean")
+    months = result.months
+    index = prepare_view(result)
+    assert month_statuses(result, months, index=index) == month_statuses(result, months)
+
+
+def test_month_statuses_without_months_is_empty() -> None:
+    """No months requested yields no statuses, without touching the budget."""
+    result = _compute("basic.bean")
+    assert month_statuses(result, ()) == ()
+
+
+def test_build_reports_carries_month_status() -> None:
+    """The reports carry a status per month, aligned with the month list."""
+    result = _compute("funding_colors.bean")
+    reports = build_reports(result)
+    assert reports.months == result.months
+    assert reports.month_status == month_statuses(result, result.months)
+
+
+def test_build_reports_month_status_respects_the_range() -> None:
+    """A narrowed range narrows the overview months and their statuses."""
+    result = _compute("fund_backfill.bean")
+    reports = build_reports(result, start=date(2024, 2, 1), end=date(2024, 2, 29))
+    assert reports.months == (date(2024, 2, 1),)
+    assert reports.month_status == month_statuses(result, reports.months)
+
+
+def test_build_reports_without_a_start_has_no_months() -> None:
+    """A ledger without a start has no overview months or statuses."""
+    empty = BudgetResult(None, "USD", (), (), (), (), ())
+    reports = build_reports(empty)
+    assert reports.months == ()
+    assert reports.month_status == ()
+
+
+def test_build_reports_with_a_prepared_index_matches() -> None:
+    """A prepared index gives the same reports as building one each time."""
+    result = _compute("funding_colors.bean")
+    index = prepare_view(result)
+    assert build_reports(result, index=index) == build_reports(result)
 
 
 def test_funding_explanation_for_monthly() -> None:
