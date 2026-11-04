@@ -649,6 +649,20 @@ def _month_strip(html: str) -> str:
     return html[start:end]
 
 
+def _month_overview(html: str) -> str:
+    """Return the funding-by-month overview fragment from a rendered template.
+
+    Args:
+        html: The rendered template.
+
+    Returns:
+        The overview's HTML, from its opening section up to the report strip.
+    """
+    start = html.index('<section class="envelope-month-overview">')
+    end = html.index('<div class="envelope-reports-strip"')
+    return html[start:end]
+
+
 def test_template_blanks_zero_envelope_values() -> None:
     """A leaf envelope's 0.00 values render blank, while the pool shows them."""
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
@@ -1891,6 +1905,49 @@ def test_template_reports_show_a_note_when_the_filter_is_empty(
     html = _render(extension, {"view": "monthly_reports"})
     assert "No months in the selected date range." in html
     assert "Top spending" not in html
+
+
+def test_reports_show_the_funding_overview() -> None:
+    """The Monthly Reports tab lists every month with its status marker."""
+    html = _render(_extension("funding_colors.bean"), {"view": "monthly_reports"})
+    overview = _month_overview(html)
+    assert "Funding by month" in overview
+    assert "envelope-month-status" in overview
+    # The month's worst status is under plan, tinted and shaped alike.
+    assert "envelope-under" in overview
+    assert "envelope-partial" in overview
+    assert "1 under plan · 1 over plan · 1 on plan" in overview
+
+
+def test_reports_overview_links_to_the_envelopes_tab() -> None:
+    """A month row opens the Envelopes tab at that month, not the reports."""
+    html = _render(_extension("fund_backfill.bean"), {"view": "monthly_reports"})
+    overview = _month_overview(html)
+    assert 'href="?month=2024-02&amp;months=3"' in overview
+    assert "view=monthly_reports" not in overview
+
+
+def test_reports_overview_respects_the_date_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The overview lists only the months the date filter selects."""
+    extension = _extension("fund_backfill.bean")
+    monkeypatch.setattr(
+        Envelopes,
+        "_filter_range",
+        lambda _self: (date(2024, 2, 1), date(2024, 2, 28)),
+    )
+    html = _render(extension, {"view": "monthly_reports"})
+    overview = _month_overview(html)
+    assert "2024-02" in overview
+    assert "2024-01" not in overview
+    assert "2024-03" not in overview
+
+
+def test_envelopes_tab_has_no_funding_overview() -> None:
+    """The overview lives only on the Monthly Reports tab."""
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
+    assert '<section class="envelope-month-overview">' not in html
 
 
 def test_template_shows_the_prefill_reason(

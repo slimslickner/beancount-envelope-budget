@@ -20,6 +20,14 @@
 {% macro closing_color(cell) -%}
 {%- if not colors %}{% elif cell.visible and cell.closing < 0 %} envelope-neg{% elif cell.visible and cell.funding == 'over' %} envelope-funded{% elif cell.visible and cell.funding == 'on' %} envelope-funded{% elif cell.visible and cell.funding == 'under' %} envelope-partial{% endif -%}
 {%- endmacro %}
+{% macro month_status_classes(status) -%}
+{%- set worst = status.worst -%}
+{%- if not worst %}{% elif worst == 'over' %} envelope-over{% elif worst == 'under' %} envelope-under{% elif worst == 'negative' %} envelope-status-negative{% endif -%}
+{%- if colors %}{% if worst in ('on', 'over') %} envelope-funded{% elif worst == 'under' %} envelope-partial{% elif worst == 'negative' %} envelope-neg{% endif %}{% endif -%}
+{%- endmacro %}
+{% macro month_status_ring() -%}
+<span class="envelope-ring envelope-month-status-mark" style="--envelope-fill: 100%"></span>
+{%- endmacro %}
 {% macro amounts(cell, sep=false, blank=false, name=none, plans=()) -%}
   {%- set editable = name is not none and extension.writable and cell.visible -%}
   {%- set shows = name is not none and (cell.allocations or editable) -%}
@@ -247,17 +255,19 @@
         padding-left: 1.5rem;
       }
       /* Red for overspent, green for fully funded, amber for partly funded.
-         The diff variables come from Fava and swap with its colour scheme. */
-      .envelope-table .envelope-neg {
+         The diff variables come from Fava and swap with its colour scheme.
+         Scoped to the whole report, not just the table: the same classes tint
+         the month strip's status rings in the nav as the grid's. */
+      .envelope-report .envelope-neg {
         color: var(--diff-negative, #973535);
       }
-      .envelope-table .envelope-funded {
+      .envelope-report .envelope-funded {
         color: var(--diff-positive, #35973d);
       }
       /* Amber is darkened in the light scheme to clear WCAG AA (Fava's own
          #edd431 is only ~1.5:1 on white); the dark scheme keeps Fava's amber.
          `light-dark()` follows Fava's colour-scheme, which it sets on :root. */
-      .envelope-table .envelope-partial {
+      .envelope-report .envelope-partial {
         color: var(--warning, #edd431);
         color: light-dark(#7d6100, #edd431);
       }
@@ -758,6 +768,43 @@
       .envelope-reports-empty {
         color: rgba(128, 128, 128, 1);
       }
+      /* The Monthly Reports tab's funding-by-month overview: one row per month,
+         each a link into the Envelopes tab for that month. It sits above the
+         column tables and scrolls on its own, so a long history stays compact. */
+      .envelope-month-overview-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        max-height: 40vh;
+        overflow: auto;
+        margin: 0.25rem 0 0.75rem;
+        padding: 0;
+        list-style: none;
+      }
+      .envelope-month-overview-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5em;
+        padding: 0.1rem 0.35rem;
+        border-radius: 0.2rem;
+        text-decoration: none;
+      }
+      .envelope-month-overview-row:hover,
+      .envelope-month-overview-row:focus {
+        background: var(--table-header-background, rgba(128, 128, 128, 0.15));
+      }
+      /* The status ring leads the month, so the header marker's margin is
+         dropped and the row's own gap spaces it. */
+      .envelope-month-overview-row .envelope-month-status {
+        margin-left: 0;
+      }
+      .envelope-month-overview-label {
+        font-variant-numeric: tabular-nums;
+      }
+      .envelope-month-overview-counts {
+        color: rgba(128, 128, 128, 1);
+        font-size: 0.85em;
+      }
       /* The Plan Review tab: a trailing-window table of spending against plan,
          with an affordability summary above it. */
       .envelope-review {
@@ -958,6 +1005,23 @@
         {% if not dash.rows %}
           <p>No months in the selected date range.</p>
         {% endif %}
+        {% if dash.months %}
+          <section class="envelope-month-overview">
+            <h3>Funding by month</h3>
+            <ul class="envelope-month-overview-list">
+              {% for month in dash.months %}
+                {% set status = dash.month_status[loop.index0] %}
+                <li>
+                  <a class="envelope-month-overview-row" href="?month={{ month.strftime('%Y-%m') }}&amp;months={{ extension.default_months }}">
+                    {% if status.worst %}<span class="envelope-month-status{{ month_status_classes(status) }}" title="{{ extension.month_status_text(status) }}">{{ month_status_ring() }}</span>{% endif %}
+                    <span class="envelope-month-overview-label">{{ month.strftime('%Y-%m') }}</span>
+                    {% if status.worst %}<span class="envelope-month-overview-counts">{{ extension.month_status_text(status) }}</span>{% endif %}
+                  </a>
+                </li>
+              {% endfor %}
+            </ul>
+          </section>
+        {% endif %}
         <div class="envelope-reports-strip" style="--envelope-reports-name-chars: {{ dash.name_chars }}; --envelope-reports-amount-chars: {{ dash.amount_chars }}">
           {% for row in dash.rows %}
             <section class="envelope-reports-row">
@@ -1121,7 +1185,7 @@
                 {% if view.projected[index] %}<small>(projected)</small>{% endif %}
                 {% if month_host %}
                   <input type="checkbox" class="envelope-pop-toggle" id="month-{{ month_ident }}">
-                  {% if worst %}<label class="envelope-month-status{{ ' envelope-over' if worst == 'over' else '' }}{{ ' envelope-under' if worst == 'under' else '' }}{{ ' envelope-status-negative' if worst == 'negative' else '' }}{% if colors %}{{ ' envelope-funded' if worst in ('on', 'over') else '' }}{{ ' envelope-partial' if worst == 'under' else '' }}{{ ' envelope-neg' if worst == 'negative' else '' }}{% endif %}" for="month-{{ month_ident }}" title="{{ extension.month_status_text(status) }}"><span class="envelope-ring envelope-month-status-mark" style="--envelope-fill: 100%"></span></label>{% endif %}
+                  {% if worst %}<label class="envelope-month-status{{ month_status_classes(status) }}" for="month-{{ month_ident }}" title="{{ extension.month_status_text(status) }}">{{ month_status_ring() }}</label>{% endif %}
                   {% if extension.writable %}<label class="envelope-month-label" for="month-{{ month_ident }}">actions</label>{% endif %}
                   <label class="envelope-pop-backdrop" for="month-{{ month_ident }}"></label>
                   <div class="envelope-pop envelope-month-pop">

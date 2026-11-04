@@ -538,7 +538,7 @@ class Envelopes(FavaExtensionBase):
         """
         bounds = self._filter_range()
         start, end = bounds if bounds is not None else (None, None)
-        return build_reports(self._result(), start=start, end=end)
+        return build_reports(self._result(), start=start, end=end, index=self._index)
 
     def _filter_range(self) -> tuple[date, date] | None:
         """Resolve the window's active date filter as inclusive month bounds.
