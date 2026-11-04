@@ -401,17 +401,14 @@
         position: absolute;
         inset: 0;
         border-radius: 50%;
+        /* The funded fraction is the status colour at full opacity; the rest is
+           a neutral grey guide. So the ring is always a full circle — a
+           zero-funded envelope shows a grey ring, not a pale tint of its
+           colour — and the status colour never fades, with completion reading
+           as colour replacing the grey around the circle. */
         background: conic-gradient(
           currentColor var(--envelope-fill, 0%),
-          rgba(128, 128, 128, 0.25) 0
-        );
-        /* The unfilled track is tinted with the status colour, so a ring at a low
-           or zero fill still reads its colour (and matches the legend's amber
-           "under plan" swatch) rather than looking grey. The grey above is the
-           fallback where `color-mix` is unsupported. */
-        background: conic-gradient(
-          currentColor var(--envelope-fill, 0%),
-          color-mix(in srgb, currentColor 30%, transparent) 0
+          rgba(128, 128, 128, 0.35) 0
         );
         -webkit-mask: radial-gradient(closest-side, transparent 56%, #000 57%);
         mask: radial-gradient(closest-side, transparent 56%, #000 57%);
