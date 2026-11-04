@@ -383,6 +383,14 @@
           currentColor var(--envelope-fill, 0%),
           rgba(128, 128, 128, 0.25) 0
         );
+        /* The unfilled track is tinted with the status colour, so a ring at a low
+           or zero fill still reads its colour (and matches the legend's amber
+           "under plan" swatch) rather than looking grey. The grey above is the
+           fallback where `color-mix` is unsupported. */
+        background: conic-gradient(
+          currentColor var(--envelope-fill, 0%),
+          color-mix(in srgb, currentColor 30%, transparent) 0
+        );
         -webkit-mask: radial-gradient(closest-side, transparent 56%, #000 57%);
         mask: radial-gradient(closest-side, transparent 56%, #000 57%);
       }
@@ -548,12 +556,14 @@
         right: 0;
       }
       /* Once the JavaScript module measures and places a popover, it switches it
-         to a fixed overlay so the report's scroll box cannot clip it and Fava's
-         sidebar cannot cover it. Position and size then come from inline styles;
-         this rule strips the CSS fallback anchors and must win over the
-         per-variant rules above, so it comes last. */
+         to a document-anchored overlay so the report's scroll box cannot clip it
+         and Fava's sidebar cannot cover it. Absolute, not fixed: an absolutely
+         positioned element magnifies and pans with the page under a pinch-zoom,
+         so it stays glued to its cell, where a fixed one drifts. Position and
+         size come from inline styles; this rule strips the CSS fallback anchors
+         and must win over the per-variant rules above, so it comes last. */
       .envelope-pop-floating {
-        position: fixed;
+        position: absolute;
         top: auto;
         right: auto;
         bottom: auto;

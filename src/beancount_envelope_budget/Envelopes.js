@@ -344,25 +344,33 @@ function float_popover(pop) {
 }
 
 /**
- * Place one popover relative to its cell and the viewport.
+ * Place one popover relative to its cell, in the document.
  *
- * It is switched to `position: fixed` (via the floating class, so the stylesheet
- * anchors are cleared) and then given an explicit left/right, top/bottom, width
- * and max-height, all within an 8px viewport margin. It grows from the side of
- * the cell with the most room, hanging below the cell when there is space and
- * above it when there is not. The width is the popover's measured content width,
+ * It is switched to `position: absolute` (via the floating class, so the
+ * stylesheet anchors are cleared) and given an explicit left/top, width and
+ * max-height, all within an 8px viewport margin. It grows from the side of the
+ * cell with the most room, hanging below the cell when there is space and above
+ * it when there is not. The width is the popover's measured content width,
  * capped by the room on the chosen side, so a ledger line is never wrapped —
  * only scrolled if it still cannot fit.
+ *
+ * Document coordinates (the cell's rect plus the page scroll) are used rather
+ * than viewport coordinates, because a `position: fixed` popover drifts when a
+ * page is pinch-zoomed: the fixed element stays in the layout viewport while
+ * the cell is magnified with the visual viewport. An absolute element is part
+ * of the document, so it magnifies and pans with its cell for free.
  *
  * @param {HTMLElement} host
  * @param {HTMLElement} pop
  */
 function place_popover(host, pop) {
   const host_box = host.getBoundingClientRect();
+  const scroll_x = window.scrollX;
+  const scroll_y = window.scrollY;
   const viewport_width = document.documentElement.clientWidth || window.innerWidth;
   const viewport_height = document.documentElement.clientHeight || window.innerHeight;
 
-  // Move it out of the cell and fix it to the viewport, then measure the
+  // Move it out of the cell and fix it in the document, then measure the
   // natural width: unclamped, at the origin, with the popover's own wrapping
   // rules (ledger lines stay on one line).
   float_popover(pop);
@@ -393,28 +401,30 @@ function place_popover(host, pop) {
     grow_left ? left_space : right_space,
     POPOVER_MIN_WIDTH,
   );
-  pop.style.width = `${Math.min(natural_width, available)}px`;
+  const width = Math.min(natural_width, available);
+  pop.style.width = `${width}px`;
   pop.style.maxWidth = `${available}px`;
-  if (grow_left) {
-    pop.style.right = `${viewport_width - host_box.right}px`;
-    pop.style.left = "auto";
-  } else {
-    pop.style.left = `${host_box.left}px`;
-    pop.style.right = "auto";
-  }
+  const left = grow_left
+    ? host_box.right + scroll_x - width
+    : host_box.left + scroll_x;
+  pop.style.left = `${left}px`;
+  pop.style.right = "auto";
 
-  // Hang below the cell, or above it when there is not enough room below.
-  const below = host_box.bottom + POPOVER_GAP;
-  let height = viewport_height - below - POPOVER_MARGIN;
-  if (height < POPOVER_MIN_HEIGHT) {
-    pop.style.top = "auto";
-    pop.style.bottom = `${viewport_height - host_box.top + POPOVER_GAP}px`;
-    height = host_box.top - POPOVER_GAP - POPOVER_MARGIN;
-  } else {
-    pop.style.top = `${below}px`;
-    pop.style.bottom = "auto";
-  }
-  pop.style.maxHeight = `${Math.max(height, POPOVER_MIN_HEIGHT)}px`;
+  // Hang below the cell, or above it when there is not enough room below. The
+  // popover's height is measured once its width and cap are set, so hanging
+  // above can place its bottom at the cell's top edge.
+  const below_space =
+    viewport_height - (host_box.bottom + POPOVER_GAP) - POPOVER_MARGIN;
+  const above_space = host_box.top - POPOVER_GAP - POPOVER_MARGIN;
+  const below = below_space >= POPOVER_MIN_HEIGHT || below_space >= above_space;
+  const room = Math.max(below ? below_space : above_space, POPOVER_MIN_HEIGHT);
+  pop.style.maxHeight = `${room}px`;
+  const height = pop.getBoundingClientRect().height;
+  const top = below
+    ? host_box.bottom + scroll_y + POPOVER_GAP
+    : host_box.top + scroll_y - POPOVER_GAP - height;
+  pop.style.top = `${Math.max(top, scroll_y + POPOVER_MARGIN)}px`;
+  pop.style.bottom = "auto";
   pop.style.visibility = "";
 }
 
