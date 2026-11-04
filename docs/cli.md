@@ -71,7 +71,7 @@ For envelopes with a `goal` and a `by` date, print the monthly amount needed to 
 
 ## `beancount-envelope-budget explain`
 
-For a month, print how each planned envelope's funding is evaluated: the resolved monthly amount (and the spending an avgN averaged), the up-to ceiling or goal schedule, the funding level, the amount credited toward it, whether the envelope is under, on or over plan, and the top-up still needed.
+For a month, print how each planned envelope's funding is evaluated: the resolved monthly amount (and the spending an avgN averaged), the up-to ceiling or goal schedule, the funding target, the amount credited toward it, whether the envelope is under, on or over plan, and the top-up still needed.
 
 
 | Option | Help |

@@ -1,16 +1,8 @@
 # AGENTS.md
 
-Guidance for AI agents working **on this repository** (for using the tool, see
-the skill at `.opencode/skills/beancount-envelope-budget`).
+Guidance for AI agents working **on this repository** (for using the tool, see the skill at `.opencode/skills/beancount-envelope-budget`).
 
-`beancount-envelope-budget` adds envelope budgeting on top of an ordinary
-Beancount ledger: every dollar in a cash account is either assigned to an
-envelope or sits in an unassigned pool, and balances carry month to month. It
-ships a Beancount plugin, a CLI, and a read-only Fava report, all built on one
-pure core. The ledger is the only source of truth. A slimmed-down user overview
-is in [`README.md`](README.md); the model is in
-[`docs/concepts.md`](docs/concepts.md); the original design spec (historical) is
-in [`docs/original_design.md`](docs/original_design.md).
+`beancount-envelope-budget` adds envelope budgeting on top of an ordinary Beancount ledger: every dollar in a cash account is either assigned to an envelope or sits in an unassigned pool, and balances carry month to month. It ships a Beancount plugin, a CLI, and a read-only Fava report, all built on one pure core. The ledger is the only source of truth. A slimmed-down user overview is in [`README.md`](README.md); the model is in [`docs/concepts.md`](docs/concepts.md), with the funding reference in [`docs/funding.md`](docs/funding.md); the original design spec (historical) is in [`docs/original_design.md`](docs/original_design.md).
 
 ## Structure
 
@@ -27,7 +19,7 @@ in [`docs/original_design.md`](docs/original_design.md).
 | `scripts/benchmark.py` | Times the loader and the budget over the sample at scale; also a smoke test. |
 | `.github/workflows/` | The CI gate and the manual `release` job (tag, build, publish to TestPyPI or PyPI). |
 | `.github/release.yml` | Categories for GitHub's generated release notes. |
-| `docs/` | `concepts.md`, `style-guide.md`, `releasing.md`, `original_design.md`; generated `cli.md`, `schema.md`, `errors.md`. |
+| `docs/` | `concepts.md`, `funding.md`, `style-guide.md`, `releasing.md`, `original_design.md`; generated `cli.md`, `schema.md`, `errors.md`. |
 | `examples/household.bean` | Complete example ledger; also an integration test. |
 | `.opencode/skills/` | The CLI-usage skill. |
 
@@ -39,49 +31,29 @@ A change is complete when this passes — it is the same command CI runs:
 uv run ruff format --check && uv run ruff check && uv run ty check && uv run pytest && uv run beancount-envelope-budget docs --check && uv run python scripts/sample_ledger.py --check
 ```
 
-- **ruff** (format + lint, `select = ["ALL"]`, commented ignores) and **ty** must
-  both be clean. Do not merge a change that fails either.
+- **ruff** (format + lint, `select = ["ALL"]`, commented ignores) and **ty** must both be clean. Do not merge a change that fails either.
 - `pytest` runs doctests and enforces a coverage floor on `core.py`.
-- `docs --check` fails if a generated doc is stale; regenerate with
-  `uv run beancount-envelope-budget docs`.
-- `sample_ledger.py --check` fails if `tests/ledgers/sample.bean` is stale;
-  regenerate it with `uv run python scripts/sample_ledger.py` after adding a
-  feature to the generator.
+- `docs --check` fails if a generated doc is stale; regenerate with `uv run beancount-envelope-budget docs`.
+- `sample_ledger.py --check` fails if `tests/ledgers/sample.bean` is stale; regenerate it with `uv run python scripts/sample_ledger.py` after adding a feature to the generator.
 
 ## Conventions
 
-See [`docs/style-guide.md`](docs/style-guide.md) for the full guide. The short
-version: money is `Decimal`; records are frozen slotted dataclasses; every public
-symbol has a Google-style docstring with doctests where useful; `core.py` imports
-only `beancount` (plus our `schema` and the standard library), and only
-`fava_ext.py` imports Fava; only `pin --write` edits a
-ledger file; the registries in `schema.py` are the source of truth for schema and
-errors; the release notes are generated from merged pull requests, so title and
-label each PR (there is no `CHANGELOG.md`).
+See [`docs/style-guide.md`](docs/style-guide.md) for the full guide. The short version: money is `Decimal`; records are frozen slotted dataclasses; every public symbol has a Google-style docstring with doctests where useful; `core.py` imports only `beancount` (plus our `schema` and the standard library), and only `fava_ext.py` imports Fava; only `pin --write` edits a ledger file; the registries in `schema.py` are the source of truth for schema and errors; the release notes are generated from merged pull requests, so title and label each PR (there is no `CHANGELOG.md`).
 
 ## Commits
 
-Write [Conventional Commits](https://www.conventionalcommits.org/) and reference
-the issue with `(#N)`:
+Write [Conventional Commits](https://www.conventionalcommits.org/) and reference the issue with `(#N)`:
 
 ```
-fix(topup): fund goal envelopes to their on-track level (#8)
+fix(topup): fund goal envelopes to their on-track target (#8)
 ```
 
-Use `feat`, `fix`, `docs`, `test`, `refactor` or `chore` as the type. Keep the
-subject imperative and under about 72 characters. A PR's title and labels become
-the generated release notes, so keep the title descriptive and label the PR.
+Use `feat`, `fix`, `docs`, `test`, `refactor` or `chore` as the type. Keep the subject imperative and under about 72 characters. A PR's title and labels become the generated release notes, so keep the title descriptive and label the PR.
 
 ## Gotchas
 
-- Never rewrite a ledger by regenerating it; `pin` edits files by literal line
-  insertion using each posting's `filename`/`lineno`.
-- `docs/cli.md`, `docs/schema.md` and `docs/errors.md` are generated — edit the
-  parser or the registry, then run `docs`.
-- `tests/ledgers/sample.bean` is generated too — add the feature to
-  `scripts/sample_ledger.py`, regenerate, and keep `test_sample.py` green.
-- The version comes from the git tag (`hatch-vcs`), not a file. A release is the
-  manual `release.yml` workflow; never edit a version or create a release tag by
-  hand. See `docs/releasing.md`.
-- The `report`/`fava_ext` numbers must come from `report.build_view`, not be
-  recomputed, so the CLI and the web report never disagree.
+- Never rewrite a ledger by regenerating it; `pin` edits files by literal line insertion using each posting's `filename`/`lineno`.
+- `docs/cli.md`, `docs/schema.md` and `docs/errors.md` are generated — edit the parser or the registry, then run `docs`.
+- `tests/ledgers/sample.bean` is generated too — add the feature to `scripts/sample_ledger.py`, regenerate, and keep `test_sample.py` green.
+- The version comes from the git tag (`hatch-vcs`), not a file. A release is the manual `release.yml` workflow; never edit a version or create a release tag by hand. See `docs/releasing.md`.
+- The `report`/`fava_ext` numbers must come from `report.build_view`, not be recomputed, so the CLI and the web report never disagree.

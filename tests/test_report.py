@@ -21,6 +21,7 @@ from beancount_envelope_budget.report import (
     build_view,
     funding_explanation,
     funding_explanation_lines,
+    plan_top_up,
     pool_ledger,
     pool_ledger_json,
     prepare_view,
@@ -244,13 +245,13 @@ def test_top_entries_caps_and_breaks_ties() -> None:
     assert [entry.name for entry in top] == [f"env{index:02d}" for index in range(10)]
 
 
-def test_up_to_cell_caps_the_level_and_reads_under() -> None:
-    """An ``up-to`` cell caps its level and reports the room left (#22)."""
+def test_up_to_cell_caps_the_target_and_reads_under() -> None:
+    """An ``up-to`` cell caps its target and reports the room left (#22)."""
     view = build_view(_compute("up_to.bean"), date(2024, 3, 1))
     car = next(e for e in view.envelopes if e.name == "Car")
     cell = car.cells[0]
     assert cell.opening == D("500")
-    assert cell.level == D("600")
+    assert cell.target == D("600")
     assert cell.up_to == D("600")
     assert cell.goal is None
     assert cell.funding == "under"
@@ -266,6 +267,45 @@ def test_up_to_cell_reads_on_at_the_ceiling() -> None:
     assert cell.closing == D("600")
     assert cell.funding == "on"
     assert cell.fill == D("1")
+
+
+def test_monthly_partial_allocation_reads_under() -> None:
+    """A ``monthly`` envelope rows only what the month allocated."""
+    view = build_view(_compute("monthly_flow.bean"), date(2024, 1, 1), 1)
+    partial = next(e for e in view.envelopes if e.name == "Partial")
+    cell = partial.cells[0]
+    assert cell.target == D("100")
+    assert cell.funding == "under"
+    assert cell.fill == D("0.5")
+
+
+def test_monthly_over_allocation_reads_over() -> None:
+    """A ``monthly`` envelope allocated above its plan reads over, ring full."""
+    view = build_view(_compute("monthly_flow.bean"), date(2024, 1, 1), 1)
+    over = next(e for e in view.envelopes if e.name == "Over")
+    cell = over.cells[0]
+    assert cell.funding == "over"
+    assert cell.fill == D("1")
+
+
+def test_monthly_carried_balance_does_not_fund_the_next_month() -> None:
+    """A carried balance is not this month's funding: the plan is a flow."""
+    result = _compute("monthly_flow.bean")
+    report = next(r for r in result.envelopes if r.name == "Carried")
+    # January is funded to plan by its own allocation.
+    assert report.funded_at(date(2024, 1, 31)) == D("100")
+    # February opens with the January balance but allocates nothing, so the
+    # flow is zero and the month still needs the full monthly amount.
+    assert report.funded_at(date(2024, 2, 29)) == D("0")
+    assert plan_top_up(report, date(2024, 2, 29)) == D("100.00")
+
+    view = build_view(result, date(2024, 2, 1), 1)
+    carried = next(e for e in view.envelopes if e.name == "Carried")
+    cell = carried.cells[0]
+    assert cell.opening == D("100")
+    assert cell.allocated == D("0")
+    assert cell.funding == "under"
+    assert cell.fill == D("0")
 
 
 def test_build_view_with_a_prepared_index_matches() -> None:
@@ -320,14 +360,14 @@ def test_funding_explanation_for_monthly() -> None:
     assert explanation is not None
     assert explanation.reference == "monthly"
     assert explanation.monthly == D("100")
-    assert explanation.level == D("100.00")
+    assert explanation.target == D("100.00")
     assert explanation.funded == D("50")
     assert explanation.top_up == D("50.00")
     assert explanation.funding == "under"
     assert funding_explanation_lines(explanation) == (
         "monthly 100.00 = plan",
-        "level 100.00 = monthly 100.00",
-        "funded 50.00 = opening 0.00 + allocated 50.00",
+        "target 100.00 = monthly 100.00",
+        "funded 50.00 = allocated 50.00",
         "under plan by 50.00",
         "top up 50.00",
     )
@@ -357,12 +397,12 @@ def test_funding_explanation_for_up_to() -> None:
     explanation = funding_explanation(report, date(2024, 3, 31))
     assert explanation is not None
     assert explanation.reference == "up-to"
-    assert explanation.level == D("600.00")
+    assert explanation.target == D("600.00")
     assert explanation.funded == D("500")
     assert explanation.top_up == D("100.00")
     assert explanation.funding == "under"
     assert funding_explanation_lines(explanation) == (
-        "level 600.00 = min(ceiling 600.00, opening 500.00 + monthly 250.00)",
+        "target 600.00 = min(ceiling 600.00, opening 500.00 + monthly 250.00)",
         "funded 500.00 = closing balance",
         "under plan by 100.00",
         "top up 100.00",
@@ -379,11 +419,11 @@ def test_funding_explanation_for_goal() -> None:
     assert explanation.goal == D("15000")
     assert explanation.by == date(2028, 6, 1)
     assert (explanation.months_elapsed, explanation.months_total) == (3, 54)
-    assert explanation.level == D("833.33")
+    assert explanation.target == D("833.33")
     assert explanation.funded == D("1000")
     assert explanation.funding == "over"
     assert funding_explanation_lines(explanation) == (
-        "level 833.33 = goal 15000.00 (3/54 months) to 2028-06-01",
+        "target 833.33 = goal 15000.00 (3/54 months) to 2028-06-01",
         "funded 1000.00 = cumulative contributions",
         "over plan by 166.67",
     )
@@ -405,7 +445,7 @@ def test_explanation_is_serialised() -> None:
     car = next(e for e in view.envelopes if e.name == "Car")
     explanation = car.cells[0].explanation
     assert explanation is not None
-    assert funding_explanation_lines(explanation)[0].startswith("level 600.00")
+    assert funding_explanation_lines(explanation)[0].startswith("target 600.00")
     as_json = cast("list[dict[str, object]]", to_jsonable(view)["envelopes"])
     car_json = next(entry for entry in as_json if entry["name"] == "Car")
     cells = cast("list[dict[str, object]]", car_json["cells"])

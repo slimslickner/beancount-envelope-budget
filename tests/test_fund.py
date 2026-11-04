@@ -12,7 +12,7 @@ from beancount import loader
 
 from beancount_envelope_budget import cli
 from beancount_envelope_budget.core import compute
-from beancount_envelope_budget.report import plan_level
+from beancount_envelope_budget.report import plan_target
 
 _LEDGERS = Path(__file__).parent / "ledgers"
 
@@ -394,13 +394,13 @@ def test_topup_goal_rerun(tmp_path: Path, capsys: pytest.CaptureFixture[str]) ->
     ]
 
 
-def test_plan_level_rounds_a_subcent_goal() -> None:
+def test_plan_target_rounds_a_subcent_goal() -> None:
     """A prorated goal level is rounded to the cent, not left with a tail."""
     entries, _errors, options = loader.load_file(_ledger("topup_goal_subcent.bean"))
     report = compute(entries, options).envelope("Goal")
     assert report is not None
     # 1000 / 7 = 142.857142..., rounded to the cent the ledger holds.
-    assert plan_level(report, date(2024, 1, 15)) == D("142.86")
+    assert plan_target(report, date(2024, 1, 15)) == D("142.86")
 
 
 def test_topup_goal_rerun_subcent(
@@ -471,7 +471,7 @@ def test_topup_avg3() -> None:
     result = compute(entries, options)
     report = result.envelope("Groceries")
     assert report is not None
-    assert plan_level(report, date(2024, 4, 15)) == D("520")
+    assert plan_target(report, date(2024, 4, 15)) == D("520")
 
 
 def test_topup_avg6() -> None:
@@ -480,7 +480,7 @@ def test_topup_avg6() -> None:
     result = compute(entries, options)
     report = result.envelope("Groceries")
     assert report is not None
-    assert plan_level(report, date(2024, 7, 15)) == D("150")
+    assert plan_target(report, date(2024, 7, 15)) == D("150")
 
 
 def test_topup_skips_unplanned_envelope(capsys: pytest.CaptureFixture[str]) -> None:

@@ -1,0 +1,27 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  on-budget: TRUE
+2020-01-01 open Expenses:Partial USD
+  envelope: "Partial"
+2020-01-01 open Expenses:Carried USD
+  envelope: "Carried"
+2020-01-01 open Expenses:Over USD
+  envelope: "Over"
+2020-01-01 open Equity:Opening-Balances USD
+
+2023-12-31 * "Opening"
+  Assets:Checking           10000.00 USD
+  Equity:Opening-Balances  -10000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Partial"
+  monthly: 100.00
+2024-01-01 custom "envelope" "open" "Carried"
+  monthly: 100.00
+2024-01-01 custom "envelope" "open" "Over"
+  monthly: 100.00
+
+2024-01-01 custom "envelope" "allocate" "Partial" 50.00 USD
+2024-01-01 custom "envelope" "allocate" "Carried" 100.00 USD
+2024-01-01 custom "envelope" "allocate" "Over" 150.00 USD

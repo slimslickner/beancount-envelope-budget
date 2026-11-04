@@ -79,8 +79,8 @@ __all__ = [
     "funding_verdict",
     "month_funding",
     "overspend_cover",
-    "plan_level",
     "plan_line_text",
+    "plan_target",
     "plan_top_up",
     "pool_entry_text",
     "pool_ledger",
@@ -101,25 +101,25 @@ MAX_MONTHS = 3
 #: How many envelopes a report ranking lists for each month.
 TOP_N = 10
 
-#: The quantum every funding level is rounded to, matching the whole cents the
+#: The quantum every funding target is rounded to, matching the whole cents the
 #: ledger holds and the report displays.
 _CENT = Decimal("0.01")
 
 
 def _round_to_cent(value: Decimal) -> Decimal:
-    """Round a funding level to the money the ledger displays.
+    """Round a funding target to the money the ledger displays.
 
-    A goal's level is ``goal * elapsed / total``, which can carry a sub-cent
+    A goal's target is ``goal * elapsed / total``, which can carry a sub-cent
     tail (``1000 / 7 = 142.857...``). Balances are whole cents, so comparing the
-    raw level with a balance reports a spurious over- or under-funding — the CLI
-    can even print an excess of ``0.00``. Rounding the level to the cent keeps
+    raw target with a balance reports a spurious over- or under-funding — the CLI
+    can even print an excess of ``0.00``. Rounding the target to the cent keeps
     every comparison at one precision.
 
     Args:
-        value: The resolved level.
+        value: The resolved target.
 
     Returns:
-        The level rounded to the cent.
+        The target rounded to the cent.
     """
     return value.quantize(_CENT)
 
@@ -407,7 +407,7 @@ _FUNDING_TEXT = {"under": "under plan", "on": "on plan", "over": "over plan"}
 class FundingExplanation:
     """Why an envelope reads under, on or over its plan in a month.
 
-    The report computes an envelope's funding level, the amount credited toward
+    The report computes an envelope's funding target, the amount credited toward
     it, and the top-up still needed, and classifies it. This records the
     arithmetic behind those figures — the resolved ``monthly`` and its samples,
     the ``up-to`` ceiling, or the goal schedule — so the CLI and Fava can show
@@ -416,7 +416,7 @@ class FundingExplanation:
     Attributes:
         reference: What the plan is measured against: ``"monthly"``,
             ``"up-to"`` or ``"goal"``.
-        level: The figure the envelope should reach this month, or ``None``.
+        target: The figure the envelope should reach this month, or ``None``.
         funded: The amount credited toward the plan.
         top_up: The amount ``fund`` or the prefill would still allocate, never
             negative.
@@ -436,7 +436,7 @@ class FundingExplanation:
     """
 
     reference: str
-    level: Decimal | None
+    target: Decimal | None
     funded: Decimal
     top_up: Decimal
     funding: str | None = None
@@ -468,10 +468,10 @@ class Cell:
         visible: Whether the row should be shown this month. It is ``False``
             outside the envelope's life — before it opens or after it closes —
             so only the months between ``open`` and ``close`` are shown.
-        level: The balance the envelope should hold this month under its plan,
+        target: The balance the envelope should hold this month under its plan,
             or ``None`` when it has no funding plan.
         funding: Whether the envelope is ``"under"``, ``"on"`` or ``"over"`` its
-            level this month, or ``None`` when there is no level.
+            target this month, or ``None`` when there is no target.
         goal: The envelope's goal total this month, or ``None`` when it has
             no goal.
         up_to: The envelope's balance ceiling this month, or ``None`` when it has
@@ -479,13 +479,13 @@ class Cell:
         fill: How full the envelope is toward its goal, clamped to ``0`` to
             ``1`` — the amount credited toward the plan this month (see
             :meth:`~beancount_envelope_budget.core.EnvelopeReport.funded_at`)
-            divided by its ``goal``, or by its ``level`` when it has no goal.
+            divided by its ``goal``, or by its ``target`` when it has no goal.
             ``None`` when it has neither.
         allocations: The ``allocate`` directives dated in this month, each
             linking back to its source directive.
         pool: For the pool row, the pool's ledger lines in this month, each on
             its own date with the running balance; empty for envelopes.
-        explanation: The arithmetic behind the month's plan verdict — its level,
+        explanation: The arithmetic behind the month's plan verdict — its target,
             funded amount and top-up — or ``None`` when the envelope has no
             plan.
     """
@@ -499,7 +499,7 @@ class Cell:
     detail: tuple[ActivityLine, ...]
     detail_total: int
     visible: bool = True
-    level: Decimal | None = None
+    target: Decimal | None = None
     funding: str | None = None
     goal: Decimal | None = None
     up_to: Decimal | None = None
@@ -595,7 +595,7 @@ class MonthStatus:
     status, so the report can summarise the month in its header. The
     ``negative`` count covers any visible envelope whose closing balance is
     negative, planned or not; the funding counts cover the visible planned
-    envelopes only, since an unplanned envelope has no level to be judged
+    envelopes only, since an unplanned envelope has no target to be judged
     against. A cell that is both negative and under plan is counted in both.
 
     Attributes:
@@ -871,19 +871,19 @@ def _monthly_amount(report: EnvelopeReport, on: date) -> Decimal | None:
     return None
 
 
-def plan_level(report: EnvelopeReport, on: date) -> Decimal | None:
-    """Resolve an envelope's funding level on a date.
+def plan_target(report: EnvelopeReport, on: date) -> Decimal | None:
+    """Resolve an envelope's funding target on a date.
 
-    An envelope with a ``monthly`` plan holds that amount (a number, or the
+    An envelope with a ``monthly`` plan targets that amount (a number, or the
     average of its last ``avgN`` completed months of spending). An envelope with
-    an ``up-to`` ceiling holds ``min(up_to, opening + monthly)`` — the balance it
-    should reach this month, contributing the month's amount but never climbing
-    past the ceiling. A goal envelope with a ``goal`` holds the on-track
-    contribution level from
-    :meth:`~beancount_envelope_budget.core.Envelope.funding_level`, compared
+    an ``up-to`` ceiling targets ``min(up_to, opening + monthly)`` — the balance
+    it should reach this month, contributing the month's amount but never
+    climbing past the ceiling. A goal envelope with a ``goal`` targets the
+    on-track contribution from
+    :meth:`~beancount_envelope_budget.core.Envelope.funding_target`, compared
     against its cumulative contributions (see
     :meth:`~beancount_envelope_budget.core.EnvelopeReport.funded_at`) rather than
-    its balance. The resolved level is rounded to the cent, because a goal's
+    its balance. The resolved target is rounded to the cent, because a goal's
     prorated total can carry a sub-cent tail that a whole-cent figure would
     otherwise read as over- or under-funded.
 
@@ -911,7 +911,7 @@ def plan_level(report: EnvelopeReport, on: date) -> Decimal | None:
         ...     ),
         ...     (),
         ... )
-        >>> plan_level(goal, date(2026, 6, 15))
+        >>> plan_target(goal, date(2026, 6, 15))
         Decimal('3000.00')
     """
     plan = report.envelope.effective(on)
@@ -924,8 +924,8 @@ def plan_level(report: EnvelopeReport, on: date) -> Decimal | None:
     monthly = _monthly_amount(report, on)
     if monthly is not None:
         return monthly
-    level = report.envelope.funding_level(on)
-    return None if level is None else _round_to_cent(level)
+    target = report.envelope.funding_target(on)
+    return None if target is None else _round_to_cent(target)
 
 
 def active_plan(plans: tuple[PlanLine, ...], month: date) -> PlanLine | None:
@@ -935,7 +935,7 @@ def active_plan(plans: tuple[PlanLine, ...], month: date) -> PlanLine | None:
     ``plan``/``unplan`` overrides. This picks the one that governs a month — the
     latest dated on or before the month's last day — matching the date the rest
     of the view evaluates an envelope's plan at, so the directive shown agrees
-    with the funding level beside it.
+    with the funding target beside it.
 
     Args:
         plans: The envelope's plan directives, base first.
@@ -967,19 +967,20 @@ def active_plan(plans: tuple[PlanLine, ...], month: date) -> PlanLine | None:
 
 
 def plan_top_up(report: EnvelopeReport, on: date) -> Decimal:
-    """Amount to allocate to fund an envelope to its plan level.
+    """Amount to allocate to fund an envelope to its plan target.
 
     This is the "set the month's allocation to the plan" intent. For a plain
-    envelope it is the gap between the envelope's funding level and the amount
-    already credited toward the plan (see
-    :meth:`~beancount_envelope_budget.core.EnvelopeReport.funded_at`) — cumulative
-    contributions for a goal envelope. For an
+    ``monthly`` envelope it is what is left of the month's planned amount after
+    the month's own allocations — the funding is a flow, so a balance carried in
+    is not counted. For a goal envelope it is the gap between the on-track target
+    and the cumulative contributions already made (see
+    :meth:`~beancount_envelope_budget.core.EnvelopeReport.funded_at`). For an
     envelope with an ``up-to`` ceiling, ``monthly`` is a per-month contribution
     allowance: the amount is what is left of that allowance after this month's
     allocations, capped by how far the closing balance still sits below the
     ceiling, so once the envelope is full the amount is zero and spending only
-    re-opens room within the allowance. An envelope with no plan has no level, so
-    it needs nothing here; use :func:`overspend_cover` for its spending.
+    re-opens room within the allowance. An envelope with no plan has no target,
+    so it needs nothing here; use :func:`overspend_cover` for its spending.
 
     Args:
         report: The envelope's report.
@@ -1024,10 +1025,10 @@ def plan_top_up(report: EnvelopeReport, on: date) -> Decimal:
         allowance_left = max(Decimal(0), monthly - row.allocated)
         room = max(Decimal(0), plan.up_to - row.closing)
         return _round_to_cent(min(allowance_left, room))
-    level = plan_level(report, on)
-    if level is None:
+    target = plan_target(report, on)
+    if target is None:
         return Decimal(0)
-    return max(Decimal(0), level - report.funded_at(on))
+    return max(Decimal(0), target - report.funded_at(on))
 
 
 def overspend_cover(report: EnvelopeReport, on: date) -> Decimal:
@@ -1099,7 +1100,7 @@ def funding_explanation(
 
     Gathers the arithmetic behind the month's verdict: the resolved
     ``monthly`` amount (and the spending an ``avgN`` averaged), the ``up-to``
-    ceiling or the goal schedule, the funding level, the amount credited toward
+    ceiling or the goal schedule, the funding target, the amount credited toward
     it, and the top-up still needed. Pure, so the CLI and Fava render one
     explanation. Returns ``None`` when the envelope has no plan.
 
@@ -1137,17 +1138,17 @@ def funding_explanation(
     else:
         return None
     row = row_for(report.rows, on)
-    level = plan_level(report, on)
+    target = plan_target(report, on)
     funded = report.funded_at(on)
     top_up = plan_top_up(report, on)
     if reference == "up-to":
         funding = "on" if top_up == 0 else "under"
     else:
-        funding = _funding(level, funded)
+        funding = _funding(target, funded)
     schedule = report.envelope.goal_schedule(on) if reference == "goal" else None
     return FundingExplanation(
         reference=reference,
-        level=level,
+        target=target,
         funded=funded,
         top_up=top_up,
         funding=funding,
@@ -1172,9 +1173,9 @@ def funding_derivation_lines(
     explanation: FundingExplanation,
     currency: str = "",
 ) -> tuple[str, ...]:
-    """Render the arithmetic behind a funding level, without the verdict.
+    """Render the arithmetic behind a funding target, without the verdict.
 
-    The lines spell out the level's formula and what the funded amount is
+    The lines spell out the target's formula and what the funded amount is
     measured from — the completed months an ``avgN`` averaged, the ``up-to``
     ceiling, or the goal schedule. Split out from
     :func:`funding_explanation_lines` so the Fava closing popover can lead with
@@ -1192,7 +1193,7 @@ def funding_derivation_lines(
         >>> from decimal import Decimal
         >>> explanation = FundingExplanation(
         ...     reference="monthly",
-        ...     level=Decimal("550"),
+        ...     target=Decimal("550"),
         ...     funded=Decimal("500"),
         ...     top_up=Decimal("50"),
         ...     funding="under",
@@ -1201,7 +1202,7 @@ def funding_derivation_lines(
         ...     monthly=Decimal("550"),
         ... )
         >>> funding_derivation_lines(explanation)
-        ('monthly 550.00 = plan', 'level 550.00 = monthly 550.00', 'funded 500.00 = opening 0.00 + allocated 500.00')
+        ('monthly 550.00 = plan', 'target 550.00 = monthly 550.00', 'funded 500.00 = allocated 500.00')
     """
     lines: list[str] = []
     if explanation.reference == "goal":
@@ -1212,7 +1213,7 @@ def funding_derivation_lines(
             )
         deadline = f" to {explanation.by}" if explanation.by is not None else ""
         lines.append(
-            f"level {_money(explanation.level, currency)} = goal "
+            f"target {_money(explanation.target, currency)} = goal "
             f"{_money(explanation.goal, currency)}{window}{deadline}"
         )
         lines.append(
@@ -1220,7 +1221,7 @@ def funding_derivation_lines(
         )
     elif explanation.reference == "up-to":
         lines.append(
-            f"level {_money(explanation.level, currency)} = min(ceiling "
+            f"target {_money(explanation.target, currency)} = min(ceiling "
             f"{_money(explanation.up_to, currency)}, opening "
             f"{_money(explanation.opening, currency)}"
             f" + monthly {_money(explanation.monthly, currency)})"
@@ -1239,12 +1240,11 @@ def funding_derivation_lines(
         else:
             lines.append(f"monthly {_money(explanation.monthly, currency)} = plan")
         lines.append(
-            f"level {_money(explanation.level, currency)} = monthly "
+            f"target {_money(explanation.target, currency)} = monthly "
             f"{_money(explanation.monthly, currency)}"
         )
         lines.append(
-            f"funded {_money(explanation.funded, currency)} = opening "
-            f"{_money(explanation.opening, currency)} + allocated "
+            f"funded {_money(explanation.funded, currency)} = allocated "
             f"{_money(explanation.allocated, currency)}"
         )
     return tuple(lines)
@@ -1254,7 +1254,7 @@ def funding_verdict(
     explanation: FundingExplanation,
     currency: str = "",
 ) -> str | None:
-    """Describe how an envelope's funded amount compares with its level.
+    """Describe how an envelope's funded amount compares with its target.
 
     Splits the "under plan by X" / "on plan" / "over plan by X" verdict out of
     :func:`funding_explanation_lines` so the Fava closing popover can lead with
@@ -1270,7 +1270,7 @@ def funding_verdict(
     Examples:
         >>> explanation = FundingExplanation(
         ...     reference="monthly",
-        ...     level=Decimal("550"),
+        ...     target=Decimal("550"),
         ...     funded=Decimal("500"),
         ...     top_up=Decimal("50"),
         ...     funding="under",
@@ -1282,7 +1282,7 @@ def funding_verdict(
         return None
     label = _FUNDING_TEXT[explanation.funding]
     difference = (
-        None if explanation.level is None else explanation.funded - explanation.level
+        None if explanation.target is None else explanation.funded - explanation.target
     )
     if explanation.funding == "under" and difference is not None:
         return f"{label} by {_money(-difference, currency)}"
@@ -1325,7 +1325,7 @@ def funding_explanation_lines(
 ) -> tuple[str, ...]:
     """Render a funding explanation as labelled derivation lines.
 
-    The lines spell out the level's formula, what the funded amount is measured
+    The lines spell out the target's formula, what the funded amount is measured
     from, whether the envelope is under, on or over plan, and the top-up the
     plan still needs. Shared by the CLI's ``explain`` command and — via the
     pieces above — the Fava closing popover, so the two cannot disagree.
@@ -1341,7 +1341,7 @@ def funding_explanation_lines(
         >>> from decimal import Decimal
         >>> explanation = FundingExplanation(
         ...     reference="monthly",
-        ...     level=Decimal("550"),
+        ...     target=Decimal("550"),
         ...     funded=Decimal("500"),
         ...     top_up=Decimal("50"),
         ...     funding="under",
@@ -1350,7 +1350,7 @@ def funding_explanation_lines(
         ...     monthly=Decimal("550"),
         ... )
         >>> funding_explanation_lines(explanation)
-        ('monthly 550.00 = plan', 'level 550.00 = monthly 550.00', 'funded 500.00 = opening 0.00 + allocated 500.00', 'under plan by 50.00', 'top up 50.00')
+        ('monthly 550.00 = plan', 'target 550.00 = monthly 550.00', 'funded 500.00 = allocated 500.00', 'under plan by 50.00', 'top up 50.00')
     """
     lines = list(funding_derivation_lines(explanation, currency))
     verdict = funding_verdict(explanation, currency)
@@ -1442,22 +1442,22 @@ def month_funding(
     return allocations, unfunded
 
 
-def _funding(level: Decimal | None, funded: Decimal) -> str | None:
-    """Classify an envelope's funded amount against its funding level.
+def _funding(target: Decimal | None, funded: Decimal) -> str | None:
+    """Classify an envelope's funded amount against its funding target.
 
     Args:
-        level: The month's funding level, or ``None``.
+        target: The month's funding target, or ``None``.
         funded: The amount credited toward the plan, from
             :meth:`~beancount_envelope_budget.core.EnvelopeReport.funded_at`.
 
     Returns:
-        ``"under"``, ``"on"`` or ``"over"``, or ``None`` when there is no level.
+        ``"under"``, ``"on"`` or ``"over"``, or ``None`` when there is no target.
     """
-    if level is None:
+    if target is None:
         return None
-    if funded < level:
+    if funded < target:
         return "under"
-    if funded > level:
+    if funded > target:
         return "over"
     return "on"
 
@@ -2396,7 +2396,7 @@ def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
     *,
     projected: bool,
     visible: bool = True,
-    level: Decimal | None = None,
+    target: Decimal | None = None,
     funding: str | None = None,
     goal: Decimal | None = None,
     up_to: Decimal | None = None,
@@ -2412,7 +2412,7 @@ def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
         detail: The contributing postings.
         projected: Whether the month is beyond the computed range.
         visible: Whether the row should be shown for the month.
-        level: The month's funding level, or ``None``.
+        target: The month's funding target, or ``None``.
         funding: The month's funding status, or ``None``.
         goal: The month's goal total, or ``None``.
         up_to: The month's balance ceiling, or ``None``.
@@ -2436,7 +2436,7 @@ def _cell(  # noqa: PLR0913 - the cell's many optional figures share one builder
         detail=tuple(_activity_line(event) for event in detail[:MAX_DETAIL]),
         detail_total=len(detail),
         visible=visible,
-        level=level,
+        target=target,
         funding=funding,
         goal=goal,
         up_to=up_to,
@@ -2474,7 +2474,7 @@ def _envelope_view(
         row = row_for(report.rows, month)
         on = _last_day(month)
         plan = envelope.effective(on)
-        level = plan_level(report, on)
+        target = plan_target(report, on)
         funded = report.funded_at(on)
         if plan.up_to is not None:
             up_to = plan.up_to
@@ -2482,8 +2482,8 @@ def _envelope_view(
             funding = "on" if plan_top_up(report, on) == 0 else "under"
         else:
             up_to = None
-            reference = plan.goal if plan.goal is not None else level
-            funding = _funding(level, funded)
+            reference = plan.goal if plan.goal is not None else target
+            funding = _funding(target, funded)
         cells.append(
             _cell(
                 row,
@@ -2491,7 +2491,7 @@ def _envelope_view(
                 projected=month not in available,
                 visible=month >= opened_month
                 and (closed_month is None or month <= closed_month),
-                level=level,
+                target=target,
                 funding=funding,
                 goal=plan.goal,
                 up_to=up_to,
@@ -2827,7 +2827,7 @@ def _cell_json(cell: Cell) -> dict[str, object]:
         "allocated": f"{cell.allocated:.2f}",
         "activity": f"{cell.activity:.2f}",
         "closing": f"{cell.closing:.2f}",
-        "level": _money_json(cell.level),
+        "target": _money_json(cell.target),
         "funding": cell.funding,
         "goal": _money_json(cell.goal),
         "up_to": _money_json(cell.up_to),
@@ -2872,7 +2872,7 @@ def _explanation_json(
         return None
     return {
         "reference": explanation.reference,
-        "level": _money_json(explanation.level),
+        "target": _money_json(explanation.target),
         "funded": f"{explanation.funded:.2f}",
         "top_up": f"{explanation.top_up:.2f}",
         "funding": explanation.funding,
