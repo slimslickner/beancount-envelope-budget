@@ -1,28 +1,20 @@
 # Releasing
 
-The version is derived from the git tag ([hatch-vcs](https://github.com/ofek/hatch-vcs)),
-so a release is exactly: pick a new tag, build it, publish it. The **Release**
-workflow does all three from a button, and the tag, the wheel metadata and the
-PyPI version can never disagree because they all come from one tag.
+The version is derived from the git tag ([hatch-vcs](https://github.com/ofek/hatch-vcs)), so a release is exactly: pick a new tag, build it, publish it. The **Release** workflow does all three from a button, and the tag, the wheel metadata and the PyPI version can never disagree because they all come from one tag.
 
 ## One-time setup
 
 An owner does this once:
 
-1. Create the GitHub **environments** `pypi` and `testpypi` (Settings →
-   Environments) and add a **required reviewer** to each, so a publish always
-   needs an approval.
-2. Add a **trusted publisher** on [PyPI](https://pypi.org) and
-   [TestPyPI](https://test.pypi.org) for this repository — no API token is
-   stored; publishing uses OpenID Connect:
+1. Create the GitHub **environments** `pypi` and `testpypi` (Settings → Environments) and add a **required reviewer** to each, so a publish always needs an approval.
+2. Add a **trusted publisher** on [PyPI](https://pypi.org) and [TestPyPI](https://test.pypi.org) for this repository — no API token is stored; publishing uses OpenID Connect:
    - owner `slimslickner`
    - repository `beancount-envelope-budget`
    - workflow `release.yml`
    - environment `pypi` (and `testpypi`)
 3. Protect `main` and require the CI check.
 
-No token or secret is needed: the workflow tags and pushes with the built-in
-`GITHUB_TOKEN`, and publishing uses trusted publishing.
+No token or secret is needed: the workflow tags and pushes with the built-in `GITHUB_TOKEN`, and publishing uses trusted publishing.
 
 ## Cutting a release
 
@@ -30,23 +22,15 @@ No token or secret is needed: the workflow tags and pushes with the built-in
 
 - **bump** — `patch`, `minor` or `major`;
 - **target** — `testpypi` or `pypi`;
-- **version** — optional; leave blank to compute from `bump`, or set an exact
-  `X.Y.Z` to pin one (handy when retrying).
+- **version** — optional; leave blank to compute from `bump`, or set an exact `X.Y.Z` to pin one (handy when retrying).
 
 The workflow:
 
-1. computes the next version by incrementing the latest release tag (for example
-   the latest tag is `v0.1.0`, so `major` → `1.0.0`);
-2. builds the sdist and wheel with that version and asserts the built version
-   equals the tag. On **testpypi** a rehearsal version is used instead —
-   `<version>rc<run-number>` (for example `1.0.0rc7`) — so each rehearsal is
-   unique and sorts below the real release (PyPI rejects `+local` versions);
-3. publishes to the chosen index. Only the `pypi` target pushes the tag
-   `v<version>` and creates the GitHub Release.
+1. computes the next version by incrementing the latest release tag (for example the latest tag is `v0.1.0`, so `major` → `1.0.0`);
+2. builds the sdist and wheel with that version and asserts the built version equals the tag. On **testpypi** a rehearsal version is used instead — `<version>rc<run-number>` (for example `1.0.0rc7`) — so each rehearsal is unique and sorts below the real release (PyPI rejects `+local` versions);
+3. publishes to the chosen index. Only the `pypi` target pushes the tag `v<version>` and creates the GitHub Release.
 
-Recommended flow: run it once with **target = `testpypi`** first. That builds the
-exact version and uploads it to TestPyPI without pushing any tag, so you can
-smoke-test it:
+Recommended flow: run it once with **target = `testpypi`** first. That builds the exact version and uploads it to TestPyPI without pushing any tag, so you can smoke-test it:
 
 ```sh
 pip install \
@@ -55,34 +39,22 @@ pip install \
   beancount-envelope-budget==X.Y.Z
 ```
 
-When you are happy, run it again with **target = `pypi`**. This time it pushes
-the tag `vX.Y.Z` and creates the GitHub Release.
+When you are happy, run it again with **target = `pypi`**. This time it pushes the tag `vX.Y.Z` and creates the GitHub Release.
 
-Only the repository owner may trigger a release; the publish jobs also wait for
-the environment's required reviewer.
+Only the repository owner may trigger a release; the publish jobs also wait for the environment's required reviewer.
 
 ## Version scheme
 
-`MAJOR.MINOR.PATCH`, as a tag `vX.Y.Z`. While the project is pre-`1.0`, breaking
-changes are ordinary releases; the milestone release is the first `major` bump.
-Prerelease tags (for example `v1.0.0rc1`) do not count as release tags when the
-next version is computed.
+`MAJOR.MINOR.PATCH`, as a tag `vX.Y.Z`. While the project is pre-`1.0`, breaking changes are ordinary releases; the milestone release is the first `major` bump. Prerelease tags (for example `v1.0.0rc1`) do not count as release tags when the next version is computed.
 
 ## Release notes
 
-Release notes are generated by GitHub from the **merged pull requests** between
-the previous tag and the new one (see `.github/release.yml` for the categories),
-so **PR titles and labels are the notes** — write a descriptive title and label
-each PR. There is no `CHANGELOG.md` to maintain.
+Release notes are generated by GitHub from the **merged pull requests** between the previous tag and the new one (see `.github/release.yml` for the categories), so **PR titles and labels are the notes** — write a descriptive title and label each PR. There is no `CHANGELOG.md` to maintain.
 
 ## If something goes wrong
 
-- **Publish failed:** the tag is pushed only *after* PyPI accepts the upload, so
-  a failure leaves no tag — re-run the workflow with the same inputs and it
-  recomputes the same version; `skip-existing: true` makes the retry safe. To pin
-  an exact version, set the **version** input.
-- **Bad release on PyPI:** *yank* it on PyPI — a filename may never be reused —
-  delete the GitHub Release and the tag, then release a fixed patch.
+- **Publish failed:** the tag is pushed only *after* PyPI accepts the upload, so a failure leaves no tag — re-run the workflow with the same inputs and it recomputes the same version; `skip-existing: true` makes the retry safe. To pin an exact version, set the **version** input.
+- **Bad release on PyPI:** *yank* it on PyPI — a filename may never be reused — delete the GitHub Release and the tag, then release a fixed patch.
 - **Accidental tag:** `git push --delete origin vX.Y.Z`, then re-run.
 
 ## Workflows

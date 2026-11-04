@@ -1,12 +1,8 @@
 # Concepts
 
-Envelope budgeting on top of an ordinary Beancount ledger. Every dollar in your
-cash accounts is either assigned to an **envelope** or sits in an unassigned
-**pool**. Balances — positive or negative — carry from month to month.
+Envelope budgeting on top of an ordinary Beancount ledger. Every dollar in your cash accounts is either assigned to an **envelope** or sits in an unassigned **pool**. Balances — positive or negative — carry from month to month.
 
-The ledger is the only source of truth. There is no second database: allocations
-are dated `custom "envelope"` directives, and spending is derived from your
-existing postings.
+The ledger is the only source of truth. There is no second database: allocations are dated `custom "envelope"` directives, and spending is derived from your existing postings.
 
 ## The seven terms
 
@@ -20,22 +16,17 @@ existing postings.
 | **Carryover** | An envelope's closing balance, positive or negative, becomes next month's opening balance. |
 | **Plan** | An envelope's funding parameters — `monthly`, `up-to`, `priority`, `goal`, `by` — set on `open`, changed from a date with `plan`, and cleared with `unplan`. |
 
-Months are calendar months, and everything is attributed by its date. Setting
-`on-budget: FALSE` is the same as omitting the key entirely.
+Months are calendar months, and everything is attributed by its date. Setting `on-budget: FALSE` is the same as omitting the key entirely.
 
 ## Cash vs. pool
 
-`Cash` is what your accounts actually hold. `Pool` is the part of that cash you
-have not assigned to an envelope. They are always related by:
+`Cash` is what your accounts actually hold. `Pool` is the part of that cash you have not assigned to an envelope. They are always related by:
 
 ```
 Cash = Pool + (the sum of all envelope balances)
 ```
 
-Show both because the pool is the actionable number ("what is left to assign")
-and cash is the ground truth ("what you actually have"). Because the pool and
-envelopes are built from flows while cash is read straight from the ledger, the
-comparison is a real cross-check: if they disagree, a posting was missed.
+Show both because the pool is the actionable number ("what is left to assign") and cash is the ground truth ("what you actually have"). Because the pool and envelopes are built from flows while cash is read straight from the ledger, the comparison is a real cross-check: if they disagree, a posting was missed.
 
 How each action moves the lines:
 
@@ -51,15 +42,11 @@ How each action moves the lines:
 | Sell a security (cost refunded, gain to pool) | ↑ | ↑ | ↑ |
 | Move money between envelopes (two allocations) | – | ± | – |
 
-Credit cards are cash accounts, so a card balance is negative and *lowers* cash
-and the pool. Cash is therefore net spendable money including card debt.
+Credit cards are cash accounts, so a card balance is negative and *lowers* cash and the pool. Cash is therefore net spendable money including card debt.
 
 ## Transfers and clearing accounts
 
-Moving money between two cash accounts is neutral: cash-to-cash transactions
-change neither the pool nor any envelope. When the two legs land on different
-days — a transfer in progress — route them through a **clearing account** and
-mark it `on-budget: TRUE`:
+Moving money between two cash accounts is neutral: cash-to-cash transactions change neither the pool nor any envelope. When the two legs land on different days — a transfer in progress — route them through a **clearing account** and mark it `on-budget: TRUE`:
 
 ```beancount
 2020-01-01 open Assets:Transfers:Clearing USD
@@ -73,17 +60,9 @@ mark it `on-budget: TRUE`:
   Assets:Transfers:Clearing      -500.00 USD
 ```
 
-Both legs are cash, so the transfer stays neutral, and while it is in flight the
-money still counts as cash. The clearing account nets to zero once both legs
-post; a non-zero balance is a transfer that has not completed.
+Both legs are cash, so the transfer stays neutral, and while it is in flight the money still counts as cash. The clearing account nets to zero once both legs post; a non-zero balance is a transfer that has not completed.
 
-The budget decides whether a transaction counts by one test: it touches a cash
-account (see [Resolution rules](#resolution-rules)). A clearing account therefore
-cannot serve both on-budget and off-budget transfers — marking it cash brings
-*every* transfer it carries into the budget. Keep off-budget transfers, such as
-an IRA-to-IRA rollover between two accounts that are not cash, on an **unmarked**
-clearing account (or post the two legs directly), so they touch no cash account
-and the budget ignores them:
+The budget decides whether a transaction counts by one test: it touches a cash account (see [Resolution rules](#resolution-rules)). A clearing account therefore cannot serve both on-budget and off-budget transfers — marking it cash brings *every* transfer it carries into the budget. Keep off-budget transfers, such as an IRA-to-IRA rollover between two accounts that are not cash, on an **unmarked** clearing account (or post the two legs directly), so they touch no cash account and the budget ignores them:
 
 ```beancount
 2026-03-01 * "IRA rollover out"
@@ -96,18 +75,12 @@ and the budget ignores them:
 
 ## Investments and securities
 
-The budget's ground truth is cash in the operating currency. Investments are
-**off-budget**: a share is not a budget dollar, and its price moves for reasons
-unrelated to your spending. This mirrors YNAB and Actual Budget, where
-investment accounts are "tracking" accounts whose value never enters the budget.
+The budget's ground truth is cash in the operating currency. Investments are **off-budget**: a share is not a budget dollar, and its price moves for reasons unrelated to your spending. This mirrors YNAB and Actual Budget, where investment accounts are "tracking" accounts whose value never enters the budget.
 
 A brokerage usually has two parts:
 
-- **Cash** (the sweep) may be on-budget with `on-budget: TRUE`; it is as
-  liquid as a savings account.
-- **Securities** are off-budget. Do not mark them `on-budget`; instead give
-  each one `envelope: "<name>"`, so buying spends from that envelope and selling
-  refunds it.
+- **Cash** (the sweep) may be on-budget with `on-budget: TRUE`; it is as liquid as a savings account.
+- **Securities** are off-budget. Do not mark them `on-budget`; instead give each one `envelope: "<name>"`, so buying spends from that envelope and selling refunds it.
 
 ```beancount
 2020-01-01 open Assets:Brokerage:Cash USD
@@ -121,15 +94,9 @@ A brokerage usually has two parts:
   Assets:Brokerage:Cash  -1000.00 USD
 ```
 
-Naming an envelope in metadata only *refers* to it; the envelope still has to
-be declared once with `custom "envelope" "open" "<name>"` on or after `start`.
-A sale that Beancount books across several lots resolves each lot posting, so an
-undeclared name is reported for every lot (`E001`).
+Naming an envelope in metadata only *refers* to it; the envelope still has to be declared once with `custom "envelope" "open" "<name>"` on or after `start`. A sale that Beancount books across several lots resolves each lot posting, so an undeclared name is reported for every lot (`E001`).
 
-The purchase is valued at its cost (`5 × 200.00 = 1000.00 USD`): the Taxable
-Investments envelope falls by 1000 and cash falls by 1000, so the invariant
-still holds. A sale with a capital gain refunds the cost basis to the envelope
-and sends the gain to the pool:
+The purchase is valued at its cost (`5 × 200.00 = 1000.00 USD`): the Taxable Investments envelope falls by 1000 and cash falls by 1000, so the invariant still holds. A sale with a capital gain refunds the cost basis to the envelope and sends the gain to the pool:
 
 ```beancount
 2026-02-05 * "Sell VTI"
@@ -138,18 +105,11 @@ and sends the gain to the pool:
   Income:Brokerage:Gains  -100.00 USD
 ```
 
-A posting already in the operating currency is unchanged. A currency with no
-cost or price in the operating currency is still a foreign currency (`E006`),
-and a security with no envelope is `E002` — the cash has to go somewhere.
+A posting already in the operating currency is unchanged. A currency with no cost or price in the operating currency is still a foreign currency (`E006`), and a security with no envelope is `E002` — the cash has to go somewhere.
 
-To keep the whole brokerage out of the budget instead, leave `on-budget` off
-the sweep too. Then none of its transactions move budget cash, so none are
-reported.
+To keep the whole brokerage out of the budget instead, leave `on-budget` off the sweep too. Then none of its transactions move budget cash, so none are reported.
 
-Treating a *stable* cash equivalent — a money-market fund, or T-bills pegged
-near 1.00 — as budget cash is conceivable, but volatile securities are not. If
-that ever lands it should be a separate notion (a commodity account valued at
-cost or mark), not `on-budget: TRUE`.
+Treating a *stable* cash equivalent — a money-market fund, or T-bills pegged near 1.00 — as budget cash is conceivable, but volatile securities are not. If that ever lands it should be a separate notion (a commodity account valued at cost or mark), not `on-budget: TRUE`.
 
 ## Ledger syntax
 
@@ -171,14 +131,11 @@ Accounts opt in explicitly; nothing is inherited from parent accounts.
 2020-01-01 open Income:Salary USD
 ```
 
-The reserved value `"pool"` sends an account's postings to the pool instead of
-an envelope. Use it for taxes and other deductions that never reach an envelope.
-Income and Equity accounts need no `envelope` — they flow to the pool by default.
+The reserved value `"pool"` sends an account's postings to the pool instead of an envelope. Use it for taxes and other deductions that never reach an envelope. Income and Equity accounts need no `envelope` — they flow to the pool by default.
 
 ### Directives
 
-One directive name, `"envelope"`, with a verb as the first argument. See
-[`schema.md`](schema.md) for the full reference.
+One directive name, `"envelope"`, with a verb as the first argument. See [`schema.md`](schema.md) for the full reference.
 
 ```beancount
 2024-01-01 custom "envelope" "start"
@@ -199,80 +156,22 @@ One directive name, `"envelope"`, with a verb as the first argument. See
 2029-01-01 custom "envelope" "unplan" "Mortgage"
 ```
 
-- `start` begins tracking. Earlier postings and allocations are ignored; the
-  pool starts at the cash balance just before this date.
-- `open` declares an envelope. Its metadata keys — `monthly`, `up-to`,
-  `priority`, `goal` and `by` — describe its **plan**: the funding parameters
-  that `fund --mode topup` and `suggest` read. With no metadata, the envelope
-  exists but is never auto-funded.
-- `open` also accepts `parent`, a free-form grouping label. Envelopes sharing a
-  parent are shown together under a heading in the report, with a subtotal of
-  their balances. It does not need to name another envelope, and it does not
-  affect funding, balances or the invariant. Parent headings and the envelopes
-  within them are ordered alphabetically; a leading number sorts as text, so
-  prefix a name with a zero-padded number (`01`, `02`, `10`) to put it in a
-  chosen place.
-- `allocate` moves money from the pool into an envelope. A negative amount moves
-  money back to the pool, so moving money between two envelopes is two
-  allocations: a negative one from the source and a positive one to the
-  destination.
+- `start` begins tracking. Earlier postings and allocations are ignored; the pool starts at the cash balance just before this date.
+- `open` declares an envelope. Its metadata keys — `monthly`, `up-to`, `priority`, `goal` and `by` — describe its **plan**: the funding parameters that `fund --mode topup` and `suggest` read. With no metadata, the envelope exists but is never auto-funded.
+- `open` also accepts `parent`, a free-form grouping label. Envelopes sharing a parent are shown together under a heading in the report, with a subtotal of their balances. It does not need to name another envelope, and it does not affect funding, balances or the invariant. Parent headings and the envelopes within them are ordered alphabetically; a leading number sorts as text, so prefix a name with a zero-padded number (`01`, `02`, `10`) to put it in a chosen place.
+- `allocate` moves money from the pool into an envelope. A negative amount moves money back to the pool, so moving money between two envelopes is two allocations: a negative one from the source and a positive one to the destination.
 - `close` retires an envelope. Its balance must be zero.
-- `plan` changes an envelope's plan from its date. It takes the **same** metadata
-  as `open` and changes only the fields it names, so `monthly: 2600.00` alone
-  leaves `priority`, `up-to`, `goal` and `by` as they were. `open` and `plan`
-  therefore resolve to the same object.
-- A plan funds an envelope one of three ways: `monthly` is the month's funding
-  target, `monthly` with an `up-to` ceiling adds that amount each month but stops
-  at a balance, or a `goal` with a `by` date is a one-shot savings goal. A `goal`
-  is mutually exclusive with both `monthly` and `up-to`, and a `goal` needs a
-  `by`. A plan that names only one half of a pair, combines keys that cannot go
-  together, or sets an `up-to` without a `monthly`, is reported as `E010` rather
-  than being silently ignored.
-- An `up-to` envelope's `monthly` is a per-month contribution allowance: each
-  month `fund` adds up to that amount, but never pushes the balance past the
-  ceiling. Once the balance reaches the ceiling the allowance is left unspent and
-  funding stops; spending re-opens room, but only the current month's remaining
-  allowance can refill it. So an envelope that is full, or whose month's
-  allowance is used up, reads as funded.
-- An envelope's **target** is what it should reach this month, and its **funded
-  amount** is what is credited toward it; the report reads it as under, on or
-  over plan by comparing the two. A `monthly` envelope is a **flow**: funded by
-  the money assigned that month — the month's allocation — so receiving the
-  planned amount reads as funded even after the month's spending, while a month
-  that allocates nothing reads as unfunded even when a balance carried in. An
-  `up-to` envelope is measured by its closing balance, the balance the ceiling
-  caps. A goal envelope's target is the on-track contribution — its `goal`, grown
-  linearly from the month the goal first took effect to its `by` month, counting
-  both ends, so the target is the full `goal` once `by` arrives — and it is
-  funded by its **cumulative contributions**: the goal month's opening balance
-  plus every allocation, income and refund since, with spending ignored. So a
-  goal that has been fully saved stays funded after the money is spent — take the
-  trip and the envelope still reads green, with a full ring. Only an explicit
-  un-save (a negative allocation) reduces it. The report colours and rings
-  envelopes by this comparison, and `fund --mode topup` funds up to it.
-  [`funding.md`](funding.md) is the reference for every plan shape and figure.
-- `explain` and the Fava closing popover spell out that comparison rather than
-  just the verdict: an `avgN` envelope lists the completed months it averaged,
-  an `up-to` envelope shows `min(ceiling, opening + monthly)` and the room left,
-  and a goal shows its `goal`, deadline and elapsed/total months behind the
-  target. Each also shows how full the envelope is, the amount credited, and the
-  top-up still suggested.
-- To save for a second round from the same goal envelope, either **raise the
-  `goal`** — the contributions carry, so only the difference is saved — or
-  **`unplan` then `plan`** to restart the clock and re-seed with whatever balance
-  remains. A `close` followed by a fresh `open` starts over from zero.
-- `unplan` clears an envelope's plan from its date. The envelope keeps its
-  balance and stays in reports, but nothing is planned for it and `topup` stops
-  funding it.
+- `plan` changes an envelope's plan from its date. It takes the **same** metadata as `open` and changes only the fields it names, so `monthly: 2600.00` alone leaves `priority`, `up-to`, `goal` and `by` as they were. `open` and `plan` therefore resolve to the same object.
+- A plan funds an envelope one of three ways: `monthly` is the month's funding target, `monthly` with an `up-to` ceiling adds that amount each month but stops at a balance, or a `goal` with a `by` date is a one-shot savings goal. A `goal` is mutually exclusive with both `monthly` and `up-to`, and a `goal` needs a `by`. A plan that names only one half of a pair, combines keys that cannot go together, or sets an `up-to` without a `monthly`, is reported as `E010` rather than being silently ignored.
+- An `up-to` envelope's `monthly` is a per-month contribution allowance: each month `fund` adds up to that amount, but never pushes the balance past the ceiling. Once the balance reaches the ceiling the allowance is left unspent and funding stops; spending re-opens room, but only the current month's remaining allowance can refill it. So an envelope that is full, or whose month's allowance is used up, reads as funded.
+- An envelope's **target** is what it should reach this month, and its **funded amount** is what is credited toward it; the report reads it as under, on or over plan by comparing the two. A `monthly` envelope is a **flow**: funded by the money assigned that month — the month's allocation — so receiving the planned amount reads as funded even after the month's spending, while a month that allocates nothing reads as unfunded even when a balance carried in. An `up-to` envelope is measured by its closing balance, the balance the ceiling caps. A goal envelope's target is the on-track contribution — its `goal`, grown linearly from the month the goal first took effect to its `by` month, counting both ends, so the target is the full `goal` once `by` arrives — and it is funded by its **cumulative contributions**: the goal month's opening balance plus every allocation, income and refund since, with spending ignored. So a goal that has been fully saved stays funded after the money is spent — take the trip and the envelope still reads green, with a full ring. Only an explicit un-save (a negative allocation) reduces it. The report colours and rings envelopes by this comparison, and `fund --mode topup` funds up to it. [`funding.md`](funding.md) is the reference for every plan shape and figure.
+- `explain` and the Fava closing popover spell out that comparison rather than just the verdict: an `avgN` envelope lists the completed months it averaged, an `up-to` envelope shows `min(ceiling, opening + monthly)` and the room left, and a goal shows its `goal`, deadline and elapsed/total months behind the target. Each also shows how full the envelope is, the amount credited, and the top-up still suggested.
+- To save for a second round from the same goal envelope, either **raise the `goal`** — the contributions carry, so only the difference is saved — or **`unplan` then `plan`** to restart the clock and re-seed with whatever balance remains. A `close` followed by a fresh `open` starts over from zero.
+- `unplan` clears an envelope's plan from its date. The envelope keeps its balance and stays in reports, but nothing is planned for it and `topup` stops funding it.
 
-`monthly` is a number, or `"avgN"` for the average of the last `N` completed
-months of spending — `"avg3"`, `"avg6"`, and so on.
+`monthly` is a number, or `"avgN"` for the average of the last `N` completed months of spending — `"avg3"`, `"avg6"`, and so on.
 
-Directives are processed in date order, and a `plan` or `unplan` must name an
-envelope that has already been declared. So it must be dated on or after its
-`open`, and that `open` must itself be on or after `start` (an `open` before
-`start` is ignored, `W002`). A `plan`/`unplan` that names an envelope not yet
-declared is reported as `E001`.
+Directives are processed in date order, and a `plan` or `unplan` must name an envelope that has already been declared. So it must be dated on or after its `open`, and that `open` must itself be on or after `start` (an `open` before `start` is ignored, `W002`). A `plan`/`unplan` that names an envelope not yet declared is reported as `E001`.
 
 ### Overrides
 
@@ -290,12 +189,8 @@ The same `envelope` key works on a transaction or on a single posting:
 
 Every transaction on or after the start date is processed in four steps:
 
-1. **Filter.** A transaction with no posting to a cash account is ignored, since
-   no cash moved. Clearing and transfer accounts must therefore be classified
-   deliberately — see [Transfers and clearing accounts](#transfers-and-clearing-accounts).
-2. **Classify postings.** A posting is cash if its account has
-   `on-budget: TRUE`, otherwise non-cash. A `FALSE` value is the same as
-   leaving the key out.
+1. **Filter.** A transaction with no posting to a cash account is ignored, since no cash moved. Clearing and transfer accounts must therefore be classified deliberately — see [Transfers and clearing accounts](#transfers-and-clearing-accounts).
+2. **Classify postings.** A posting is cash if its account has `on-budget: TRUE`, otherwise non-cash. A `FALSE` value is the same as leaving the key out.
 3. **Resolve the envelope** of each non-cash posting, first match wins:
    1. `envelope` metadata on the posting.
    2. `envelope` metadata on the transaction — but only for postings whose
@@ -304,28 +199,13 @@ Every transaction on or after the start date is processed in four steps:
    3. `envelope` metadata on the account's `open`.
    4. Income and Equity accounts with none of these resolve to the pool. Any
       other account is a validation error.
-4. **Apply effects.** A non-cash posting with signed units `u` changes the
-   resolved envelope (or the pool) by `-u`.
+4. **Apply effects.** A non-cash posting with signed units `u` changes the resolved envelope (or the pool) by `-u`.
 
-A purchase (`Expenses +50`) lowers its envelope by 50; a refund (`Expenses -20`)
-raises it by 20. Cash-to-cash transactions are neutral, which is why a credit
-card payment from checking changes nothing — spending hits its envelope when the
-purchase hits the card.
+A purchase (`Expenses +50`) lowers its envelope by 50; a refund (`Expenses -20`) raises it by 20. Cash-to-cash transactions are neutral, which is why a credit card payment from checking changes nothing — spending hits its envelope when the purchase hits the card.
 
-**Only income that moves cash is counted.** The filter in step 1 is
-transaction-wide: a transaction is processed only if it contains a posting to a
-cash account. Income counts only when it rides along in such a transaction —
-a paycheque (`Income:Salary` alongside `Assets:Checking`), say. Income that
-never touches a cash account is invisible to the budget: accrued interest,
-reinvested dividends, or an employer 401k match credited straight to a
-brokerage account produce no cash posting, so the whole transaction is skipped.
-The model is deliberately cash-centric — every dollar in a cash account is
-either assigned to an envelope or sits in the pool.
+**Only income that moves cash is counted.** The filter in step 1 is transaction-wide: a transaction is processed only if it contains a posting to a cash account. Income counts only when it rides along in such a transaction — a paycheque (`Income:Salary` alongside `Assets:Checking`), say. Income that never touches a cash account is invisible to the budget: accrued interest, reinvested dividends, or an employer 401k match credited straight to a brokerage account produce no cash posting, so the whole transaction is skipped. The model is deliberately cash-centric — every dollar in a cash account is either assigned to an envelope or sits in the pool.
 
-Payroll deferrals need one override. If `Assets:401k` has
-`envelope: "Retirement"`, a payroll deduction would lower Retirement without
-ever passing through the pool. Put `envelope: "pool"` on the 401k posting to
-charge the pool instead:
+Payroll deferrals need one override. If `Assets:401k` has `envelope: "Retirement"`, a payroll deduction would lower Retirement without ever passing through the pool. Put `envelope: "pool"` on the 401k posting to charge the pool instead:
 
 ```beancount
 2024-01-31 * "Payroll"
@@ -338,69 +218,32 @@ charge the pool instead:
 
 ## Computation
 
-For each envelope and month, the closing balance is the opening balance plus
-allocations plus activity:
+For each envelope and month, the closing balance is the opening balance plus allocations plus activity:
 
 ```
 closing(e, m) = closing(e, m-1) + allocated(e, m) + activity(e, m)
 ```
 
-- **Opening.** The first month starts every envelope at 0. Later months start at
-  the previous closing.
-- **Allocated.** Allocations dated in the month. Moving money between envelopes
-  is two allocations, so it appears here rather than as a separate rule.
+- **Opening.** The first month starts every envelope at 0. Later months start at the previous closing.
+- **Allocated.** Allocations dated in the month. Moving money between envelopes is two allocations, so it appears here rather than as a separate rule.
 - **Activity.** The summed envelope effects, dated by transaction date.
-- **Pool.** Pool closing = pool opening + pool effects − allocations dated in the
-  month.
+- **Pool.** Pool closing = pool opening + pool effects − allocations dated in the month.
 
-Overspending needs no special rule: a negative balance simply carries forward
-until later allocations cover it. A pool that *closes a month* negative means
-more was allocated than the cash available by that month end, and is reported as
-a warning (`W001`). Only month ends are judged: a dip within a month that
-recovers by its end is timing, not an error, so it is not reported — the budget
-carries balances month to month, and the money did arrive. (`pool LEDGER` still
-prints the pool's per-transaction ledger with the running balance after each
-line, so such a dip can still be traced.)
+Overspending needs no special rule: a negative balance simply carries forward until later allocations cover it. A pool that *closes a month* negative means more was allocated than the cash available by that month end, and is reported as a warning (`W001`). Only month ends are judged: a dip within a month that recovers by its end is timing, not an error, so it is not reported — the budget carries balances month to month, and the money did arrive. (`pool LEDGER` still prints the pool's per-transaction ledger with the running balance after each line, so such a dip can still be traced.)
 
 ## Validation
 
-The plugin runs these checks at load time and returns them as ordinary
-Beancount errors, so Fava lists them on its errors page. Errors never stop the
-ledger from loading. See [`errors.md`](errors.md) for the full list and the fix
-for each.
+The plugin runs these checks at load time and returns them as ordinary Beancount errors, so Fava lists them on its errors page. Errors never stop the ledger from loading. See [`errors.md`](errors.md) for the full list and the fix for each.
 
-The one to know best is the **invariant** (`E007`): at every month end, the pool
-plus all envelope balances must equal the ledger's cash balance. A mismatch means
-a posting was missed or unsupported.
+The one to know best is the **invariant** (`E007`): at every month end, the pool plus all envelope balances must equal the ledger's cash balance. A mismatch means a posting was missed or unsupported.
 
-Because the invariant cross-checks flows against cash, it is sensitive to
-transactions that do not balance exactly. Beancount accepts a small imbalance,
-sized by its inferred tolerance and by `option "inferred_tolerance_default"`. The
-budget needs exact arithmetic, so it treats any residual within that same
-tolerance as rounding and folds it into the pool — the same place an
-`Equity:Rounding-Errors` posting would land. A residual beyond the tolerance is
-left alone: Beancount reports the imbalance itself, and the month-end invariant
-(`E007`) reflects it until it is booked.
+Because the invariant cross-checks flows against cash, it is sensitive to transactions that do not balance exactly. Beancount accepts a small imbalance, sized by its inferred tolerance and by `option "inferred_tolerance_default"`. The budget needs exact arithmetic, so it treats any residual within that same tolerance as rounding and folds it into the pool — the same place an `Equity:Rounding-Errors` posting would land. A residual beyond the tolerance is left alone: Beancount reports the imbalance itself, and the month-end invariant (`E007`) reflects it until it is booked.
 
-Amounts are valued at the precision Beancount displays the operating currency
-(`options["dcontext"]`) — the same figure it prints — so a commodity posting
-whose cost-basis weight carries a sub-cent tail, such as an imported trade of
-`1.68 VTI {1.0001 USD}`, moves its envelope by `1.68`, not `1.680168`. Without
-that rounding the tail would linger as a `-0.00` closing balance, turn the cell
-red, and could trip the pool-floor warning (`W001`). The tolerance is still
-judged on the raw Beancount weights, but the folded residual is the
-display-precision leftover, so the invariant stays exact to the cent.
+Amounts are valued at the precision Beancount displays the operating currency (`options["dcontext"]`) — the same figure it prints — so a commodity posting whose cost-basis weight carries a sub-cent tail, such as an imported trade of `1.68 VTI {1.0001 USD}`, moves its envelope by `1.68`, not `1.680168`. Without that rounding the tail would linger as a `-0.00` closing balance, turn the cell red, and could trip the pool-floor warning (`W001`). The tolerance is still judged on the raw Beancount weights, but the folded residual is the display-precision leftover, so the invariant stays exact to the cent.
 
 If there is no `start` directive, the plugin does nothing and warns (`W003`).
 
-Beancount runs its `beancount.ops.pad` plugin **after** every user plugin, so a
-`pad` directive's synthesized transaction is not visible to a plugin that runs
-earlier. The CLI and the Fava report recompute on the finished ledger, so to keep
-its diagnostics in step the plugin applies `pad` to a working copy before it
-computes. Set `option "plugin_processing_mode" "raw"` to control plugin ordering
-yourself; the plugin then leaves `pad` to the ledger. Note that
-`beancount.plugins.auto` (via `--auto`) also runs after user plugins. Explicit
-opening-balance transactions are clearer than `pad` and avoid the extra pass.
+Beancount runs its `beancount.ops.pad` plugin **after** every user plugin, so a `pad` directive's synthesized transaction is not visible to a plugin that runs earlier. The CLI and the Fava report recompute on the finished ledger, so to keep its diagnostics in step the plugin applies `pad` to a working copy before it computes. Set `option "plugin_processing_mode" "raw"` to control plugin ordering yourself; the plugin then leaves `pad` to the ledger. Note that `beancount.plugins.auto` (via `--auto`) also runs after user plugins. Explicit opening-balance transactions are clearer than `pad` and avoid the extra pass.
 
 ## Command line
 
@@ -417,75 +260,24 @@ beancount-envelope-budget pin LEDGER --account REGEX [--through DATE] [--write]
 beancount-envelope-budget consolidate LEDGER [--envelope REGEX] [--month YYYY-MM] [--write]
 ```
 
-See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget
---help`.
+See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget --help`.
 
 - `check` exits non-zero on any error.
-- `report` prints opening, allocated, activity and closing for one to three
-  months, plus the pool and cash rows.
-- `suggest` prints the monthly amount each `goal` envelope needs to reach its
-  goal, then reviews every open, non-goal envelope's spending over the trailing
-  window (default 12 completed months, `--window N`): the average monthly
-  spending, the plan as written, how its months fell under, on or over the plan,
-  how often its balance closed negative, and a short reading. A summary line
-  compares the total planned monthly allocation — including goal contributions —
-  against the average monthly pool inflow, so you can see whether the plans
-  allocate more than the pool receives. `--json` emits the whole review. Goal
-  envelopes are excluded from the rows because they are funded by contributions,
-  not spending, and the review is flagged as experimental.
-- `explain` prints how each planned envelope is evaluated for a month — the
-  resolved `monthly` (and the completed months an `avgN` averaged), the `up-to`
-  ceiling formula, or the goal schedule — alongside the funding target, the
-  funded amount, whether the envelope is under, on or over, and the suggested
-  top-up, so a funding suggestion is never a bare number. `--envelope` filters
-  by name and `--json` prints the lines per envelope.
-- `history` prints one envelope's whole history as a vertical ledger, grouped by
-  month: its `open` and plan directives, every allocation, the postings that
-  moved it and its `close`, each with the running balance. `--envelope` selects
-  the envelope (by regular expression) and `--json` prints the months and lines.
-- `pool` prints the pool's per-transaction ledger — both directions, with the running
-  balance after each line — so an intra-month dip (which `W001` no longer reports)
-  can be traced. A bare run opens on
-  the pool's lowest month when it ever went negative, else the latest month;
-  `--all` shows the whole history, and `--month`/`--date` window it.
-- `fund` prints `allocate` directives (redirect them into a file you include), or
-  appends them with `--write FILE`; plain `fund` never edits your ledger. Besides
-  the backfill modes it has `topup`, which funds planned envelopes to their target
-  in priority order, and `fully-fund`/`fund-available`, which fund every
-  envelope to its plan or its overspend, whichever is greater — the latter
-  stopping before the pool would go negative. The month actions in the Fava
-  report generate the same directives.
-- `allocate`, `plan` and `unplan` print one directive, or append it with
-  `--write FILE`, so the CLI can make the same ledger edits the Fava report can.
-- `pin` freezes an account's current envelope onto its existing postings so you
-  can change the account's metadata without reclassifying history.
-- `consolidate` merges an envelope-month's several `allocate` directives into a
-  single one, dated the last day of the month (or today, for the current month),
-  so a history funded in several passes reads as one line. The net amount is
-  unchanged, so every balance, the pool and the invariant are unchanged. With no
-  filter it walks the whole ledger; `--envelope` limits it to matching envelopes
-  and `--month` to one month. A month that already holds a single directive is
-  left alone, and a month whose allocations net to zero loses them all. It
-  prints a diff and edits nothing until you pass `--write`.
+- `report` prints opening, allocated, activity and closing for one to three months, plus the pool and cash rows.
+- `suggest` prints the monthly amount each `goal` envelope needs to reach its goal, then reviews every open, non-goal envelope's spending over the trailing window (default 12 completed months, `--window N`): the average monthly spending, the plan as written, how its months fell under, on or over the plan, how often its balance closed negative, and a short reading. A summary line compares the total planned monthly allocation — including goal contributions — against the average monthly pool inflow, so you can see whether the plans allocate more than the pool receives. `--json` emits the whole review. Goal envelopes are excluded from the rows because they are funded by contributions, not spending, and the review is flagged as experimental.
+- `explain` prints how each planned envelope is evaluated for a month — the resolved `monthly` (and the completed months an `avgN` averaged), the `up-to` ceiling formula, or the goal schedule — alongside the funding target, the funded amount, whether the envelope is under, on or over, and the suggested top-up, so a funding suggestion is never a bare number. `--envelope` filters by name and `--json` prints the lines per envelope.
+- `history` prints one envelope's whole history as a vertical ledger, grouped by month: its `open` and plan directives, every allocation, the postings that moved it and its `close`, each with the running balance. `--envelope` selects the envelope (by regular expression) and `--json` prints the months and lines.
+- `pool` prints the pool's per-transaction ledger — both directions, with the running balance after each line — so an intra-month dip (which `W001` no longer reports) can be traced. A bare run opens on the pool's lowest month when it ever went negative, else the latest month; `--all` shows the whole history, and `--month`/`--date` window it.
+- `fund` prints `allocate` directives (redirect them into a file you include), or appends them with `--write FILE`; plain `fund` never edits your ledger. Besides the backfill modes it has `topup`, which funds planned envelopes to their target in priority order, and `fully-fund`/`fund-available`, which fund every envelope to its plan or its overspend, whichever is greater — the latter stopping before the pool would go negative. The month actions in the Fava report generate the same directives.
+- `allocate`, `plan` and `unplan` print one directive, or append it with `--write FILE`, so the CLI can make the same ledger edits the Fava report can.
+- `pin` freezes an account's current envelope onto its existing postings so you can change the account's metadata without reclassifying history.
+- `consolidate` merges an envelope-month's several `allocate` directives into a single one, dated the last day of the month (or today, for the current month), so a history funded in several passes reads as one line. The net amount is unchanged, so every balance, the pool and the invariant are unchanged. With no filter it walks the whole ledger; `--envelope` limits it to matching envelopes and `--month` to one month. A month that already holds a single directive is left alone, and a month whose allocations net to zero loses them all. It prints a diff and edits nothing until you pass `--write`.
 
 ## Consolidating allocations
 
-Funding an envelope more than once in a month scatters its history across many
-`allocate` directives. `consolidate` tidies that up: for each envelope-month it
-sums the directives, keeps the latest one's place, re-dates it to the month end
-(today, for the current month) and deletes the rest. The sum is exactly what the
-budget already used, so the report, the pool and the invariant are unchanged —
-this is a readability change, not a budget change. Because `W001` now judges
-month ends, re-dating the allocations to month end cannot change any diagnostic,
-either.
+Funding an envelope more than once in a month scatters its history across many `allocate` directives. `consolidate` tidies that up: for each envelope-month it sums the directives, keeps the latest one's place, re-dates it to the month end (today, for the current month) and deletes the rest. The sum is exactly what the budget already used, so the report, the pool and the invariant are unchanged — this is a readability change, not a budget change. Because `W001` now judges month ends, re-dating the allocations to month end cannot change any diagnostic, either.
 
-It is deliberately conservative. It merges only months with **two or more**
-directives; a lone directive — even one not dated month-end — is left as it is.
-A month whose allocations cancel out keeps no directive rather than a zero one.
-A directive with no source location (a plugin-generated one, say) blocks its
-whole month, which is reported and skipped rather than half-merged. And it is
-opt-in twice over: a bare run prints a unified diff, and only `--write` touches
-the files, by literal line edits that preserve line endings and the inode.
+It is deliberately conservative. It merges only months with **two or more** directives; a lone directive — even one not dated month-end — is left as it is. A month whose allocations cancel out keeps no directive rather than a zero one. A directive with no source location (a plugin-generated one, say) blocks its whole month, which is reported and skipped rather than half-merged. And it is opt-in twice over: a bare run prints a unified diff, and only `--write` touches the files, by literal line edits that preserve line endings and the inode.
 
 ## Fava report
 
@@ -495,205 +287,63 @@ Add the extension line and an **Envelopes** report appears in the sidebar:
 2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext"
 ```
 
-It is read-only unless you configure a write target; by default it shows one to
-three months. Clicking a planned envelope's closing figure opens a popover that
-explains its evaluation — the target's formula, the funded amount, how full it is
-and the under/on/over verdict — matching the CLI's `explain` output, with a link
-to the plan directive in force. Hovering or focusing an activity figure reveals
-a popover listing the postings behind it; each line links to that transaction in
-Fava's entry popup.
-The pool row's activity figure opens the same popover, showing the pool's ledger
-— activity and allocations both — with the running balance after each line.
-The line reads `payee - narration`: the transaction's payee, then the posting's
-`narration` metadata — the `autobean.narration` convention — falling back to the
-transaction's narration, so the line items of one transaction read apart, such as
-a mortgage payment's `Principal`, `Escrow` and `Interest`. A popover sizes itself
-to its widest line and stays inside the window: it grows left or right of the
-cell, whichever side has more room, so it never runs under Fava's sidebar, and a
-ledger line is never wrapped — it scrolls sideways only if it truly cannot fit.
-This sizing is the extension's JavaScript; without it the popovers still open,
-anchored to the cell. The months sit side by side when the window is wide enough
-and stack when it is narrow, and envelopes are grouped by their `parent` label
-with a subtotal per group, parent headings and envelopes in alphabetical order.
-Parent categories collapse to their subtotal when their name is clicked.
+It is read-only unless you configure a write target; by default it shows one to three months. Clicking a planned envelope's closing figure opens a popover that explains its evaluation — the target's formula, the funded amount, how full it is and the under/on/over verdict — matching the CLI's `explain` output, with a link to the plan directive in force. Hovering or focusing an activity figure reveals a popover listing the postings behind it; each line links to that transaction in Fava's entry popup. The pool row's activity figure opens the same popover, showing the pool's ledger — activity and allocations both — with the running balance after each line. The line reads `payee - narration`: the transaction's payee, then the posting's `narration` metadata — the `autobean.narration` convention — falling back to the transaction's narration, so the line items of one transaction read apart, such as a mortgage payment's `Principal`, `Escrow` and `Interest`. A popover sizes itself to its widest line and stays inside the window: it grows left or right of the cell, whichever side has more room, so it never runs under Fava's sidebar, and a ledger line is never wrapped — it scrolls sideways only if it truly cannot fit. This sizing is the extension's JavaScript; without it the popovers still open, anchored to the cell. The months sit side by side when the window is wide enough and stack when it is narrow, and envelopes are grouped by their `parent` label with a subtotal per group, parent headings and envelopes in alphabetical order. Parent categories collapse to their subtotal when their name is clicked.
 
-The table is a self-contained scroll area: its header, envelope column and
-pool/cash rows stay in place, and the month links stay reachable at the top, so
-you can move around a long or wide report. Each parent heading pins under the
-table header while its group scrolls, and a chevron in the name column's header
-folds every parent at once. The parents you collapse stay collapsed as you
-change months, so the report keeps the shape you left it in. The current month's header is labelled `(current)`, alongside the
-`(projected)` label, and a "this month" link jumps to it. Closing balances are
-colour-coded — red when overspent, green when funded to their plan, amber when
-under plan — and an opening balance turns red when negative. Whether an
-envelope is funded is judged by its funded amount, as above: a `monthly`
-envelope stays green once it has received its month's money even if it has since
-been spent, while an `up-to` envelope is measured by its balance and a goal
-envelope by its cumulative contributions, so it too stays green after the money
-is spent. A planned envelope also carries a small ring beside its closing
-balance, filled in proportion to that funded amount against its goal (its
-`goal`, its `up-to` ceiling, or its monthly `target` when it has neither). The
-ring's shape, not just its colour, tells the three statuses apart: a solid ring
-is on plan, a dashed ring is under plan, and a filled dot in the ring's centre
-marks a balance above its plan target — an over-funded `monthly` or goal
-envelope — with the amount above plan in the closing popover. So the status
-reads without relying on colour, and a `?` beside the month strip opens a
-legend that keys each shape. The colours come from Fava's own variables, so they follow its light
-and dark schemes, save the amber, which is darkened in the light scheme so it
-clears the WCAG AA contrast level.
+The table is a self-contained scroll area: its header, envelope column and pool/cash rows stay in place, and the month links stay reachable at the top, so you can move around a long or wide report. Each parent heading pins under the table header while its group scrolls, and a chevron in the name column's header folds every parent at once. The parents you collapse stay collapsed as you change months, so the report keeps the shape you left it in. The current month's header is labelled `(current)`, alongside the `(projected)` label, and a "this month" link jumps to it. Closing balances are colour-coded — red when overspent, green when funded to their plan, amber when under plan — and an opening balance turns red when negative. Whether an envelope is funded is judged by its funded amount, as above: a `monthly` envelope stays green once it has received its month's money even if it has since been spent, while an `up-to` envelope is measured by its balance and a goal envelope by its cumulative contributions, so it too stays green after the money is spent. A planned envelope also carries a small ring beside its closing balance, filled in proportion to that funded amount against its goal (its `goal`, its `up-to` ceiling, or its monthly `target` when it has neither). The ring's shape, not just its colour, tells the three statuses apart: a solid ring is on plan, a dashed ring is under plan, and a filled dot in the ring's centre marks a balance above its plan target — an over-funded `monthly` or goal envelope — with the amount above plan in the closing popover. So the status reads without relying on colour, and a `?` beside the month strip opens a legend that keys each shape. The colours come from Fava's own variables, so they follow its light and dark schemes, save the amber, which is darkened in the light scheme so it clears the WCAG AA contrast level.
 
-Each month's header also carries one summary ring for the whole month, keyed by
-the worst status among the envelopes open in it: any negative balance outranks
-an under-plan envelope, which outranks an over-plan one, which outranks a month
-where every planned envelope is on plan. It uses the same shapes — a solid ring,
-a dashed ring, a ring with a centre dot, or, for a negative balance, a filled
-disc — and opening it lists how many envelopes fall in each state. When writing
-is configured, that popover also holds the month's bulk funding actions.
+Each month's header also carries one summary ring for the whole month, keyed by the worst status among the envelopes open in it: any negative balance outranks an under-plan envelope, which outranks an over-plan one, which outranks a month where every planned envelope is on plan. It uses the same shapes — a solid ring, a dashed ring, a ring with a centre dot, or, for a negative balance, a filled disc — and opening it lists how many envelopes fall in each state. When writing is configured, that popover also holds the month's bulk funding actions.
 
-Set the default number of months (1 to 3) with an optional config, a
-stringified Python mapping on the extension line; the `months` URL parameter
-still overrides it:
+Set the default number of months (1 to 3) with an optional config, a stringified Python mapping on the extension line; the `months` URL parameter still overrides it:
 
 ```beancount
 2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext" "{'months': 2}"
 ```
 
-Add `'color-closing-balance': False` to drop the red, green and amber from the
-closing balances (the envelope, pool and cash closing figures alike); the ring's
-shape still tells the plan status, so nothing is lost to a colour-blind reader
-who prefers no colour at all. The opening balance's red for a negative balance
-is unaffected.
+Add `'color-closing-balance': False` to drop the red, green and amber from the closing balances (the envelope, pool and cash closing figures alike); the ring's shape still tells the plan status, so nothing is lost to a colour-blind reader who prefers no colour at all. The opening balance's red for a negative balance is unaffected.
 
 ### Monthly Reports
 
-The **Monthly Reports** tab (the link beside *Envelopes*, or
-`?view=monthly_reports`) shows the budget's whole history rather than one to
-three months, as table rows of month columns that scroll together horizontally.
-The first row is the cash and pool balance per month; the rest rank the top
-spending, allocated and ending-balance envelopes. Every column is the same fixed
-width, and each row's title stays pinned as its months scroll past. The tab is
-plain tables — no JavaScript and no charting dependency.
+The **Monthly Reports** tab (the link beside *Envelopes*, or `?view=monthly_reports`) shows the budget's whole history rather than one to three months, as table rows of month columns that scroll together horizontally. The first row is the cash and pool balance per month; the rest rank the top spending, allocated and ending-balance envelopes. Every column is the same fixed width, and each row's title stays pinned as its months scroll past. The tab is plain tables — no JavaScript and no charting dependency.
 
-When a date filter is set at the top of the Fava window, the Monthly Reports tab
-narrows to the months that fall inside it, and shows only those columns. The
-balances are cumulative, so they are still drawn from the whole budget and simply
-*displayed* for the months in range, never recomputed from a truncated history.
-With no filter the tab spans full history, as does the CLI `report`, which has no
-window.
+When a date filter is set at the top of the Fava window, the Monthly Reports tab narrows to the months that fall inside it, and shows only those columns. The balances are cumulative, so they are still drawn from the whole budget and simply *displayed* for the months in range, never recomputed from a truncated history. With no filter the tab spans full history, as does the CLI `report`, which has no window.
 
 ### Plan Review
 
-The **Plan Review** tab (`?view=plan_review`) is the Fava face of the CLI
-`suggest` review, sharing `build_suggestions` so the two cannot disagree. It
-reviews the trailing window of completed months — the last year, or whatever
-shorter history the ledger has, ending with the month before today so a
-future-dated directive or the current, partial month is never counted — as one
-table: each open, non-goal envelope's average monthly spending, the number of
-months sampled, its **plan as written** (a number, an `avgN`, or
-`<monthly> up to <ceiling>`), how its months fell under, on or over that plan,
-how often its balance closed negative, and a short reading. Rows are grouped by
-`parent`, with headings in the same order as the Envelopes grid and envelopes
-with no parent last. A legend beneath the table defines every reading: `no plan`,
-`no history`, `over-saving` (a `monthly` plan above its spending, or an `up-to`
-envelope at its ceiling), `under-saving`, `on track`, `sinking fund` (an `up-to`
-envelope filling toward its ceiling) and `over allowance` (an `up-to` envelope
-spending above its monthly allowance). A summary line above the table compares
-the total planned monthly allocation — including each goal envelope's on-track
-contribution — against the average monthly pool inflow, so an over-committed
-budget is visible at a glance. Goal envelopes are excluded from the rows because
-they are savings contributions, not spending. The tab is advisory: it is plain
-tables and never writes, and it is marked **experimental** — its readings are
-heuristics, so treat them as guidance.
+The **Plan Review** tab (`?view=plan_review`) is the Fava face of the CLI `suggest` review, sharing `build_suggestions` so the two cannot disagree. It reviews the trailing window of completed months — the last year, or whatever shorter history the ledger has, ending with the month before today so a future-dated directive or the current, partial month is never counted — as one table: each open, non-goal envelope's average monthly spending, the number of months sampled, its **plan as written** (a number, an `avgN`, or `<monthly> up to <ceiling>`), how its months fell under, on or over that plan, how often its balance closed negative, and a short reading. Rows are grouped by `parent`, with headings in the same order as the Envelopes grid and envelopes with no parent last. A legend beneath the table defines every reading: `no plan`, `no history`, `over-saving` (a `monthly` plan above its spending, or an `up-to` envelope at its ceiling), `under-saving`, `on track`, `sinking fund` (an `up-to` envelope filling toward its ceiling) and `over allowance` (an `up-to` envelope spending above its monthly allowance). A summary line above the table compares the total planned monthly allocation — including each goal envelope's on-track contribution — against the average monthly pool inflow, so an over-committed budget is visible at a glance. Goal envelopes are excluded from the rows because they are savings contributions, not spending. The tab is advisory: it is plain tables and never writes, and it is marked **experimental** — its readings are heuristics, so treat them as guidance.
 
 ### Envelope History
 
-The **Envelope History** tab (`?view=envelope`, with an envelope selector, or
-`?envelope=NAME` to jump straight to one) shows a single envelope's whole
-history as a vertical ledger, grouped by month. Every `custom "envelope"`
-directive that acts on the envelope — its `open` and base plan, each
-`plan`/`unplan`, every `allocate` and its `close` — appears interleaved with the
-postings that moved it, each line dated, with the running balance after it so a
-month's opening and closing are visible line by line. A line with a source
-directive links to it in Fava's editor, where it can be changed or deleted
-through Fava's conflict-guarded source-slice machinery. Each envelope's plan
-popover in the grid links here too.
+The **Envelope History** tab (`?view=envelope`, with an envelope selector, or `?envelope=NAME` to jump straight to one) shows a single envelope's whole history as a vertical ledger, grouped by month. Every `custom "envelope"` directive that acts on the envelope — its `open` and base plan, each `plan`/`unplan`, every `allocate` and its `close` — appears interleaved with the postings that moved it, each line dated, with the running balance after it so a month's opening and closing are visible line by line. A line with a source directive links to it in Fava's editor, where it can be changed or deleted through Fava's conflict-guarded source-slice machinery. Each envelope's plan popover in the grid links here too.
 
-With `write` configured the tab also edits: it can add an allocation, set or
-clear a plan (the same modal flow the grid uses), and **consolidate** the
-envelope — a *Consolidate history* button for all time and a *Consolidate this
-month* button per month, both reusing the `consolidate` planner, so the CLI and
-the report never disagree.
+With `write` configured the tab also edits: it can add an allocation, set or clear a plan (the same modal flow the grid uses), and **consolidate** the envelope — a *Consolidate history* button for all time and a *Consolidate this month* button per month, both reusing the `consolidate` planner, so the CLI and the report never disagree.
 
 ### Editing from the report
 
-Add a `write` key naming a Beancount file, relative to the ledger's directory, to
-let the report append `custom "envelope"` directives:
+Add a `write` key naming a Beancount file, relative to the ledger's directory, to let the report append `custom "envelope"` directives:
 
 ```beancount
 2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext" "{'write': 'beans/Envelope.bean'}"
 ```
 
-A target that escapes the ledger directory or is not a `.bean`/`.beancount` file
-is refused, and writing stays off when the key is absent. With it set, the report
-grows popovers, opened by clicking the figure or the envelope name and closed by
-clicking anywhere else, and none needing JavaScript:
+A target that escapes the ledger directory or is not a `.bean`/`.beancount` file is refused, and writing stays off when the key is absent. With it set, the report grows popovers, opened by clicking the figure or the envelope name and closed by clicking anywhere else, and none needing JavaScript:
 
-- **Every allocation figure** lists that month's `allocate` directives. Each one
-  links to Fava's own editor, where it can be changed or deleted through Fava's
-  conflict-guarded source-slice machinery; the popover also has a form to add a
-  new allocation. Its amount is prefilled with the envelope's plan top-up — the
-  gap to its funding target, so money already allocated is not asked for twice —
-  falling back to covering the month's overspend when the plan is met or there
-  is none; the popover also shows the derivation behind that prefill, so the
-  suggested number is not a bare figure. A second, labelled quick-fill covers
-  that overspending directly when it differs from the prefill, so a partly
-  funded envelope can be funded to plan or brought back to zero either way.
-- **Every envelope name** lists the envelope's whole plan history — its `open`
-  base plan and each dated `plan`/`unplan` after it — with the same links, plus
-  forms to add a plan (opening on the plan in force, with a fresh date) and to
-  clear the plan.
-- **The month heading** offers the month-level funding actions: *fully fund*
-  every envelope to its plan or its overspend, whichever is greater, and *fund
-  with available* the same but in priority order from the pool, stopping before
-  it would go negative. Each expands to one `allocate` per envelope that needs
-  funding, shown as a single block of Beancount in the modal.
+- **Every allocation figure** lists that month's `allocate` directives. Each one links to Fava's own editor, where it can be changed or deleted through Fava's conflict-guarded source-slice machinery; the popover also has a form to add a new allocation. Its amount is prefilled with the envelope's plan top-up — the gap to its funding target, so money already allocated is not asked for twice — falling back to covering the month's overspend when the plan is met or there is none; the popover also shows the derivation behind that prefill, so the suggested number is not a bare figure. A second, labelled quick-fill covers that overspending directly when it differs from the prefill, so a partly funded envelope can be funded to plan or brought back to zero either way.
+- **Every envelope name** lists the envelope's whole plan history — its `open` base plan and each dated `plan`/`unplan` after it — with the same links, plus forms to add a plan (opening on the plan in force, with a fresh date) and to clear the plan.
+- **The month heading** offers the month-level funding actions: *fully fund* every envelope to its plan or its overspend, whichever is greater, and *fund with available* the same but in priority order from the pool, stopping before it would go negative. Each expands to one `allocate` per envelope that needs funding, shown as a single block of Beancount in the modal.
 
-Adding a directive opens a small modal showing the Beancount text the form's
-fields describe — rendered by `actions.py`, the same generators the CLI's
-`allocate`, `plan` and `unplan` commands print or write — which can be edited
-before it is saved. A new directive is dated the last day of its month, or today
-for the current month, so a form for a future month funds that month. The modal
-is a single vanilla-JS module (no build step);
-without JavaScript the forms submit their fields directly, so the report still
-works. Writes go through Fava's own file API, so its lock, watcher and editor stay
-consistent. This makes a write-enabled Fava a remote ledger mutation if Fava is
-exposed beyond localhost; keep it local.
+Adding a directive opens a small modal showing the Beancount text the form's fields describe — rendered by `actions.py`, the same generators the CLI's `allocate`, `plan` and `unplan` commands print or write — which can be edited before it is saved. A new directive is dated the last day of its month, or today for the current month, so a form for a future month funds that month. The modal is a single vanilla-JS module (no build step); without JavaScript the forms submit their fields directly, so the report still works. Writes go through Fava's own file API, so its lock, watcher and editor stay consistent. This makes a write-enabled Fava a remote ledger mutation if Fava is exposed beyond localhost; keep it local.
 
-Moving money between envelopes is not a separate action: it is two allocations,
-one back to the pool and one out of it, so the report expresses it as two
-entries.
+Moving money between envelopes is not a separate action: it is two allocations, one back to the pool and one out of it, so the report expresses it as two entries.
 
-Because those two entries, and any month funded in several passes, clutter the
-history, the report can **consolidate** them the way the CLI does. The allocated
-figure's popover offers *Consolidate N directives* when a month holds more than
-one, and the month heading's actions offer *Consolidate this month* for every
-envelope in the month. Both plan the edits with the CLI's own planner, so the
-two never disagree, and apply them through Fava's own file API (its lock,
-watcher and conflict guard), by the same in-memory line splice the CLI uses.
-These are plain forms, not the JavaScript modal — there is no new directive to
-edit, only directives to merge away — so they work without JavaScript too.
+Because those two entries, and any month funded in several passes, clutter the history, the report can **consolidate** them the way the CLI does. The allocated figure's popover offers *Consolidate N directives* when a month holds more than one, and the month heading's actions offer *Consolidate this month* for every envelope in the month. Both plan the edits with the CLI's own planner, so the two never disagree, and apply them through Fava's own file API (its lock, watcher and conflict guard), by the same in-memory line splice the CLI uses. These are plain forms, not the JavaScript modal — there is no new directive to edit, only directives to merge away — so they work without JavaScript too.
 
-The invariant is unchanged: pure code still never touches disk. Writing is an
-explicit, opt-in surface, here and in the CLI.
+The invariant is unchanged: pure code still never touches disk. Writing is an explicit, opt-in surface, here and in the CLI.
 
 ## BQL recipes
 
-BQL can report what you spent per envelope, but it cannot see allocations,
-because those are `custom` directives. Balances, carryover and the pool come from
-the CLI or the Fava report.
+BQL can report what you spent per envelope, but it cannot see allocations, because those are `custom` directives. Balances, carryover and the pool come from the CLI or the Fava report.
 
-The effective envelope of a posting is its own metadata, falling back to the
-account's:
+The effective envelope of a posting is its own metadata, falling back to the account's:
 
 ```sql
 COALESCE(any_meta('envelope'), open_meta(account, 'envelope'))
@@ -708,9 +358,4 @@ WHERE account ~ '^Expenses' AND date >= 2027-03-01 AND date < 2027-04-01
 GROUP BY env
 ```
 
-One known difference from the core: BQL applies a transaction-level override to
-every posting without its own, while the core applies it only to postings whose
-account already has an envelope. Treat the CLI report as authoritative. If the
-expression gets clumsy, run the plugin with the `"resolved"` config to write the
-resolved envelope to each posting as `envelope-resolved`, and query
-`meta('envelope-resolved')` instead.
+One known difference from the core: BQL applies a transaction-level override to every posting without its own, while the core applies it only to postings whose account already has an envelope. Treat the CLI report as authoritative. If the expression gets clumsy, run the plugin with the `"resolved"` config to write the resolved envelope to each posting as `envelope-resolved`, and query `meta('envelope-resolved')` instead.
