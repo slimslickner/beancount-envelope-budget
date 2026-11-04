@@ -688,14 +688,15 @@ def test_template_pool_popover_shows_ledger() -> None:
 
 
 def test_template_hides_rounded_investment_zero() -> None:
-    """A sub-cent cost basis does not leak a red -0.00 into the report."""
+    """A sub-cent cost basis closes at exactly 0.00, never a red -0.00."""
     html = _render(
         _extension("investment_rounding.bean"),
         {"month": "2026-05", "months": "2"},
     )
     taxable = _row(html, ">Taxable Investments<")
     assert "-0.00" not in taxable
-    assert "0.00" not in taxable
+    # The sold position closes at a clean zero, which the closing column shows.
+    assert ">0.00<" in taxable
     assert "envelope-neg" not in taxable
     assert "1.68" in taxable
 
