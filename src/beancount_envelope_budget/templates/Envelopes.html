@@ -1190,6 +1190,7 @@
                     {% if extension.writable %}
                       <form method="post" action="{{ base ~ 'commit' }}" data-create><input type="hidden" name="action" value="fully_fund"><input type="hidden" name="month" value="{{ header_month.strftime('%Y-%m') }}"><button type="submit">Fully fund</button></form>
                       <form method="post" action="{{ base ~ 'commit' }}" data-create><input type="hidden" name="action" value="fund_available"><input type="hidden" name="month" value="{{ header_month.strftime('%Y-%m') }}"><button type="submit">Fund with available</button></form>
+                      <form method="post" action="{{ base ~ 'commit' }}" data-create><input type="hidden" name="action" value="cleanup"><input type="hidden" name="month" value="{{ header_month.strftime('%Y-%m') }}"><button type="submit">Clean up month</button></form>
                       <form method="post" action="{{ base ~ 'commit' }}" data-consolidate><input type="hidden" name="action" value="consolidate"><input type="hidden" name="month" value="{{ header_month.strftime('%Y-%m') }}"><button type="submit">Consolidate this month</button></form>
                       <form method="post" action="{{ base ~ 'commit' }}" data-clear><input type="hidden" name="action" value="clear"><input type="hidden" name="month" value="{{ header_month.strftime('%Y-%m') }}"><button type="submit">Clear this month</button></form>
                     {% endif %}

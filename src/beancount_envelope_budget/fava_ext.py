@@ -80,6 +80,7 @@ from beancount_envelope_budget.report import (
     funding_derivation_lines,
     funding_top_up_line,
     funding_verdict,
+    month_cleanup,
     month_funding,
     overspend_cover,
     plan_line_text,
@@ -1212,7 +1213,7 @@ def _action_entries(params: Mapping[str, str], result: BudgetResult) -> list[Cus
         ValueError: If the action is unknown or a required field is missing.
     """
     action = params.get("action")
-    if action in ("fully_fund", "fund_available"):
+    if action in ("fully_fund", "fund_available", "cleanup"):
         return _month_entries(action, params, result)
     return [_action_entry(params, result)]
 
@@ -1225,21 +1226,30 @@ def _month_entries(
     """Build the allocations a month-level action funds.
 
     Args:
-        action: ``fully_fund`` or ``fund_available``.
+        action: ``fully_fund``, ``fund_available`` or ``cleanup``.
         params: The submitted form fields; ``month`` selects the month.
         result: The computed budget.
 
     Returns:
-        One ``allocate`` directive per envelope that needs funding.
+        One ``allocate`` directive per envelope the action acts on.
 
     Raises:
-        ValueError: If the month is missing, or nothing needs funding.
+        ValueError: If the month is missing, or the action has nothing to do.
     """
     month = _parse_month(params.get("month"))
     if month is None:
         message = "a month is required, as YYYY-MM"
         raise ValueError(message)
     on = _fill_day(month)
+    currency = result.operating_currency
+    if action == "cleanup":
+        releases = month_cleanup(result, on)
+        if not releases:
+            message = "nothing to clean up for this month"
+            raise ValueError(message)
+        return [
+            actions.allocate(name, -amount, on, currency) for name, amount in releases
+        ]
     allocations, _unfunded = month_funding(
         result,
         on,
@@ -1248,7 +1258,6 @@ def _month_entries(
     if not allocations:
         message = "nothing to fund for this month"
         raise ValueError(message)
-    currency = result.operating_currency
     return [
         actions.allocate(name, amount, on, currency) for name, amount in allocations
     ]

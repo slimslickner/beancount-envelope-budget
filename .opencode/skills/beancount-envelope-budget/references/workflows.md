@@ -70,6 +70,20 @@ beancount-envelope-budget fund main.bean --mode fund-available --reserve 500
 
 Both take `--date` (defaulting to today) and print one `allocate` per envelope that needs funding; `fund-available` prints `; UNFUNDED` for anything the pool could not cover, and `--strict` makes that a non-zero exit.
 
+## Clean up an up-to overshoot
+
+An `up-to` envelope can end a month holding more than its ceiling — a refund or income into it, or an allocation larger than its monthly allowance. `cleanup` releases that excess back to the pool, taking the balance to `up_to` so the month reads on plan again:
+
+```sh
+beancount-envelope-budget fund main.bean --mode cleanup --date 2027-03-31
+```
+
+```beancount
+2027-03-31 custom "envelope" "allocate" "Car" -150.00 USD
+```
+
+Only `up-to` envelopes are swept: a `monthly`/`avgN` flow is judged by the money assigned that month, so a negative allocation would only make it read as under-funded, and a `goal` keeps its balance after spending. `--envelopes REGEX` restricts the run. Rerunning is safe — once the balance sits at the ceiling it prints nothing — and the released money only ever adds to the pool, so it cannot make the pool negative. The write-enabled Fava report offers the same as **Clean up month** on a month heading.
+
 ## Backfill history
 
 If you already have transactions, generate allocations that match what you actually spent, so each month closes flat and the pool absorbs the surplus.

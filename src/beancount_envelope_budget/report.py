@@ -69,6 +69,7 @@ __all__ = [
     "build_reports",
     "build_suggestions",
     "build_view",
+    "cleanup_amount",
     "envelope_groups",
     "envelope_history_json",
     "envelope_need",
@@ -77,6 +78,7 @@ __all__ = [
     "funding_explanation_lines",
     "funding_top_up_line",
     "funding_verdict",
+    "month_cleanup",
     "month_funding",
     "month_statuses",
     "overspend_cover",
@@ -1098,6 +1100,66 @@ def envelope_need(report: EnvelopeReport, on: date) -> Decimal:
     return max(plan_top_up(report, on), overspend_cover(report, on))
 
 
+def cleanup_amount(report: EnvelopeReport, on: date) -> Decimal:
+    """Amount to release back to the pool to clear an ``up-to`` overshoot.
+
+    Only an envelope with an ``up-to`` ceiling has a stock target to overshoot:
+    its funded amount is its closing balance, so a balance above the ceiling
+    means it holds money the plan does not want — an over-allocation or a
+    refund. The cleanup releases that excess and brings the balance back to the
+    ceiling, after which the month reads on plan again. A plain ``monthly`` or
+    ``avgN`` envelope is a flow and is never swept, and a ``goal`` is a
+    cumulative total the plan wants to keep, so both return zero. This is the
+    one deliberate exception to "balances always carry forward".
+
+    The returned amount is positive; a caller writes it as a negative
+    allocation.
+
+    Args:
+        report: The envelope's report.
+        on: A date in the month to evaluate.
+
+    Returns:
+        The amount to release, never negative; zero when nothing sits above the
+        ceiling (or the envelope has no ``up-to`` plan).
+
+    Examples:
+        >>> row = MonthRow(date(2026, 10, 1), Decimal(0), Decimal("750"), Decimal(0))
+        >>> over = EnvelopeReport(
+        ...     Envelope(
+        ...         "Car",
+        ...         date(2026, 10, 1),
+        ...         None,
+        ...         Plan(monthly=Decimal("250"), up_to=Decimal("600")),
+        ...         (),
+        ...     ),
+        ...     (row,),
+        ... )
+        >>> cleanup_amount(over, date(2026, 10, 31))
+        Decimal('150.00')
+
+        A plain ``monthly`` envelope has nothing to release:
+
+        >>> flow = EnvelopeReport(
+        ...     Envelope(
+        ...         "Groceries",
+        ...         date(2026, 10, 1),
+        ...         None,
+        ...         Plan(monthly=Decimal("550")),
+        ...         (),
+        ...     ),
+        ...     (row,),
+        ... )
+        >>> cleanup_amount(flow, date(2026, 10, 31))
+        Decimal('0')
+    """
+    plan = report.envelope.effective(on)
+    if plan.up_to is None:
+        return Decimal(0)
+    excess = row_for(report.rows, on).closing - plan.up_to
+    return _round_to_cent(max(Decimal(0), excess))
+
+
 def funding_explanation(
     report: EnvelopeReport,
     on: date,
@@ -1446,6 +1508,51 @@ def month_funding(
         if amount < need:
             unfunded.append((name, need - amount))
     return allocations, unfunded
+
+
+def month_cleanup(
+    result: BudgetResult,
+    on: date,
+) -> list[tuple[str, Decimal]]:
+    """Plan the over-ceiling releases for a month.
+
+    Backs the month-level "clean up" action: every ``up-to`` envelope whose
+    balance sits above its ceiling contributes the excess to release, as a
+    positive amount the caller writes as a negative allocation. Envelopes with
+    no ``up-to`` plan, or a balance at or below their ceiling, contribute
+    nothing, so the result is empty when there is nothing to clean up.
+
+    Args:
+        result: The computed budget.
+        on: A date in the month to clean up.
+
+    Returns:
+        The releases ``(name, amount)``, each amount positive.
+
+    Examples:
+        >>> pool = (MonthRow(date(2026, 1, 1), Decimal(0), Decimal(0), Decimal(1000)),)
+        >>> car = EnvelopeReport(
+        ...     Envelope(
+        ...         "Car",
+        ...         date(2026, 1, 1),
+        ...         None,
+        ...         Plan(monthly=Decimal("250"), up_to=Decimal("600")),
+        ...         (),
+        ...     ),
+        ...     (MonthRow(date(2026, 1, 1), Decimal(0), Decimal("750"), Decimal(0)),),
+        ... )
+        >>> result = BudgetResult(
+        ...     date(2026, 1, 1), "USD", (date(2026, 1, 1),), (car,), pool, (), ()
+        ... )
+        >>> month_cleanup(result, date(2026, 1, 31))
+        [('Car', Decimal('150.00'))]
+    """
+    releases: list[tuple[str, Decimal]] = []
+    for report in result.envelopes:
+        amount = cleanup_amount(report, on)
+        if amount > 0:
+            releases.append((report.name, amount))
+    return releases
 
 
 def _funding(target: Decimal | None, funded: Decimal) -> str | None:

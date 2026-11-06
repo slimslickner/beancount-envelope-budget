@@ -1587,6 +1587,51 @@ def test_perform_rejects_an_empty_month_action(
         extension.perform({"action": "fully_fund", "month": "2024-01"})
 
 
+def test_perform_cleans_up_a_month(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cleanup action releases an up-to overshoot as a negative allocate."""
+    recorded: list[object] = []
+    monkeypatch.setattr(
+        fava_ext, "_insert", lambda _ledger, _path, entry: recorded.append(entry)
+    )
+    extension = _extension(
+        "cleanup.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    entries = extension.perform({"action": "cleanup", "month": "2024-01"})
+    assert [actions.render(entry) for entry in entries] == [
+        '2024-01-31 custom "envelope" "allocate" "Car" -150.00 USD'
+    ]
+    assert len(recorded) == 1
+
+
+def test_cleanup_covers_only_up_to() -> None:
+    """cleanup.bean's monthly, goal and unplanned envelopes are not released."""
+    extension = _extension("cleanup.bean")
+    entries = fava_ext._month_entries(
+        "cleanup", {"month": "2024-01"}, extension._result()
+    )
+    assert [actions.render(entry) for entry in entries] == [
+        '2024-01-31 custom "envelope" "allocate" "Car" -150.00 USD'
+    ]
+
+
+def test_perform_rejects_an_empty_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A month with nothing above a ceiling is refused."""
+    monkeypatch.setattr(fava_ext, "_insert", lambda *_args: None)
+    extension = _extension(
+        "up_to.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    with pytest.raises(ValueError, match="nothing to clean up"):
+        extension.perform({"action": "cleanup", "month": "2024-02"})
+
+
 def test_action_entry_covers_every_verb() -> None:
     """Each action builds the directive it names."""
     extension = _extension("basic.bean")
@@ -1735,6 +1780,8 @@ def test_template_shows_edit_popovers_when_writable(tmp_path: Path) -> None:
     assert 'name="action" value="unplan"' in html
     assert 'name="action" value="fully_fund"' in html
     assert 'name="action" value="fund_available"' in html
+    assert 'name="action" value="cleanup"' in html
+    assert "Clean up month" in html
     assert 'name="action" value="consolidate"' in html
     assert 'name="action" value="clear"' in html
     assert "envelope-month-pop" in html

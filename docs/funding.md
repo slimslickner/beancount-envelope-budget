@@ -58,3 +58,37 @@ A `monthly 200` + `up-to 600` envelope:
 | February | 100 | 200 | 300 | 300 | 300 | on | 0 |
 | March | 300 | 200 | 500 | 500 | 500 | on | 0 |
 | April | 500 | 0 | 500 | 600 | 500 | under | 100 |
+
+## Cleanup of an `up-to` overshoot
+
+An `up-to` envelope can end a month holding more than its ceiling: a refund or
+income into it, or an allocation larger than its monthly allowance, pushes the
+balance past `up_to`. Its funded amount is its closing balance, so that excess
+is money the plan does not want, and **cleanup** releases it back to the pool.
+
+The amount released is `max(0, closing − up_to)` — the balance down to the
+ceiling — written as a negative `allocate` dated in the month. Afterward the
+funded amount is `up_to` again, so the month reads on plan. Only an envelope with
+an `up-to` ceiling is ever cleaned:
+
+| Shape | Cleanup |
+| --- | --- |
+| No plan | none |
+| `monthly` | none — a flow, judged by the month's allocation |
+| `avgN` | none — a flow, like `monthly` |
+| `monthly` + `up-to` | `max(0, closing − up_to)` |
+| `goal` | none — a cumulative total the plan wants to keep |
+
+A plain `monthly`/`avgN` envelope is a flow: its funded amount is the money
+assigned that month, not its balance, so a negative allocation would only make
+the month read as under-funded, and the next funding run would refill it. A
+`goal` keeps its balance after the money is spent, so it is never swept either.
+Cleanup is therefore the one deliberate exception to "balances always carry
+forward".
+
+Run it with `fund --mode cleanup --date YYYY-MM-DD`, or the month heading's
+**Clean up month** action in a write-enabled Fava report; both emit the same
+negative `allocate` directives, so nothing is written until you redirect or save
+them. Re-running is safe: once the balance sits at the ceiling the amount is
+zero. Because the released money only ever *adds* to the pool, cleanup cannot
+push the pool negative.
