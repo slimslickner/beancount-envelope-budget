@@ -1,0 +1,32 @@
+option "operating_currency" "USD"
+
+2020-01-01 open Assets:Checking USD
+  on-budget: TRUE
+2020-01-01 open Expenses:Car USD
+  envelope: "Car"
+2020-01-01 open Expenses:Groceries USD
+  envelope: "Groceries"
+2020-01-01 open Expenses:Travel USD
+  envelope: "Emergency"
+2020-01-01 open Expenses:Misc USD
+  envelope: "Misc"
+2020-01-01 open Equity:Opening-Balances USD
+
+2023-12-31 * "Opening balance"
+  Assets:Checking           10000.00 USD
+  Equity:Opening-Balances -10000.00 USD
+
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Car"
+  monthly: 250.00
+  up-to: 600.00
+2024-01-01 custom "envelope" "open" "Groceries"
+  monthly: 300.00
+2024-01-01 custom "envelope" "open" "Emergency"
+  goal: 6000.00 USD
+  by: 2024-12-31
+2024-01-01 custom "envelope" "open" "Misc"
+
+2024-01-31 custom "envelope" "allocate" "Car" 750.00 USD
+2024-01-31 custom "envelope" "allocate" "Groceries" 300.00 USD
+2024-01-31 custom "envelope" "allocate" "Emergency" 500.00 USD

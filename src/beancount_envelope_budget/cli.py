@@ -49,6 +49,7 @@ from beancount_envelope_budget.report import (
     build_view,
     envelope_history_json,
     funding_explanation_lines,
+    month_cleanup,
     month_funding,
     plan_target,
     plan_top_up,
@@ -846,7 +847,7 @@ def _cmd_fund(args: argparse.Namespace) -> int:
         return 0
     if args.mode == "topup":
         return _fund_topup(args, result, pattern)
-    if args.mode in ("fully-fund", "fund-available"):
+    if args.mode in ("fully-fund", "fund-available", "cleanup"):
         return _fund_month(args, result, pattern)
     return _fund_range(args, loaded, pattern)
 
@@ -856,7 +857,7 @@ def _fund_month(
     result: BudgetResult,
     pattern: re.Pattern[str] | None,
 ) -> int:
-    """Run the ``fully-fund`` and ``fund-available`` month actions.
+    """Run the ``fully-fund``, ``fund-available`` and ``cleanup`` month actions.
 
     Args:
         args: Parsed arguments.
@@ -869,6 +870,8 @@ def _fund_month(
     if args.from_month is not None or args.to_month is not None:
         print(f"--mode {args.mode} takes --date, not --from/--to", file=sys.stderr)
         return 2
+    if args.mode == "cleanup":
+        return _fund_cleanup(args, result, pattern)
     on = args.date or date.today()  # noqa: DTZ011 - local today is intended
     available = args.mode == "fund-available"
     allocations, unfunded = month_funding(
@@ -891,6 +894,33 @@ def _fund_month(
     for name, amount in unfunded:
         print(f"; UNFUNDED {name}: needs {_money(amount)} {currency}")
     return 1 if args.strict and unfunded else status
+
+
+def _fund_cleanup(
+    args: argparse.Namespace,
+    result: BudgetResult,
+    pattern: re.Pattern[str] | None,
+) -> int:
+    """Run the ``cleanup`` mode: release ``up-to`` overshoots back to the pool.
+
+    Args:
+        args: Parsed arguments.
+        result: The computed budget.
+        pattern: An optional envelope-name filter.
+
+    Returns:
+        The process exit status.
+    """
+    on = args.date or date.today()  # noqa: DTZ011 - local today is intended
+    releases = month_cleanup(result, on)
+    if pattern is not None:
+        releases = [(name, amount) for name, amount in releases if pattern.search(name)]
+    currency = result.operating_currency
+    day = _last_day_of(on)
+    entries = [
+        actions.allocate(name, -amount, day, currency) for name, amount in releases
+    ]
+    return _emit(entries, args)
 
 
 def _fund_topup(
@@ -941,7 +971,8 @@ def _fund_range(
     """
     if args.date is not None:
         print(
-            "--date is only valid with --mode topup, fully-fund or fund-available",
+            "--date is only valid with --mode topup, fully-fund, fund-available "
+            "or cleanup",
             file=sys.stderr,
         )
         return 2
@@ -2255,8 +2286,8 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Print allocate directives, dated the last day of each month. The "
             "actuals, overspend and copy modes take --from/--to and skip any "
-            "envelope-month that already has an allocation; topup, fully-fund "
-            "and fund-available take --date."
+            "envelope-month that already has an allocation; topup, fully-fund, "
+            "fund-available and cleanup take --date."
         ),
     )
     _ledger_argument(fund)
@@ -2283,11 +2314,12 @@ def build_parser() -> argparse.ArgumentParser:
             "topup",
             "fully-fund",
             "fund-available",
+            "cleanup",
         ),
         default="actuals",
         help=(
-            "the funding strategy: actuals, overspend, copy, topup, fully-fund "
-            "or fund-available"
+            "the funding strategy: actuals, overspend, copy, topup, fully-fund, "
+            "fund-available or cleanup"
         ),
     )
     envelopes_action = fund.add_argument(
@@ -2305,7 +2337,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--date",
         type=_parse_day,
         metavar="YYYY-MM-DD",
-        help="the date to fund for topup, fully-fund and fund-available",
+        help="the date to fund for topup, fully-fund, fund-available and cleanup",
     )
     fund.add_argument(
         "--reserve",

@@ -647,6 +647,75 @@ def test_fund_month_envelopes_filter(capsys: pytest.CaptureFixture[str]) -> None
     ]
 
 
+def test_cleanup_releases_up_to_overshoot(capsys: pytest.CaptureFixture[str]) -> None:
+    """cleanup writes a negative allocate for the balance above an up-to ceiling."""
+    code = cli.main(
+        ["fund", _ledger("cleanup.bean"), "--mode", "cleanup", "--date", "2024-01-31"]
+    )
+    assert code == 0
+    assert _lines(capsys) == [
+        '2024-01-31 custom "envelope" "allocate" "Car" -150.00 USD',
+    ]
+
+
+def test_cleanup_nothing_to_clean(capsys: pytest.CaptureFixture[str]) -> None:
+    """An up-to envelope at or below its ceiling needs no cleanup."""
+    code = cli.main(
+        ["fund", _ledger("up_to.bean"), "--mode", "cleanup", "--date", "2024-02-29"]
+    )
+    assert code == 0
+    assert _lines(capsys) == []
+
+
+def test_cleanup_envelopes_filter(capsys: pytest.CaptureFixture[str]) -> None:
+    """--envelopes restricts a cleanup to matching names."""
+    args = [
+        "fund",
+        _ledger("cleanup.bean"),
+        "--mode",
+        "cleanup",
+        "--date",
+        "2024-01-31",
+    ]
+    assert cli.main([*args, "--envelopes", "^Gro"]) == 0
+    assert _lines(capsys) == []
+    assert cli.main([*args, "--envelopes", "^Car$"]) == 0
+    assert _lines(capsys) == [
+        '2024-01-31 custom "envelope" "allocate" "Car" -150.00 USD',
+    ]
+
+
+def test_cleanup_rerun_is_idempotent(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Once the overshoot is released, a rerun has nothing to clean up."""
+    ledger = tmp_path / "main.bean"
+    ledger.write_text(
+        (_LEDGERS / "cleanup.bean").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    args = ["fund", str(ledger), "--mode", "cleanup", "--date", "2024-01-31"]
+    assert cli.main(args) == 0
+    assert _lines(capsys) == [
+        '2024-01-31 custom "envelope" "allocate" "Car" -150.00 USD',
+    ]
+    ledger.write_text(
+        ledger.read_text(encoding="utf-8")
+        + '2024-01-31 custom "envelope" "allocate" "Car" -150.00 USD\n',
+        encoding="utf-8",
+    )
+    assert cli.main(args) == 0
+    assert _lines(capsys) == []
+
+
+def test_cleanup_rejects_range(capsys: pytest.CaptureFixture[str]) -> None:
+    """cleanup takes --date, not --from/--to."""
+    code = cli.main(
+        ["fund", _ledger("cleanup.bean"), "--mode", "cleanup", "--from", "2024-01"]
+    )
+    assert code == 2
+    assert "--mode cleanup takes --date" in capsys.readouterr().err
+
+
 def test_fund_rejects_unknown_mode() -> None:
     """An unknown mode is a usage error."""
     with pytest.raises(SystemExit) as exit_info:
