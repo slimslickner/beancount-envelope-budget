@@ -1333,12 +1333,23 @@ def test_js_module_consolidates_in_place() -> None:
     source = (Path(fava_ext.__file__).parent / "Envelopes.js").read_text()
     hook = source.split("onExtensionPageLoad(ctx)")[1]
     assert "form[data-consolidate]" in hook
-    assert "consolidate(form, api)" in hook
-    body = source.split("async function consolidate(")[1].split("function refresh()")[0]
+    assert 'submit_month_action(form, api, "Could not consolidate")' in hook
+    body = source.split("async function submit_month_action(")[1].split(
+        "function refresh()"
+    )[0]
     assert 'body.append("format", "json")' in body
     assert 'api.post("commit", body)' in body
     assert "close_open_popover();" in body
     assert "refresh();" in body
+
+
+def test_js_module_confirms_before_clearing() -> None:
+    """A clear is destructive, so the module confirms before it submits (#96)."""
+    source = (Path(fava_ext.__file__).parent / "Envelopes.js").read_text()
+    hook = source.split("onExtensionPageLoad(ctx)")[1]
+    assert "form[data-clear]" in hook
+    assert "window.confirm(" in hook
+    assert 'submit_month_action(form, api, "Could not clear allocations")' in hook
 
 
 def test_js_module_right_aligns_month_popovers() -> None:
@@ -1492,6 +1503,74 @@ def test_perform_consolidate_rejects_a_bad_pattern(
     )
     with pytest.raises(ValueError, match="invalid envelope pattern"):
         extension.perform({"action": "consolidate", "envelope": "("})
+
+
+def test_perform_clears_a_month_through_the_writer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A clear action deletes every allocation in the month and appends nothing."""
+    recorded: list[tuple[Path, list[tuple[int, object]]]] = []
+    monkeypatch.setattr(
+        fava_ext,
+        "_rewrite_source",
+        lambda _ledger, path, edits: recorded.append((path, edits)),
+    )
+    extension = _extension(
+        "consolidate.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    entries = extension.perform({"action": "clear", "month": "2024-01"})
+    assert entries == []
+    assert len(recorded) == 1
+    _path, edits = recorded[0]
+    # Both January allocations are deleted; February is untouched.
+    assert [entry is None for _lineno, entry in edits] == [True, True]
+
+
+def test_perform_clear_skips_a_different_month(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Clearing a month with no allocations rewrites nothing."""
+    recorded: list[object] = []
+    monkeypatch.setattr(
+        fava_ext, "_rewrite_source", lambda *args: recorded.append(args)
+    )
+    extension = _extension(
+        "consolidate.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    assert extension.perform({"action": "clear", "month": "2024-03"}) == []
+    assert recorded == []
+
+
+def test_perform_clear_requires_a_filter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Clearing with neither a month nor an envelope is refused."""
+    monkeypatch.setattr(fava_ext, "_rewrite_source", lambda *_args: None)
+    extension = _extension(
+        "consolidate.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    with pytest.raises(ValueError, match="a month or an envelope"):
+        extension.perform({"action": "clear"})
+
+
+def test_perform_clear_rejects_a_bad_pattern(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A malformed envelope regex is a value error."""
+    monkeypatch.setattr(fava_ext, "_rewrite_source", lambda *_args: None)
+    extension = _extension(
+        "consolidate.bean",
+        config="{'write': 'Envelope.bean'}",
+        ledger_path=tmp_path / "main.bean",
+    )
+    with pytest.raises(ValueError, match="invalid envelope pattern"):
+        extension.perform({"action": "clear", "envelope": "("})
 
 
 def test_perform_rejects_an_empty_month_action(
@@ -1657,6 +1736,7 @@ def test_template_shows_edit_popovers_when_writable(tmp_path: Path) -> None:
     assert 'name="action" value="fully_fund"' in html
     assert 'name="action" value="fund_available"' in html
     assert 'name="action" value="consolidate"' in html
+    assert 'name="action" value="clear"' in html
     assert "envelope-month-pop" in html
     assert "title=" not in html
 

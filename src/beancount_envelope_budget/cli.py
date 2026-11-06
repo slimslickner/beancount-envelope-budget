@@ -1596,7 +1596,7 @@ def _apply_consolidation(
     if not plan.edits:
         print("nothing to consolidate", file=sys.stderr)
         return 0
-    edits_by_file = _edits_by_file(plan)
+    edits_by_file = _group_edits(plan.edits)
     targets = {name: Path(name) for name in edits_by_file}
     missing = [name for name, target in targets.items() if not target.is_file()]
     if missing:
@@ -1614,33 +1614,100 @@ def _apply_consolidation(
         )
         return _recheck(args.ledger)
     for name in sorted(edits_by_file):
-        sys.stdout.write(_consolidation_diff(name, edits_by_file[name]))
+        sys.stdout.write(_edit_diff(name, edits_by_file[name], "consolidated"))
     return 0
 
 
-def _edits_by_file(
-    plan: consolidate.ConsolidationPlan,
-) -> dict[str, list[tuple[int, Custom | None]]]:
-    """Group a consolidation plan's edits by the file they touch.
+def _cmd_clear(args: argparse.Namespace) -> int:
+    """Print a diff that deletes a month's or envelope's ``allocate`` directives.
 
     Args:
-        plan: The consolidation plan.
+        args: Parsed arguments.
+
+    Returns:
+        The process exit status.
+    """
+    if not args.ledger.exists():
+        print(f"no such ledger: {args.ledger}", file=sys.stderr)
+        return 2
+    pattern = _compile_pattern(args.envelope, "--envelope")
+    if pattern is _INVALID_PATTERN:
+        return 2
+    if pattern is None and args.month is None:
+        print("clear requires --month or --envelope", file=sys.stderr)
+        return 2
+    loaded = _load(args.ledger)
+    plan = consolidate.plan_clear(
+        loaded.entries,
+        envelope=pattern,
+        month=args.month,
+    )
+    return _apply_clear(args, plan)
+
+
+def _apply_clear(args: argparse.Namespace, plan: consolidate.ClearPlan) -> int:
+    """Print or write a clear plan.
+
+    Args:
+        args: Parsed arguments; ``args.ledger`` and ``args.write``.
+        plan: The clear plan.
+
+    Returns:
+        The process exit status.
+    """
+    for note in plan.skipped:
+        print(f"; skipped {note}", file=sys.stderr)
+    if not plan.edits:
+        print("nothing to clear", file=sys.stderr)
+        return 0
+    edits_by_file = _group_edits(plan.edits)
+    targets = {name: Path(name) for name in edits_by_file}
+    missing = [name for name, target in targets.items() if not target.is_file()]
+    if missing:
+        print(
+            "cannot clear; no such source file: " + ", ".join(sorted(missing)),
+            file=sys.stderr,
+        )
+        return 2
+    if args.write:
+        for name in sorted(edits_by_file):
+            writer.rewrite(targets[name], edits_by_file[name])
+        print(
+            f"cleared {len(plan.edits)} allocation(s) in "
+            f"{len(plan.envelopes)} envelope(s) from {len(edits_by_file)} file(s)"
+        )
+        return _recheck(args.ledger)
+    for name in sorted(edits_by_file):
+        sys.stdout.write(_edit_diff(name, edits_by_file[name], "cleared"))
+    return 0
+
+
+def _group_edits(
+    edits: Sequence[consolidate.DirectiveEdit],
+) -> dict[str, list[tuple[int, Custom | None]]]:
+    """Group source edits by the file they touch.
+
+    Args:
+        edits: The edits, each naming its file and line.
 
     Returns:
         A mapping from file name to ``(lineno, entry)`` edits.
     """
     grouped: dict[str, list[tuple[int, Custom | None]]] = {}
-    for edit in plan.edits:
+    for edit in edits:
         grouped.setdefault(edit.filename, []).append((edit.lineno, edit.entry))
     return grouped
 
 
-def _consolidation_diff(filename: str, edits: list[tuple[int, Custom | None]]) -> str:
-    """Render the unified diff for one file's consolidation edits.
+def _edit_diff(
+    filename: str, edits: list[tuple[int, Custom | None]], label: str
+) -> str:
+    """Render the unified diff for one file's edits.
 
     Args:
         filename: The file to edit.
         edits: The ``(lineno, entry)`` edits.
+        label: The word appended to the target name, e.g. ``"cleared"``.
 
     Returns:
         The unified diff, or an empty string.
@@ -1650,7 +1717,7 @@ def _consolidation_diff(filename: str, edits: list[tuple[int, Custom | None]]) -
     updated = writer.apply_edits(original, edits)
     return "".join(
         difflib.unified_diff(
-            original, updated, fromfile=str(path), tofile=f"{path} (consolidated)"
+            original, updated, fromfile=str(path), tofile=f"{path} ({label})"
         )
     )
 
@@ -2289,6 +2356,7 @@ def build_parser() -> argparse.ArgumentParser:
     pin.set_defaults(func=_cmd_pin)
 
     _add_consolidate_parser(subparsers)
+    _add_clear_parser(subparsers)
 
     _add_completion_parser(subparsers)
 
@@ -2428,6 +2496,44 @@ def _add_consolidate_parser(subparsers: argparse._SubParsersAction) -> None:
         help="edit the ledger files in place instead of printing a diff",
     )
     consolidate.set_defaults(func=_cmd_consolidate)
+
+
+def _add_clear_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``clear`` subcommand.
+
+    Args:
+        subparsers: The subparsers action to extend.
+    """
+    clear = subparsers.add_parser(
+        "clear",
+        help="delete a month's or envelope's allocate directives",
+        description=(
+            "Print a diff that deletes every allocate directive in a month or "
+            "matching an envelope, so the month can be funded again from scratch. "
+            "The funds return to the pool. At least one of --month or --envelope "
+            "is required. A directive without a source location is reported and "
+            "left alone. Apply the diff with --write."
+        ),
+    )
+    _ledger_argument(clear)
+    clear_envelopes = clear.add_argument(
+        "--envelope",
+        metavar="REGEX",
+        help="only clear envelopes whose name matches this regular expression",
+    )
+    setattr(clear_envelopes, "completer", _complete_envelopes)  # noqa: B010
+    clear.add_argument(
+        "--month",
+        type=_parse_month,
+        metavar="YYYY-MM",
+        help="only clear this month",
+    )
+    clear.add_argument(
+        "--write",
+        action="store_true",
+        help="edit the ledger files in place instead of printing a diff",
+    )
+    clear.set_defaults(func=_cmd_clear)
 
 
 def _add_completion_parser(subparsers: argparse._SubParsersAction) -> None:

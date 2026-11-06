@@ -1,4 +1,6 @@
-"""Pure planning for consolidating ``allocate`` directives.
+"""Pure planning for editing a ledger's ``allocate`` directives.
+
+Two operations share this module because they share the same scan.
 
 As a ledger grows, an envelope is often funded more than once in a month, which
 scatters its history across many ``allocate`` directives. Consolidating merges
@@ -6,11 +8,14 @@ those into a single directive per envelope-month, dated the last day of the
 month (or today, for the current month), so the history reads cleanly. The net
 amount is unchanged, so every balance, the pool and the invariant are unchanged.
 
+Clearing is the inverse: deleting every ``allocate`` directive in a month (or
+matching an envelope), so the month can be funded again from scratch. The funds
+return to the pool.
+
 This module decides *what* to change and performs no I/O: it scans the ledger's
-``allocate`` directives, groups them by envelope and month, and returns the
-source edits — one directive replaced by the merged sum, the rest deleted. The
-CLI and the Fava report apply those edits through their own writers, so the
-planning is shared and testable on its own.
+``allocate`` directives, groups them, and returns the source edits — a
+replacement, a deletion, or both. The CLI and the Fava report apply those edits
+through their own writers, so the planning is shared and testable on its own.
 """
 
 from __future__ import annotations
@@ -33,10 +38,12 @@ if TYPE_CHECKING:
     from beancount.core.data import Directive
 
 __all__ = [
-    "ConsolidationEdit",
+    "ClearPlan",
     "ConsolidationGroup",
     "ConsolidationPlan",
+    "DirectiveEdit",
     "directive_day",
+    "plan_clear",
     "plan_consolidation",
 ]
 
@@ -49,8 +56,8 @@ _DECEMBER = 12
 
 
 @dataclass(frozen=True, slots=True)
-class ConsolidationEdit:
-    """One source change for a consolidation.
+class DirectiveEdit:
+    """One source change for a consolidation or a clear.
 
     Attributes:
         filename: The file the directive lives in.
@@ -92,8 +99,24 @@ class ConsolidationPlan:
             its directives has no source location to edit.
     """
 
-    edits: tuple[ConsolidationEdit, ...]
+    edits: tuple[DirectiveEdit, ...]
     groups: tuple[ConsolidationGroup, ...]
+    skipped: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ClearPlan:
+    """The edits a clear would make.
+
+    Attributes:
+        edits: The source deletions, one per matching directive.
+        envelopes: The distinct envelopes cleared, in first-seen order.
+        skipped: A description of each directive left alone because it has no
+            source location to edit.
+    """
+
+    edits: tuple[DirectiveEdit, ...]
+    envelopes: tuple[str, ...]
     skipped: tuple[str, ...] = ()
 
 
@@ -171,7 +194,7 @@ def plan_consolidation(
             continue
         groups.setdefault((located.envelope, located.month), []).append(located)
 
-    edits: list[ConsolidationEdit] = []
+    edits: list[DirectiveEdit] = []
     merged: list[ConsolidationGroup] = []
     skipped: list[str] = []
     for (name, when), members in groups.items():
@@ -192,21 +215,72 @@ def plan_consolidation(
         day = directive_day(when, today)
         if net == 0:
             edits.extend(
-                ConsolidationEdit(member.filename, member.lineno, None)
+                DirectiveEdit(member.filename, member.lineno, None)
                 for member in members
             )
         else:
             replacement = actions.allocate(name, net, day, currency)
-            edits.append(
-                ConsolidationEdit(survivor.filename, survivor.lineno, replacement)
-            )
+            edits.append(DirectiveEdit(survivor.filename, survivor.lineno, replacement))
             edits.extend(
-                ConsolidationEdit(member.filename, member.lineno, None)
+                DirectiveEdit(member.filename, member.lineno, None)
                 for member in members
                 if member is not survivor
             )
         merged.append(ConsolidationGroup(name, when, net, len(members)))
     return ConsolidationPlan(tuple(edits), tuple(merged), tuple(skipped))
+
+
+def plan_clear(
+    entries: Sequence[Directive],
+    *,
+    envelope: re.Pattern[str] | None = None,
+    month: date | None = None,
+) -> ClearPlan:
+    r"""Plan the deletion of ``allocate`` directives.
+
+    Every matching directive with a source location is deleted; one without a
+    location is reported in ``skipped`` and left alone. With neither filter the
+    whole ledger is cleared.
+
+    Args:
+        entries: The ledger entries.
+        envelope: An optional regex; only matching envelopes are cleared.
+        month: An optional month; only that month is cleared.
+
+    Returns:
+        The :class:`ClearPlan`.
+
+    Examples:
+        >>> from beancount.parser import parser
+        >>> source = (
+        ...     '2024-01-05 custom "envelope" "allocate" "Groceries" 100.00 USD\n'
+        ...     '2024-02-05 custom "envelope" "allocate" "Groceries" 50.00 USD\n'
+        ... )
+        >>> entries, _errors, _options = parser.parse_string(source)
+        >>> plan = plan_clear(entries, month=date(2024, 1, 1))
+        >>> [(edit.lineno, edit.entry) for edit in plan.edits]
+        [(1, None)]
+        >>> plan.envelopes
+        ('Groceries',)
+    """
+    edits: list[DirectiveEdit] = []
+    envelopes: list[str] = []
+    skipped: list[str] = []
+    for located in _allocate_directives(entries):
+        if envelope is not None and not envelope.search(located.envelope):
+            continue
+        if month is not None and located.month != month_of(month):
+            continue
+        if not located.located:
+            skipped.append(
+                f"{located.envelope} {located.month:%Y-%m}: directive has no "
+                "source location"
+            )
+            continue
+        edits.append(DirectiveEdit(located.filename, located.lineno, None))
+        if located.envelope not in envelopes:
+            envelopes.append(located.envelope)
+    return ClearPlan(tuple(edits), tuple(envelopes), tuple(skipped))
 
 
 @dataclass(frozen=True, slots=True)

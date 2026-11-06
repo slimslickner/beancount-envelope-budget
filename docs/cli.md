@@ -197,6 +197,19 @@ Print a diff that merges an envelope-month's several allocate directives into a 
 | `--month` | only consolidate this month |
 | `--write` | edit the ledger files in place instead of printing a diff |
 
+## `beancount-envelope-budget clear`
+
+Print a diff that deletes every allocate directive in a month or matching an envelope, so the month can be funded again from scratch. The funds return to the pool. At least one of --month or --envelope is required. A directive without a source location is reported and left alone. Apply the diff with --write.
+
+
+| Option | Help |
+| --- | --- |
+| `-h, --help` | show this help message and exit |
+| `ledger` | path to the Beancount ledger (.bean or .beancount) |
+| `--envelope` | only clear envelopes whose name matches this regular expression |
+| `--month` | only clear this month |
+| `--write` | edit the ledger files in place instead of printing a diff |
+
 ## `beancount-envelope-budget completion`
 
 Print the snippet that enables tab completion.
