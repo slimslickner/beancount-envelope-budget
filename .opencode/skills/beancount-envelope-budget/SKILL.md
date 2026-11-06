@@ -1,6 +1,6 @@
 ---
 name: Envelope Budgeting CLI
-description: Use when working with a Beancount envelope budget and the beancount-envelope-budget CLI — validating a ledger, reporting envelope balances, funding envelopes after a paycheck, backfilling historical allocations, consolidating duplicated allocations, or remapping an account with pin. Covers the safe workflow and the command outline.
+description: Use when working with a Beancount envelope budget and the beancount-envelope-budget CLI — validating a ledger, reporting envelope balances, funding envelopes after a paycheck, backfilling historical allocations, consolidating or clearing allocations, or remapping an account with pin. Covers the safe workflow and the command outline.
 ---
 
 # Envelope Budgeting CLI
@@ -14,7 +14,7 @@ The full reference lives in `docs/cli.md`; the model is in `docs/concepts.md`; d
 - **Always run `check` first**, and again after any change.
 - `check`, `report` and `suggest` are **read-only**.
 - `fund` only **prints** directives: redirect its output into a file you `include`; never paste allocations by hand.
-- `pin` and `consolidate` **print a diff** and change nothing. `pin --write` and `consolidate --write` **edit the ledger in place**: show the diff first and get the user's approval before writing.
+- `pin`, `consolidate` and `clear` **print a diff** and change nothing. `pin --write`, `consolidate --write` and `clear --write` **edit the ledger in place**: show the diff first and get the user's approval before writing. `clear` deletes directives, so be especially careful.
 - Prefer `report --json` when you need to read numbers programmatically.
 - Show the exact command you ran and its exit code.
 
@@ -35,6 +35,7 @@ When working inside this repository, prefix commands with `uv run`.
 | `fund LEDGER --mode fully-fund\|fund-available [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]` | Print `allocate` directives funding every envelope to its plan or its overspend, whichever is greater; `fund-available` caps the run by the pool. |
 | `pin LEDGER --account REGEX [--through YYYY-MM-DD] [--write]` | Freeze the resolved envelope onto existing postings so an account can be remapped without changing history. |
 | `consolidate LEDGER [--envelope REGEX] [--month YYYY-MM] [--write]` | Merge an envelope-month's several `allocate` directives into one, dated month-end (today, in the current month). Prints a diff; the net amount, the pool and the invariant are unchanged. |
+| `clear LEDGER [--envelope REGEX] [--month YYYY-MM] [--write]` | Delete every `allocate` directive in a month or matching an envelope, so the month can be funded again from scratch. At least one of `--month` or `--envelope` is required. Prints a diff; the funds return to the pool. |
 | `schema [--json]` | The directive, metadata and reserved-value schema. |
 | `completion SHELL` | Tab-completion snippet for bash or zsh. |
 
@@ -60,6 +61,7 @@ An envelope's plan is its `monthly`, `up-to`, `priority`, `goal` and `by` metada
 - **Existing history** → `fund --mode actuals` over the range, include the output, `check`. See `references/workflows.md#backfill-history`.
 - **Moving an account to a new envelope** → `pin`, then change the metadata. See `references/workflows.md#remap-an-account`.
 - **Tidying up duplicate allocations** → `consolidate`, review the diff, then `--write`. See `references/workflows.md#tidy-up-allocations`.
+- **Undoing a month's funding** → `clear --month YYYY-MM`, review the diff, then `--write`. See `references/workflows.md#clear-a-months-allocations`.
 - **Reviewing one envelope's history** → `history LEDGER --envelope NAME`. See `references/workflows.md#review-an-envelope`.
 
 ## Pitfalls

@@ -258,6 +258,7 @@ beancount-envelope-budget fund LEDGER --from YYYY-MM --to YYYY-MM [--mode MODE]
 beancount-envelope-budget fund LEDGER --mode topup [--date DATE] [--reserve AMOUNT] [--strict]
 beancount-envelope-budget pin LEDGER --account REGEX [--through DATE] [--write]
 beancount-envelope-budget consolidate LEDGER [--envelope REGEX] [--month YYYY-MM] [--write]
+beancount-envelope-budget clear LEDGER [--envelope REGEX] [--month YYYY-MM] [--write]
 ```
 
 See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget --help`.
@@ -272,12 +273,17 @@ See [`cli.md`](cli.md) for the full reference and `beancount-envelope-budget --h
 - `allocate`, `plan` and `unplan` print one directive, or append it with `--write FILE`, so the CLI can make the same ledger edits the Fava report can.
 - `pin` freezes an account's current envelope onto its existing postings so you can change the account's metadata without reclassifying history.
 - `consolidate` merges an envelope-month's several `allocate` directives into a single one, dated the last day of the month (or today, for the current month), so a history funded in several passes reads as one line. The net amount is unchanged, so every balance, the pool and the invariant are unchanged. With no filter it walks the whole ledger; `--envelope` limits it to matching envelopes and `--month` to one month. A month that already holds a single directive is left alone, and a month whose allocations net to zero loses them all. It prints a diff and edits nothing until you pass `--write`.
+- `clear` deletes every `allocate` directive in a month, or matching an envelope, so the month can be funded again from scratch; the funds return to the pool. At least one of `--month` and `--envelope` is required, so a bare run cannot wipe the whole ledger. It prints a diff and edits nothing until you pass `--write`.
 
 ## Consolidating allocations
 
 Funding an envelope more than once in a month scatters its history across many `allocate` directives. `consolidate` tidies that up: for each envelope-month it sums the directives, keeps the latest one's place, re-dates it to the month end (today, for the current month) and deletes the rest. The sum is exactly what the budget already used, so the report, the pool and the invariant are unchanged — this is a readability change, not a budget change. Because `W001` now judges month ends, re-dating the allocations to month end cannot change any diagnostic, either.
 
 It is deliberately conservative. It merges only months with **two or more** directives; a lone directive — even one not dated month-end — is left as it is. A month whose allocations cancel out keeps no directive rather than a zero one. A directive with no source location (a plugin-generated one, say) blocks its whole month, which is reported and skipped rather than half-merged. And it is opt-in twice over: a bare run prints a unified diff, and only `--write` touches the files, by literal line edits that preserve line endings and the inode.
+
+## Clearing allocations
+
+Clearing is the inverse of consolidating: `clear` deletes every `allocate` directive in a month, or matching an envelope, so the month can be funded again from scratch. The directives are removed rather than offset, so the funds return to the pool and the month's balances change accordingly — this is a budget change, not just a readability one. Because it is destructive, the CLI requires at least one of `--month` and `--envelope` (a bare run cannot wipe the whole ledger), and it is opt-in twice over like `consolidate`: a bare run prints a unified diff, and only `--write` edits the files. A directive with no source location is reported and skipped.
 
 ## Fava report
 
@@ -329,13 +335,13 @@ A target that escapes the ledger directory or is not a `.bean`/`.beancount` file
 
 - **Every allocation figure** lists that month's `allocate` directives. Each one links to Fava's own editor, where it can be changed or deleted through Fava's conflict-guarded source-slice machinery; the popover also has a form to add a new allocation. Its amount is prefilled with the envelope's plan top-up — the gap to its funding target, so money already allocated is not asked for twice — falling back to covering the month's overspend when the plan is met or there is none; the popover also shows the derivation behind that prefill, so the suggested number is not a bare figure. A second, labelled quick-fill covers that overspending directly when it differs from the prefill, so a partly funded envelope can be funded to plan or brought back to zero either way.
 - **Every envelope name** lists the envelope's whole plan history — its `open` base plan and each dated `plan`/`unplan` after it — with the same links, plus forms to add a plan (opening on the plan in force, with a fresh date) and to clear the plan.
-- **The month heading** offers the month-level funding actions: *fully fund* every envelope to its plan or its overspend, whichever is greater, and *fund with available* the same but in priority order from the pool, stopping before it would go negative. Each expands to one `allocate` per envelope that needs funding, shown as a single block of Beancount in the modal.
+- **The month heading** offers the month-level funding actions: *fully fund* every envelope to its plan or its overspend, whichever is greater, and *fund with available* the same but in priority order from the pool, stopping before it would go negative. Each expands to one `allocate` per envelope that needs funding, shown as a single block of Beancount in the modal. It also offers *consolidate this month*, and *clear this month* to delete the month's allocations after a confirmation.
 
 Adding a directive opens a small modal showing the Beancount text the form's fields describe — rendered by `actions.py`, the same generators the CLI's `allocate`, `plan` and `unplan` commands print or write — which can be edited before it is saved. A new directive is dated the last day of its month, or today for the current month, so a form for a future month funds that month. The modal is a single vanilla-JS module (no build step); without JavaScript the forms submit their fields directly, so the report still works. Writes go through Fava's own file API, so its lock, watcher and editor stay consistent. This makes a write-enabled Fava a remote ledger mutation if Fava is exposed beyond localhost; keep it local.
 
 Moving money between envelopes is not a separate action: it is two allocations, one back to the pool and one out of it, so the report expresses it as two entries.
 
-Because those two entries, and any month funded in several passes, clutter the history, the report can **consolidate** them the way the CLI does. The allocated figure's popover offers *Consolidate N directives* when a month holds more than one, and the month heading's actions offer *Consolidate this month* for every envelope in the month. Both plan the edits with the CLI's own planner, so the two never disagree, and apply them through Fava's own file API (its lock, watcher and conflict guard), by the same in-memory line splice the CLI uses. These are plain forms, not the JavaScript modal — there is no new directive to edit, only directives to merge away — so they work without JavaScript too.
+Because those two entries, and any month funded in several passes, clutter the history, the report can **consolidate** them the way the CLI does. The allocated figure's popover offers *Consolidate N directives* when a month holds more than one, and the month heading's actions offer *Consolidate this month* for every envelope in the month. The inverse is also there: *Clear this month* deletes the month's allocations after a confirmation, so the month can be funded again from scratch. Both plan the edits with the CLI's own planner, so the two never disagree, and apply them through Fava's own file API (its lock, watcher and conflict guard), by the same in-memory line splice the CLI uses. These are plain forms, not the JavaScript modal — there is no new directive to edit, only directives to merge away or delete — so they work without JavaScript too, though the clear asks for confirmation only with JavaScript.
 
 The invariant is unchanged: pure code still never touches disk. Writing is an explicit, opt-in surface, here and in the CLI.
 

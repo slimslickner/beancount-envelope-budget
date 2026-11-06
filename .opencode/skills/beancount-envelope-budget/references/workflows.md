@@ -153,6 +153,24 @@ beancount-envelope-budget check main.bean
 
 The net amount for each envelope-month is unchanged, so balances, the pool and the invariant are unchanged. A month with a single directive is left alone. If a directive has no source location to edit, its month is skipped and reported rather than half-merged.
 
+## Clear a month's allocations
+
+To undo a month's funding and start again, delete every `allocate` directive in that month. This removes the directives entirely, so the funds return to the pool.
+
+```sh
+# 1. review the diff for the month
+beancount-envelope-budget clear main.bean --month 2025-12
+
+# 2. or clear one envelope across all time
+beancount-envelope-budget clear main.bean --envelope '^Groceries$'
+
+# 3. write once you are happy, then re-check
+beancount-envelope-budget clear main.bean --month 2025-12 --write
+beancount-envelope-budget check main.bean
+```
+
+At least one of `--month` and `--envelope` is required, so a bare run cannot wipe the whole ledger by accident. A directive with no source location to edit is skipped and reported. In the Fava report, the same action is **Clear this month** in a month header's actions popover, and asks for confirmation first.
+
 ## Review an envelope
 
 To see everything that happened to one envelope — its plan changes, allocations, spending and close — as a ledger:

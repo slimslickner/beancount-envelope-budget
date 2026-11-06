@@ -1,4 +1,4 @@
-"""Tests for consolidating ``allocate`` directives: planner, writer and CLI."""
+"""Tests for consolidating and clearing ``allocate`` directives: planner, writer and CLI."""
 
 from __future__ import annotations
 
@@ -254,4 +254,98 @@ def test_cli_consolidate_bad_envelope_regex(
     """A malformed --envelope pattern is a usage error."""
     path = _write_ledger(tmp_path)
     assert cli.main(["consolidate", str(path), "--envelope", "("]) == 2
+    assert "invalid --envelope pattern" in capsys.readouterr().err
+
+
+def test_plan_clear_deletes_matching_directives() -> None:
+    """A clear deletes every allocation in the month and lists the envelopes."""
+    entries = _parse(
+        _allocate("Groceries", "100.00", "2024-01-05")
+        + _allocate("Groceries", "250.00", "2024-01-20")
+    )
+    plan = consolidate.plan_clear(entries, month=date(2024, 1, 1))
+    assert [(edit.lineno, edit.entry) for edit in plan.edits] == [(1, None), (2, None)]
+    assert plan.envelopes == ("Groceries",)
+    assert plan.skipped == ()
+
+
+def test_plan_clear_filters_by_envelope_and_month() -> None:
+    """The envelope and month filters narrow which directives are deleted."""
+    entries = _parse(
+        _allocate("Groceries", "100.00", "2024-01-05")
+        + _allocate("Groceries", "100.00", "2024-02-05")
+        + _allocate("Gifts", "100.00", "2024-01-05")
+    )
+    by_month = consolidate.plan_clear(entries, month=date(2024, 1, 1))
+    assert by_month.envelopes == ("Groceries", "Gifts")
+    assert {edit.lineno for edit in by_month.edits} == {1, 3}
+    by_envelope = consolidate.plan_clear(entries, envelope=re.compile("Gifts"))
+    assert by_envelope.envelopes == ("Gifts",)
+    assert [edit.lineno for edit in by_envelope.edits] == [3]
+
+
+def test_plan_clear_skips_a_directive_with_no_source() -> None:
+    """A directive without a source location is skipped, not deleted."""
+    entries = _parse(_allocate("Groceries", "100.00") + _allocate("Gifts", "50.00"))
+    entries[0] = entries[0]._replace(meta={})
+    plan = consolidate.plan_clear(entries, month=date(2024, 1, 1))
+    assert [(edit.lineno, edit.entry) for edit in plan.edits] == [(2, None)]
+    assert plan.envelopes == ("Gifts",)
+    assert len(plan.skipped) == 1
+    assert "Groceries 2024-01" in plan.skipped[0]
+
+
+def test_cli_clear_prints_a_diff(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A bare run prints the deletions and changes nothing."""
+    path = _write_ledger(tmp_path)
+    before = path.read_text(encoding="utf-8")
+    code = cli.main(["clear", str(path), "--month", "2024-01"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert '-2024-01-05 custom "envelope" "allocate" "Groceries" 400.00 USD' in out
+    assert '-2024-01-20 custom "envelope" "allocate" "Groceries" 250.00 USD' in out
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_cli_clear_writes_and_is_idempotent(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--write deletes in place; a second run has nothing to do."""
+    path = _write_ledger(tmp_path)
+    assert cli.main(["clear", str(path), "--month", "2024-01", "--write"]) == 0
+    assert "cleared 2 allocation(s) in 1 envelope(s)" in capsys.readouterr().out
+    written = path.read_text(encoding="utf-8")
+    assert "allocate" not in written
+    # Idempotent, and the ledger still checks clean.
+    assert cli.main(["clear", str(path), "--month", "2024-01"]) == 0
+    assert "nothing to clear" in capsys.readouterr().err
+    assert cli.main(["check", str(path)]) == 0
+
+
+def test_cli_clear_requires_a_filter(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Clearing the whole ledger with no filter is refused."""
+    path = _write_ledger(tmp_path)
+    assert cli.main(["clear", str(path)]) == 2
+    assert "clear requires --month or --envelope" in capsys.readouterr().err
+
+
+def test_cli_clear_reports_nothing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A month with no allocations reports nothing and exits zero."""
+    path = _write_ledger(tmp_path)
+    assert cli.main(["clear", str(path), "--month", "2024-03"]) == 0
+    assert "nothing to clear" in capsys.readouterr().err
+
+
+def test_cli_clear_bad_envelope_regex(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A malformed --envelope pattern is a usage error."""
+    path = _write_ledger(tmp_path)
+    assert cli.main(["clear", str(path), "--envelope", "("]) == 2
     assert "invalid --envelope pattern" in capsys.readouterr().err

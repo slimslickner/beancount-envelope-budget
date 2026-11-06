@@ -8,9 +8,10 @@
 // through Fava's own file API, and the client talks to it through Fava's
 // extension API (which builds the endpoint URLs correctly).
 //
-// A consolidate form has no directive to edit, so this module submits it
-// straight to `commit` and refreshes, giving it the same in-place reload a
-// created allocation gets rather than a full page navigation.
+// A consolidate or clear form has no directive to edit, so this module submits
+// it straight to `commit` and refreshes, giving it the same in-place reload a
+// created allocation gets rather than a full page navigation. A clear is
+// destructive, so it is confirmed first.
 
 /** @type {{ init(): void, onPageLoad(): void, onExtensionPageLoad(ctx: unknown): void }} */
 export default {
@@ -35,7 +36,19 @@ export default {
     for (const form of document.querySelectorAll("form[data-consolidate]")) {
       form.addEventListener("submit", (event) => {
         event.preventDefault();
-        consolidate(form, api);
+        submit_month_action(form, api, "Could not consolidate");
+      });
+    }
+    for (const form of document.querySelectorAll("form[data-clear]")) {
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const message =
+          "Clear this month's allocations?\n\n" +
+          "This deletes the month's allocate directives and cannot be undone.";
+        if (!window.confirm(message)) {
+          return;
+        }
+        submit_month_action(form, api, "Could not clear allocations");
       });
     }
   },
@@ -516,17 +529,19 @@ async function create(form, api) {
 }
 
 /**
- * Submit a consolidation form and refresh the report in place.
+ * Submit a month-level action form and refresh the report in place.
  *
- * Unlike :func:`create` there is no directive to preview or edit — the server
- * only merges existing ones — so this posts the form's own fields with
- * `format=json` and then refreshes, giving the same in-place reload a created
- * allocation gets instead of a full page navigation.
+ * Used by both the consolidate and clear forms. Unlike :func:`create` there is
+ * no directive to preview or edit — the server only merges or deletes existing
+ * ones — so this posts the form's own fields with `format=json` and then
+ * refreshes, giving the same in-place reload a created allocation gets instead
+ * of a full page navigation.
  *
  * @param {Element} form
  * @param {{ post(endpoint: string, body: FormData): Promise<any> }} api
+ * @param {string} failure The prefix for an alert when the request fails.
  */
-async function consolidate(form, api) {
+async function submit_month_action(form, api, failure) {
   if (!(form instanceof HTMLFormElement)) {
     return;
   }
@@ -536,11 +551,11 @@ async function consolidate(form, api) {
   try {
     result = await api.post("commit", body);
   } catch (error) {
-    window.alert(`Could not consolidate:\n\n${describe(error)}`);
+    window.alert(`${failure}:\n\n${describe(error)}`);
     return;
   }
   if (result && result.error) {
-    window.alert(`Could not consolidate:\n\n${result.error}`);
+    window.alert(`${failure}:\n\n${result.error}`);
     return;
   }
   close_open_popover();

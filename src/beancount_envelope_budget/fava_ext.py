@@ -315,14 +315,16 @@ class Envelopes(FavaExtensionBase):
         Beancount text is parsed and every ``custom "envelope"`` directive it
         holds is appended. Otherwise the individual form fields are turned into
         one directive, the no-JS fallback. A ``consolidate`` action merges
-        directives in place instead, so it appends nothing.
+        directives in place, and a ``clear`` action deletes them, so neither
+        appends anything.
 
         Args:
             params: The submitted fields. ``source`` holds Beancount text; any
                 other shape is the ``action``/arguments of the plain forms.
 
         Returns:
-            The directives that were appended, empty for a consolidation.
+            The directives that were appended, empty for a consolidation or a
+            clear.
 
         Raises:
             RuntimeError: If writing is not configured.
@@ -331,8 +333,12 @@ class Envelopes(FavaExtensionBase):
         if self.write_target is None:
             message = "writing is not configured"
             raise RuntimeError(message)
-        if params.get("action") == "consolidate":
+        action = params.get("action")
+        if action == "consolidate":
             self._consolidate(params)
+            return []
+        if action == "clear":
+            self._clear(params)
             return []
         entries = self._entries_for(params)
         for entry in entries:
@@ -367,6 +373,45 @@ class Envelopes(FavaExtensionBase):
             self._entries(),
             currency=result.operating_currency,
             today=date.today(),  # noqa: DTZ011 - local today is intended
+            envelope=pattern,
+            month=month,
+        )
+        edits_by_file: dict[str, list[tuple[int, Custom | None]]] = {}
+        for edit in plan.edits:
+            edits_by_file.setdefault(edit.filename, []).append(
+                (edit.lineno, edit.entry)
+            )
+        for filename in sorted(edits_by_file):
+            _rewrite_source(self.ledger, Path(filename), edits_by_file[filename])
+
+    def _clear(self, params: Mapping[str, str]) -> None:
+        """Delete a month's or envelope's ``allocate`` directives in place.
+
+        The plan is shared with the CLI's ``clear`` command, so the two agree.
+        The edits are applied through Fava's own file API (its lock, watcher and
+        editor), reusing the same in-memory splice the CLI uses, so the report
+        and the CLI never disagree on the resulting text.
+
+        Args:
+            params: The submitted fields; an optional ``envelope`` regex and an
+                optional ``month``. At least one is required.
+
+        Raises:
+            ValueError: If neither a month nor an envelope is given, or the
+                envelope pattern is not a valid regular expression.
+        """
+        envelope = (params.get("envelope") or "").strip()
+        try:
+            pattern = re.compile(envelope) if envelope else None
+        except re.error as error:
+            message = f"invalid envelope pattern: {error}"
+            raise ValueError(message) from error
+        month = _parse_month(params.get("month"))
+        if pattern is None and month is None:
+            message = "a month or an envelope is required"
+            raise ValueError(message)
+        plan = consolidate.plan_clear(
+            self._entries(),
             envelope=pattern,
             month=month,
         )

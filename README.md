@@ -118,6 +118,7 @@ beancount-envelope-budget fund LEDGER --mode topup [--date YYYY-MM-DD] [--reserv
 beancount-envelope-budget fund LEDGER --mode fully-fund|fund-available [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]
 beancount-envelope-budget pin LEDGER --account REGEX [--through YYYY-MM-DD] [--write]
 beancount-envelope-budget consolidate LEDGER [--envelope REGEX] [--month YYYY-MM] [--write]
+beancount-envelope-budget clear LEDGER [--envelope REGEX] [--month YYYY-MM] [--write]
 beancount-envelope-budget schema [--json]
 beancount-envelope-budget docs [--check]
 beancount-envelope-budget completion SHELL   # bash or zsh
@@ -130,6 +131,7 @@ beancount-envelope-budget completion SHELL   # bash or zsh
 - `fund` prints `allocate` directives to stdout (redirect them into a file you include); it never edits your ledger. The `actuals`, `overspend` and `copy` modes backfill a month range and skip months that already have an allocation; `topup` funds envelopes up to their target in priority order from the pool, and reports any envelope already above its target. `fully-fund` and `fund-available` fund every envelope to its plan or its overspend, whichever is greater, the latter stopping before the pool would go negative — the same actions the Fava report offers on each month heading.
 - `pin` freezes the resolved envelope onto matching postings as metadata, so you can change an account's envelope afterwards without reclassifying history. It prints a diff by default; `--write` edits the files in place.
 - `consolidate` merges an envelope-month's several `allocate` directives into one, dated the last day of the month (or today, for the current month), so a history funded in several passes reads as one line. The net amount is unchanged, so balances, the pool and the invariant are unchanged. With no filter it walks the whole ledger; `--envelope` and `--month` narrow it. It prints a diff by default; `--write` edits the files in place. The Fava report offers the same for one envelope-month or one month.
+- `clear` deletes every `allocate` directive in a month, or matching an envelope, so the month can be funded again from scratch; the funds return to the pool. At least one of `--month` and `--envelope` is required, so a bare run cannot wipe the whole ledger. It prints a diff by default; `--write` edits the files in place. The Fava report offers the same as **Clear this month** on a month heading, with a confirmation first.
 
 See `docs/cli.md` for the full reference and `beancount-envelope-budget --help`.
 
