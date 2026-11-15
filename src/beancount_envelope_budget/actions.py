@@ -197,6 +197,7 @@ def open_envelope(  # noqa: PLR0913 - the plan fields share one builder
     by: date | None = None,
     up_to: Decimal | None = None,
     parent: str | None = None,
+    note: str | None = None,
 ) -> Custom:
     """Build an ``open`` directive.
 
@@ -210,6 +211,7 @@ def open_envelope(  # noqa: PLR0913 - the plan fields share one builder
         by: The date the goal should be reached by.
         up_to: A balance ceiling paired with ``monthly``.
         parent: A grouping label.
+        note: Free text about the envelope.
 
     Returns:
         The directive.
@@ -221,6 +223,8 @@ def open_envelope(  # noqa: PLR0913 - the plan fields share one builder
     meta = _plan_meta(monthly, priority, goal, goal_currency, by, up_to)
     if parent is not None:
         meta["parent"] = parent
+    if note is not None:
+        meta["note"] = note
     return _custom(day, ["open", envelope], meta)
 
 

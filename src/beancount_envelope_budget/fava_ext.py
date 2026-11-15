@@ -16,13 +16,16 @@ closing balances (the ring's shape still tells the plan status)::
 
     2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext" "{'color-closing-balance': False}"
 
-The report is **read-only unless a write goal is configured**. Add a ``write``
-key naming a Beancount file, relative to the ledger's directory, to let the
-report append ``custom "envelope"`` directives::
+The report is **read-only unless a write goal is configured**. The target may be declared once in the ledger, as ``write`` metadata on the ``start`` directive::
+
+    2024-01-01 custom "envelope" "start"
+      write: "beans/Envelope.bean"
+
+or in the extension config, which wins when both are present::
 
     2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext" "{'write': 'beans/Envelope.bean'}"
 
-A path that escapes the ledger directory or is not a Beancount source file is
+Either way the file is a Beancount file relative to the ledger's directory, and the CLI's bare ``--write`` defaults to the same ledger target. A path that escapes the ledger directory or is not a Beancount source file is
 refused. Writes go through Fava's own file API (its lock, watcher and printer),
 so Fava's editor and this report stay consistent; the directives themselves come
 from :mod:`beancount_envelope_budget.actions`, the same module the CLI uses. With
@@ -152,11 +155,12 @@ class Envelopes(FavaExtensionBase):
                 key (1 to :data:`~beancount_envelope_budget.report.MAX_MONTHS`,
                 the default number of months shown), a ``write`` key (the
                 Beancount file to append directives to, relative to the ledger
-                directory; writing stays off when it is absent), and a
-                ``color-closing-balance`` key (a boolean; the closing balances
+                directory; it wins over the ledger's own ``write`` metadata), and
+                a ``color-closing-balance`` key (a boolean; the closing balances
                 are colour-coded unless it is ``False``). A whole number sets the
                 month count. The ``months`` query parameter overrides the month
-                count.
+                count. Writing stays off unless the config or the ledger's
+                ``start`` directive declares a target.
 
         Raises:
             ExtensionConfigError: If the config is not valid, or the write goal
@@ -167,7 +171,7 @@ class Envelopes(FavaExtensionBase):
         self._index: ViewIndex | None = None
         try:
             self.default_months = _default_months(self.config)
-            self.write_target = self._resolve_write(_write_setting(self.config))
+            self._config_target = self._resolve_write(_write_setting(self.config))
             self._color_closing_balance = _color_setting(self.config)
         except (TypeError, ValueError) as error:
             raise ExtensionConfigError(SyntaxError(str(error)), config or "") from error
@@ -183,8 +187,38 @@ class Envelopes(FavaExtensionBase):
         """
         if value is None:
             return None
-        base = Path(self.ledger.beancount_file_path).parent
-        return writer.resolve_target(Path(value), base)
+        return writer.resolve_target(Path(value), self._ledger_dir())
+
+    def _ledger_dir(self) -> Path:
+        """Return the directory of the ledger being edited.
+
+        Returns:
+            The ledger's directory.
+        """
+        return Path(self.ledger.beancount_file_path).parent
+
+    @property
+    def write_target(self) -> Path | None:
+        """The file the report appends generated directives to.
+
+        The extension config's ``write`` key wins when it is set; otherwise the
+        target the ledger declares as ``write`` metadata on its ``start``
+        directive is used, so the report and the CLI share one source. A ledger
+        target that escapes the ledger directory leaves the report read-only;
+        the plugin reports it as an ordinary ledger error.
+
+        Returns:
+            The absolute goal path, or ``None`` when writing is not configured.
+        """
+        if self._config_target is not None:
+            return self._config_target
+        target = self._result().write_target
+        if target is None:
+            return None
+        try:
+            return writer.resolve_target(Path(target), self._ledger_dir())
+        except ValueError:
+            return None
 
     @property
     def writable(self) -> bool:
@@ -742,7 +776,7 @@ class Envelopes(FavaExtensionBase):
         verdict = funding_verdict(explanation)
         if verdict is not None:
             lead.append(verdict)
-        if cell.fill is not None:
+        if cell.fill is not None and (cell.goal is not None or cell.up_to is not None):
             lead.append(f"{cell.fill * 100:.1f}% funded")
         lines: list[str] = [" - ".join(lead)] if lead else []
         lines.extend(funding_derivation_lines(explanation))
@@ -1105,6 +1139,20 @@ def _form_optional_decimal(value: str | None) -> Decimal | None:
     return None if value is None or not value.strip() else Decimal(value)
 
 
+def _form_optional_text(value: str | None) -> str | None:
+    """Return an optional text form field, treated as unset when blank.
+
+    Args:
+        value: The raw field, or ``None``.
+
+    Returns:
+        The trimmed text, or ``None`` when blank.
+    """
+    if value is None:
+        return None
+    return value.strip() or None
+
+
 def _form_monthly(value: str | None) -> Decimal | str | None:
     """Parse a ``monthly`` form field: a number or ``avgN``.
 
@@ -1279,6 +1327,19 @@ def _action_entry(params: Mapping[str, str], result: BudgetResult) -> Custom:
     action = params.get("action")
     day = _form_day(params.get("date"))
     currency = result.operating_currency
+    if action == "open":
+        return actions.open_envelope(
+            params["envelope"],
+            day,
+            monthly=_form_monthly(params.get("monthly")),
+            priority=_form_optional_decimal(params.get("priority")),
+            goal=_form_optional_decimal(params.get("goal")),
+            goal_currency=currency,
+            by=_form_optional_day(params.get("by")),
+            up_to=_form_optional_decimal(params.get("up_to")),
+            parent=_form_optional_text(params.get("parent")),
+            note=_form_optional_text(params.get("note")),
+        )
     if action == "allocate":
         return actions.allocate(
             params["envelope"],

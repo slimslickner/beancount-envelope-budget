@@ -193,6 +193,70 @@ def test_cli_unplan_and_plan_print(
     assert 'monthly: "avg3"' in out
 
 
+def test_append_creates_a_missing_file(tmp_path: Path) -> None:
+    """Appending to a file that does not exist yet creates it."""
+    path = tmp_path / "Envelope.bean"
+    writer.append(
+        path, actions.allocate("Groceries", Decimal(10), date(2024, 2, 1), "USD")
+    )
+    assert path.read_text(encoding="utf-8") == (
+        '2024-02-01 custom "envelope" "allocate" "Groceries" 10.00 USD\n'
+    )
+
+
+def _ledger_with_target(tmp_path: Path, write: str) -> Path:
+    """Write the ledger with a write target declared on its start directive."""
+    return _ledger(
+        tmp_path,
+        _LEDGER.replace(
+            '2024-01-01 custom "envelope" "start"',
+            f'2024-01-01 custom "envelope" "start"\n  write: "{write}"',
+        ),
+    )
+
+
+def test_cli_write_uses_the_ledger_target(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A bare --write appends to the target the ledger declares."""
+    path = _ledger_with_target(tmp_path, "Envelope.bean")
+    assert cli.main(["allocate", str(path), "Groceries", "10", "--write"]) == 0
+    appended = tmp_path / "Envelope.bean"
+    assert 'custom "envelope" "allocate" "Groceries" 10.00 USD' in appended.read_text(
+        encoding="utf-8"
+    )
+    assert "appended 1 directive(s)" in capsys.readouterr().out
+
+
+def test_cli_write_explicit_file_overrides_the_ledger_target(tmp_path: Path) -> None:
+    """--write FILE wins over the target the ledger declares."""
+    path = _ledger_with_target(tmp_path, "Envelope.bean")
+    assert (
+        cli.main(["allocate", str(path), "Groceries", "10", "--write", "Other.bean"])
+        == 0
+    )
+    assert (tmp_path / "Other.bean").exists()
+    assert not (tmp_path / "Envelope.bean").exists()
+
+
+def test_cli_write_without_a_target_is_an_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A bare --write with no declared or given target writes nothing."""
+    path = _ledger(tmp_path)
+    assert cli.main(["allocate", str(path), "Groceries", "10", "--write"]) == 2
+    assert "no write target" in capsys.readouterr().err
+
+
+def test_cli_write_reports_a_bad_ledger_target(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A ledger write target that escapes is reported by the plugin on check."""
+    path = _ledger_with_target(tmp_path, "../evil.bean")
+    assert cli.main(["check", str(path)]) == 1
+    assert "outside the ledger directory" in capsys.readouterr().out
+
+
 def test_fund_write_appends_and_rechecks(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -109,6 +109,10 @@ _HISTORY_TEXT_COLUMNS = 3
 #: blank rather than a zero the eye must skip.
 _HISTORY_DIRECTIVES = frozenset({"open", "plan", "unplan", "close"})
 
+#: What argparse stores for a bare ``--write``: use the write target the ledger
+#: declares on its ``start`` directive rather than a path named on the command.
+_WRITE_FROM_LEDGER = object()
+
 
 @dataclass(frozen=True, slots=True)
 class _Loaded:
@@ -679,37 +683,14 @@ def _format_pool_ledger(ledger: PoolLedger, currency: str) -> str:
         )
         for entry in ledger.entries
     ]
-    widths = [len(label) for label in header]
-    for row in rows:
-        widths = [
-            max(width, len(cell)) for width, cell in zip(widths, row, strict=True)
-        ]
-    lines.append(_pool_table_row(header, widths))
-    lines.append("  ".join("-" * width for width in widths))
-    lines.extend(_pool_table_row(row, widths) for row in rows)
+    widths = _column_widths([header], rows)
+    lines.append(_render_row(header, widths, _POOL_TEXT_COLUMNS))
+    lines.append(_rule(widths))
+    lines.extend(_render_row(row, widths, _POOL_TEXT_COLUMNS) for row in rows)
     if ledger.low is not None and ledger.low < 0:
         lines.append("")
         lines.append(f"Lowest: {_money(ledger.low)} on {ledger.low_date}")
     return "\n".join(lines)
-
-
-def _pool_table_row(row: tuple[str, ...], widths: list[int]) -> str:
-    """Render one pool-ledger row with left-aligned text and right-aligned money.
-
-    Args:
-        row: The row's cells.
-        widths: The column widths.
-
-    Returns:
-        The rendered row.
-    """
-    cells = [
-        cell.ljust(widths[index])
-        if index < _POOL_TEXT_COLUMNS
-        else cell.rjust(widths[index])
-        for index, cell in enumerate(row)
-    ]
-    return "  ".join(cells).rstrip()
 
 
 def _cmd_history(args: argparse.Namespace) -> int:
@@ -778,21 +759,12 @@ def _format_history(history: EnvelopeHistory) -> str:
         for month in history.months
         for line in month.lines
     ]
-    widths = [len(cell) for cell in header]
-    for row in rows:
-        widths = [
-            max(width, len(cell)) for width, cell in zip(widths, row, strict=True)
-        ]
+    widths = _column_widths([header], rows)
 
-    def render(cells: tuple[str, ...]) -> str:
-        return "  ".join(
-            cell.ljust(widths[index])
-            if index < _HISTORY_TEXT_COLUMNS
-            else cell.rjust(widths[index])
-            for index, cell in enumerate(cells)
-        )
-
-    body = [render(header), "  ".join("-" * width for width in widths)]
+    body = [
+        _render_row(header, widths, _HISTORY_TEXT_COLUMNS),
+        _rule(widths),
+    ]
     index = 0
     for month in history.months:
         body.append(
@@ -801,7 +773,8 @@ def _format_history(history: EnvelopeHistory) -> str:
             f"closing {_money(month.closing)}"
         )
         body.extend(
-            f"  {render(rows[index + offset])}" for offset in range(len(month.lines))
+            f"  {_render_row(rows[index + offset], widths, _HISTORY_TEXT_COLUMNS)}"
+            for offset in range(len(month.lines))
         )
         index += len(month.lines)
     return "\n".join([*lines, "", *body])
@@ -810,6 +783,10 @@ def _format_history(history: EnvelopeHistory) -> str:
 def _cmd_completion(args: argparse.Namespace) -> int:
     """Print the shell snippet that enables tab completion.
 
+    ``register-python-argcomplete`` emits a zsh-native script whose last line is
+    ``compdef``, which only exists after zsh's ``compinit`` runs. Zsh is set up
+    with ``compinit``; bash needs no prelude.
+
     Args:
         args: Parsed arguments; ``args.shell`` is ``bash`` or ``zsh``.
 
@@ -817,8 +794,11 @@ def _cmd_completion(args: argparse.Namespace) -> int:
         The process exit status.
     """
     if args.shell == "zsh":
-        print("autoload -U bashcompinit && bashcompinit")
-    print('eval "$(register-python-argcomplete beancount-envelope-budget)"')
+        print("autoload -U compinit && compinit")
+    print(
+        'eval "$(register-python-argcomplete'
+        f' --shell {args.shell} beancount-envelope-budget)"'
+    )
     return 0
 
 
@@ -890,7 +870,7 @@ def _fund_month(
     entries = [
         actions.allocate(name, amount, day, currency) for name, amount in allocations
     ]
-    status = _emit(entries, args)
+    status = _emit(entries, args, result.write_target)
     for name, amount in unfunded:
         print(f"; UNFUNDED {name}: needs {_money(amount)} {currency}")
     return 1 if args.strict and unfunded else status
@@ -920,7 +900,7 @@ def _fund_cleanup(
     entries = [
         actions.allocate(name, -amount, day, currency) for name, amount in releases
     ]
-    return _emit(entries, args)
+    return _emit(entries, args, result.write_target)
 
 
 def _fund_topup(
@@ -943,7 +923,7 @@ def _fund_topup(
         return 2
     on = args.date or date.today()  # noqa: DTZ011 - local today is intended
     lines, unfunded, overfunded = _plan_topup(result, on, args.reserve, pattern)
-    status = _emit(lines, args)
+    status = _emit(lines, args, result.write_target)
     for name, amount in unfunded:
         print(f"; UNFUNDED {name}: needs {_money(amount)} {result.operating_currency}")
     for name, amount in overfunded:
@@ -991,15 +971,24 @@ def _fund_range(
         pattern,
         force=args.force,
     )
-    return _emit(entries, args)
+    return _emit(entries, args, loaded.result.write_target)
 
 
-def _emit(entries: list[Custom], args: argparse.Namespace) -> int:
+def _emit(
+    entries: list[Custom],
+    args: argparse.Namespace,
+    ledger_target: str | None,
+) -> int:
     """Print generated directives, or append them to ``--write`` and recheck.
+
+    ``--write`` is opt-in: with no flag the directives are printed and the
+    ledger is untouched. A bare ``--write`` uses the target the ledger declares
+    on its ``start`` directive; ``--write FILE`` overrides it.
 
     Args:
         entries: The generated directives.
         args: Parsed arguments; ``args.ledger`` and the optional ``args.write``.
+        ledger_target: The write target declared by the ledger, if any.
 
     Returns:
         The process exit status.
@@ -1008,8 +997,16 @@ def _emit(entries: list[Custom], args: argparse.Namespace) -> int:
         for entry in entries:
             print(actions.render(entry))
         return 0
+    target = args.write if isinstance(args.write, Path) else ledger_target
+    if target is None:
+        print(
+            "no write target: pass --write FILE, or declare `write` on the "
+            "start directive",
+            file=sys.stderr,
+        )
+        return 2
     try:
-        goal = writer.resolve_target(args.write, args.ledger.parent)
+        goal = writer.resolve_target(Path(target), args.ledger.parent)
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 2
@@ -1044,18 +1041,6 @@ def _recheck(path: Path) -> int:
     return 1 if errors else 0
 
 
-def _currency_of(path: Path) -> str | None:
-    """Load a ledger and return its operating currency.
-
-    Args:
-        path: The ledger path.
-
-    Returns:
-        The operating currency, or ``None``.
-    """
-    return _load(path).result.operating_currency
-
-
 def _cmd_allocate(args: argparse.Namespace) -> int:
     """Print or write one ``allocate`` directive.
 
@@ -1068,13 +1053,15 @@ def _cmd_allocate(args: argparse.Namespace) -> int:
     if not args.ledger.exists():
         print(f"no such ledger: {args.ledger}", file=sys.stderr)
         return 2
-    currency = _currency_of(args.ledger)
-    if currency is None:
+    loaded = _load(args.ledger)
+    if not loaded.result.operating_currency:
         print("the ledger has no operating currency", file=sys.stderr)
         return 2
     day = args.date or date.today()  # noqa: DTZ011 - local today is intended
-    entry = actions.allocate(args.envelope, args.amount, day, currency)
-    return _emit([entry], args)
+    entry = actions.allocate(
+        args.envelope, args.amount, day, loaded.result.operating_currency
+    )
+    return _emit([entry], args, loaded.result.write_target)
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:
@@ -1098,16 +1085,17 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         print("a plan needs at least one of --monthly/--priority/--goal/--by")
         return 2
     day = args.date or date.today()  # noqa: DTZ011 - local today is intended
+    loaded = _load(args.ledger)
     entry = actions.plan(
         args.envelope,
         day,
         monthly=args.monthly,
         priority=args.priority,
         goal=args.goal,
-        goal_currency=_currency_of(args.ledger),
+        goal_currency=loaded.result.operating_currency,
         by=args.by,
     )
-    return _emit([entry], args)
+    return _emit([entry], args, loaded.result.write_target)
 
 
 def _cmd_unplan(args: argparse.Namespace) -> int:
@@ -1123,7 +1111,8 @@ def _cmd_unplan(args: argparse.Namespace) -> int:
         print(f"no such ledger: {args.ledger}", file=sys.stderr)
         return 2
     day = args.date or date.today()  # noqa: DTZ011 - local today is intended
-    return _emit([actions.unplan(args.envelope, day)], args)
+    loaded = _load(args.ledger)
+    return _emit([actions.unplan(args.envelope, day)], args, loaded.result.write_target)
 
 
 def _compile_pattern(value: str | None, option: str) -> re.Pattern[str] | None:
@@ -1984,25 +1973,60 @@ def _envelope_rows(view: BudgetView) -> list[tuple[str, ...]]:
     return rows
 
 
-def _view_headers(view: BudgetView) -> list[tuple[str, ...]]:
-    """Build the two header rows for the unified table.
+def _view_headers(view: BudgetView) -> tuple[str, ...]:
+    """Build the metric header row for the unified table.
 
     Args:
         view: The view to render.
 
     Returns:
-        A month heading row spanning each month's three columns, then a metric
-        row naming the columns.
+        The column names: ``Envelope`` and ``Opening`` once, then each month's
+        ``Allocated``, ``Activity`` and ``Closing``.
     """
-    headings = ["", ""]
     metrics = ["Envelope", "Opening"]
+    for _ in view.months:
+        metrics.extend(("Allocated", "Activity", "Closing"))
+    return tuple(metrics)
+
+
+def _view_month_header(view: BudgetView, widths: list[int]) -> str:
+    """Build the month heading row that spans each month's columns.
+
+    Each label is left-aligned over the whole span of its month's columns, so a
+    label such as ``2026-11 (projected)`` sits above its columns instead of
+    widowing out a single money column as it would placed in one cell.
+
+    Args:
+        view: The view to render.
+        widths: The column widths, computed from the metric and data rows.
+
+    Returns:
+        The rendered month heading row.
+    """
+    parts = [" " * widths[0]]
     for index, month in enumerate(view.months):
+        start, end = _month_span(index)
+        span = sum(widths[start : end + 1]) + 2 * (end - start)
         label = f"{month:%Y-%m}"
         if view.projected[index]:
             label += " (projected)"
-        headings.extend((label, "", ""))
-        metrics.extend(("Allocated", "Activity", "Closing"))
-    return [tuple(headings), tuple(metrics)]
+        parts.append(label.ljust(span))
+    return "  ".join(parts).rstrip()
+
+
+def _month_span(index: int) -> tuple[int, int]:
+    """Return a month's first and last column in the unified table.
+
+    Args:
+        index: The month's position in the view.
+
+    Returns:
+        The inclusive column range. The first month also owns the ``Opening``
+        column; every later month spans only Allocated, Activity and Closing.
+    """
+    if index == 0:
+        return 1, 4
+    return 2 + 3 * index, 4 + 3 * index
 
 
 def _format_view(view: BudgetView) -> str:
@@ -2020,7 +2044,16 @@ def _format_view(view: BudgetView) -> str:
     rows = _envelope_rows(view)
     rows.append(_row("Pool", view.pool))
     rows.append(_cash_row(view.cash))
-    table = _grid(_view_headers(view), rows)
+    metrics = _view_headers(view)
+    widths = _column_widths([metrics], rows)
+    table = "\n".join(
+        (
+            _view_month_header(view, widths),
+            _render_row(metrics, widths, 1),
+            _rule(widths),
+            *(_render_row(row, widths, 1) for row in rows),
+        )
+    )
     rendered = f"{heading}\n\n{table}"
     if view.warnings:
         rendered += "\n\n" + "\n".join(
@@ -2094,45 +2127,100 @@ def _monthly_need(goal: Decimal, saved: Decimal, remaining: int) -> Decimal:
     return (shortfall / remaining).quantize(_CENT, rounding=ROUND_CEILING)
 
 
-def _grid(header: list[tuple[str, ...]], rows: list[tuple[str, ...]]) -> str:
-    """Render a grid with a left-aligned first column and right-aligned rest.
+def _grid(
+    header: Sequence[tuple[str, ...]],
+    rows: Sequence[tuple[str, ...]],
+    *,
+    text_columns: int = 1,
+) -> str:
+    """Render a grid of aligned columns.
+
+    The leading ``text_columns`` columns are left-aligned and the rest are
+    right-aligned, which is how every table here reads: names and dates on the
+    left, money on the right.
+
+    Args:
+        header: The header rows, all the same width.
+        rows: The body rows.
+        text_columns: How many leading columns are left-aligned.
+
+    Returns:
+        The rendered grid.
+    """
+    widths = _column_widths(header, rows)
+    lines = [_render_row(row, widths, text_columns) for row in header]
+    lines.append(_rule(widths))
+    lines.extend(_render_row(row, widths, text_columns) for row in rows)
+    return "\n".join(lines)
+
+
+def _column_widths(
+    header: Sequence[tuple[str, ...]],
+    rows: Sequence[tuple[str, ...]],
+) -> list[int]:
+    """Return the width of each column, the widest cell it holds.
 
     Args:
         header: The header rows, all the same width.
         rows: The body rows.
 
     Returns:
-        The rendered grid.
+        One width per column.
     """
     widths = [0] * len(header[0])
     for row in (*header, *rows):
         for index, cell in enumerate(row):
             widths[index] = max(widths[index], len(cell))
-
-    def render(cells: tuple[str, ...]) -> str:
-        parts = [
-            cell.ljust(widths[index]) if index == 0 else cell.rjust(widths[index])
-            for index, cell in enumerate(cells)
-        ]
-        return "  ".join(parts).rstrip()
-
-    lines = [render(row) for row in header]
-    lines.append("  ".join("-" * width for width in widths))
-    lines.extend(render(row) for row in rows)
-    return "\n".join(lines)
+    return widths
 
 
-def _table(headers: tuple[str, ...], rows: list[tuple[str, ...]]) -> str:
-    """Render a left-aligned first column and right-aligned numeric columns.
+def _render_row(cells: tuple[str, ...], widths: list[int], text_columns: int) -> str:
+    """Render one row with its leading text columns left-aligned.
+
+    Args:
+        cells: The row's cells.
+        widths: The column widths.
+        text_columns: How many leading columns are left-aligned.
+
+    Returns:
+        The rendered row, without trailing spaces.
+    """
+    parts = [
+        cell.ljust(widths[index]) if index < text_columns else cell.rjust(widths[index])
+        for index, cell in enumerate(cells)
+    ]
+    return "  ".join(parts).rstrip()
+
+
+def _rule(widths: list[int]) -> str:
+    """Render the dashed rule under a grid's header.
+
+    Args:
+        widths: The column widths.
+
+    Returns:
+        The header rule.
+    """
+    return "  ".join("-" * width for width in widths)
+
+
+def _table(
+    headers: tuple[str, ...],
+    rows: Sequence[tuple[str, ...]],
+    *,
+    text_columns: int = 1,
+) -> str:
+    """Render a headed table, text on the left and numbers on the right.
 
     Args:
         headers: The column headings.
         rows: The body rows.
+        text_columns: How many leading columns are left-aligned.
 
     Returns:
         The rendered table.
     """
-    return _grid([headers], rows)
+    return _grid([headers], rows, text_columns=text_columns)
 
 
 # --- Argument parser -----------------------------------------------------------
@@ -2153,18 +2241,25 @@ def _ledger_argument(parser: argparse.ArgumentParser) -> None:
 
 
 def _write_argument(parser: argparse.ArgumentParser) -> None:
-    """Add the shared ``--write FILE`` opt-in to a command.
+    """Add the shared ``--write [FILE]`` opt-in to a command.
+
+    The flag takes an optional value: a bare ``--write`` uses the write target
+    the ledger declares on its ``start`` directive, and ``--write FILE``
+    overrides it. Absent, the command prints its directives and writes nothing.
 
     Args:
         parser: The subcommand parser.
     """
     action = parser.add_argument(
         "--write",
+        nargs="?",
+        const=_WRITE_FROM_LEDGER,
         type=Path,
         metavar="FILE",
         help=(
-            "append the directive(s) to this file (relative to the ledger's "
-            "directory) instead of printing them; the ledger is reloaded after"
+            "append the directive(s) to FILE (relative to the ledger's "
+            "directory); with no FILE, to the target declared by the ledger's "
+            "start directive. The ledger is reloaded after"
         ),
     )
     setattr(action, "completer", FilesCompleter(_LEDGER_EXTENSIONS))  # noqa: B010

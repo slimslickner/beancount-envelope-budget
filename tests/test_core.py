@@ -591,3 +591,110 @@ option "operating_currency" "USD"
     )
     assert any(d.code == "E008" for d in result.diagnostics)
     assert any(d.code == "E010" for d in result.diagnostics)
+
+
+def test_start_declares_a_write_target() -> None:
+    """The write metadata on the start directive is carried on the result."""
+    ledger = """
+option "operating_currency" "USD"
+2024-01-01 custom "envelope" "start"
+  write: "Envelope.bean"
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    assert compute(entries, options).write_target == "Envelope.bean"
+
+
+def test_write_target_without_start_is_none() -> None:
+    """A ledger with no start directive has no write target."""
+    assert compute([], {}).write_target is None
+
+
+def test_write_target_must_be_a_string() -> None:
+    """A non-string write metadata is E008 and is ignored."""
+    ledger = """
+option "operating_currency" "USD"
+2024-01-01 custom "envelope" "start"
+  write: 123
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    result = compute(entries, options)
+    assert "E008" in _codes(result)
+    assert result.write_target is None
+
+
+def test_write_target_must_be_a_beancount_file() -> None:
+    """A write target that is not a Beancount source is E008 and ignored."""
+    ledger = """
+option "operating_currency" "USD"
+2024-01-01 custom "envelope" "start"
+  write: "notes.txt"
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    result = compute(entries, options)
+    assert "E008" in _codes(result)
+    assert result.write_target is None
+
+
+def test_open_reads_a_note() -> None:
+    """A note on the open directive is carried on the envelope."""
+    ledger = """
+option "operating_currency" "USD"
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Hawaii"
+  note: "Trip to Hawaii for the family."
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    result = compute(entries, options)
+    assert _envelope(result, "Hawaii").envelope.note == "Trip to Hawaii for the family."
+
+
+def test_open_note_must_be_a_string() -> None:
+    """A non-string note is E008 and is ignored."""
+    ledger = """
+option "operating_currency" "USD"
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Hawaii"
+  note: 123
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    result = compute(entries, options)
+    assert "E008" in _codes(result)
+    assert _envelope(result, "Hawaii").envelope.note is None
+
+
+def test_cash_accounts_sum_to_the_balance(load_budget) -> None:
+    """The cash row's per-account balances add up to its total."""
+    result = load_budget("sample.bean")
+    for row in result.cash:
+        assert sum((balance for _, balance in row.accounts), D(0)) == row.balance
+
+
+def test_cash_accounts_include_pre_start_and_negative() -> None:
+    """A pre-start holding and a negative credit card are both listed."""
+    ledger = """
+option "operating_currency" "USD"
+2020-01-01 open Assets:Checking USD
+  on-budget: TRUE
+2020-01-01 open Liabilities:Card USD
+  on-budget: TRUE
+2020-01-01 open Expenses:Stuff USD
+  envelope: "Stuff"
+2020-01-01 open Equity:Opening-Balances USD
+2023-12-31 * "Opening"
+  Assets:Checking            1000.00 USD
+  Equity:Opening-Balances   -1000.00 USD
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Stuff"
+2024-01-15 * "buy on the card"
+  Expenses:Stuff    80.00 USD
+  Liabilities:Card -80.00 USD
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    result = compute(entries, options)
+    assert result.diagnostics == ()
+    row = result.cash[-1]
+    assert dict(row.accounts) == {
+        "Assets:Checking": D("1000"),
+        "Liabilities:Card": D("-80"),
+    }
+    assert row.balance == D("920")

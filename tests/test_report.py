@@ -277,7 +277,7 @@ def test_monthly_partial_allocation_reads_under() -> None:
     cell = partial.cells[0]
     assert cell.target == D("100")
     assert cell.funding == "under"
-    assert cell.fill == D("0.5")
+    assert cell.fill == D("0")
 
 
 def test_monthly_over_allocation_reads_over() -> None:
@@ -620,3 +620,42 @@ def test_suggestion_cells_and_summary_line() -> None:
         "0",
         "under-saving",
     )
+
+
+def test_view_carries_an_envelope_note() -> None:
+    """The open directive's note reaches the envelope view."""
+    result = _compute("sample.bean")
+    view = build_view(result)
+    vacation = next(e for e in view.envelopes if e.name == "Vacation")
+    assert vacation.note == "Family trip: flights, hotel and food."
+
+
+def test_view_note_is_none_without_one() -> None:
+    """An envelope with no note has ``None``."""
+    result = _compute("sample.bean")
+    view = build_view(result)
+    groceries = next(e for e in view.envelopes if e.name == "Groceries")
+    assert groceries.note is None
+
+
+def test_cash_cell_carries_contributing_accounts() -> None:
+    """The cash cell lists the accounts behind the month's balance."""
+    result = _compute("sample.bean")
+    view = build_view(result)
+    cell = view.cash[-1]
+    assert dict(cell.accounts)["Assets:Checking"] is not None
+    assert sum((balance for _, balance in cell.accounts), D(0)) == cell.closing
+
+
+def test_envelope_cells_have_no_cash_accounts() -> None:
+    """Only the cash row carries contributing accounts."""
+    view = build_view(_compute("sample.bean"))
+    assert all(not envelope.cells[0].accounts for envelope in view.envelopes)
+
+
+def test_reports_months_run_newest_first() -> None:
+    """The report columns lead with the most recent month."""
+    reports = build_reports(_compute("fund_backfill.bean"))
+    months = [month.month for month in reports.rows[0].months]
+    assert months == sorted(months, reverse=True)
+    assert reports.months == tuple(months)

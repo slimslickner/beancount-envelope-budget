@@ -73,6 +73,13 @@ def test_open_envelope_includes_parent() -> None:
     )
 
 
+def test_open_envelope_includes_note() -> None:
+    entry = actions.open_envelope("Hawaii", date(2024, 1, 1), note="Trip to Hawaii.")
+    assert actions.render(entry) == (
+        '2024-01-01 custom "envelope" "open" "Hawaii"\n  note: "Trip to Hawaii."'
+    )
+
+
 def test_close_renders() -> None:
     entry = actions.close("Car", date(2024, 6, 1))
     assert actions.render(entry) == '2024-06-01 custom "envelope" "close" "Car"'

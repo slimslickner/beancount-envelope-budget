@@ -72,7 +72,7 @@ plugin "beancount_envelope_budget.plugin"
 2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext"
 ```
 
-Validation errors then appear as ordinary Beancount errors (on Fava's errors page). Add `"resolved"` after the plugin path to also write each posting's resolved envelope to `envelope-resolved` metadata for BQL. The report has an **Envelopes** tab (the ledger grid), a **Monthly Reports** tab, which shows the cash and pool balances and the per-month top envelopes over the budget's whole history, a **Plan Review** tab, which compares each envelope's trailing spending against its plan, grouped by parent and with a legend for its readings (experimental), and an **Envelope History** tab, which shows one envelope's whole ledger — plan changes, allocations, spending and close — with a running balance.
+Validation errors then appear as ordinary Beancount errors (on Fava's errors page). Add `"resolved"` after the plugin path to also write each posting's resolved envelope to `envelope-resolved` metadata for BQL. The report has an **Envelopes** tab (the ledger grid), a **Monthly Reports** tab, which shows the cash and pool balances and the per-month top envelopes over the budget's whole history, newest month first, a **Plan Review** tab, which compares each envelope's trailing spending against its plan, grouped by parent and with a legend for its readings (experimental), and an **Envelope History** tab, which shows one envelope's whole ledger — plan changes, allocations, spending and close — with a running balance.
 
 ### Backfilling history
 
@@ -133,8 +133,24 @@ beancount-envelope-budget completion SHELL   # bash or zsh
 - `pin` freezes the resolved envelope onto matching postings as metadata, so you can change an account's envelope afterwards without reclassifying history. It prints a diff by default; `--write` edits the files in place.
 - `consolidate` merges an envelope-month's several `allocate` directives into one, dated the last day of the month (or today, for the current month), so a history funded in several passes reads as one line. The net amount is unchanged, so balances, the pool and the invariant are unchanged. With no filter it walks the whole ledger; `--envelope` and `--month` narrow it. It prints a diff by default; `--write` edits the files in place. The Fava report offers the same for one envelope-month or one month.
 - `clear` deletes every `allocate` directive in a month, or matching an envelope, so the month can be funded again from scratch; the funds return to the pool. At least one of `--month` and `--envelope` is required, so a bare run cannot wipe the whole ledger. It prints a diff by default; `--write` edits the files in place. The Fava report offers the same as **Clear this month** on a month heading, with a confirmation first.
+- Commands that generate directives (`fund`, `allocate`, `plan`, `unplan`) print them, or append them with `--write`: a bare `--write` uses the file the ledger declares as `write` metadata on its `start` directive, and `--write FILE` names one explicitly. The Fava report's write target defaults to the same ledger declaration.
 
 See `docs/cli.md` for the full reference and `beancount-envelope-budget --help`.
+
+### Shell completion
+
+Tab completion covers subcommands, flags, files and — on commands that name an envelope or account — the names from your ledger. Enable it by adding one line to your shell's startup file:
+
+```sh
+# bash
+eval "$(register-python-argcomplete --shell bash beancount-envelope-budget)"
+
+# zsh
+autoload -U compinit && compinit
+eval "$(register-python-argcomplete --shell zsh beancount-envelope-budget)"
+```
+
+`beancount-envelope-budget completion bash|zsh` prints the same snippet. In zsh, `compinit` must run before the `eval`, because the generated script registers itself with `compdef`, which `compinit` provides; `bashcompinit` is not needed and will silently fail to register. With the completion in place, plugins such as `fzf-tab` can fuzzy-match the candidates.
 
 ## Documentation
 

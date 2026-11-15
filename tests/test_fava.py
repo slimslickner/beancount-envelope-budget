@@ -344,11 +344,11 @@ def test_report_goal_fill() -> None:
     assert D("0") < cell.fill < D("1")
 
 
-def test_report_monthly_fill_clamps() -> None:
-    """A monthly envelope fills to its level, clamped at a whole ring."""
+def test_report_monthly_fill_is_fixed() -> None:
+    """A monthly envelope's ring is fixed: full when funded, empty when short."""
     view = _extension("funding_colors.bean").report("2024-01", "1")
     fills = {e.name: e.cells[0].fill for e in view.envelopes}
-    assert fills["Under"] == D("0.5")
+    assert fills["Under"] == D("0")
     assert fills["On"] == D("1")
     assert fills["Over"] == D("1")
 
@@ -387,7 +387,7 @@ def test_template_renders_funding_ring() -> None:
         _extension("funding_colors.bean"), {"month": "2024-01", "months": "1"}
     )
     assert 'class="envelope-ring"' in html
-    assert "--envelope-fill: 50.0%" in html
+    assert "--envelope-fill: 0.0%" in html
     assert "--envelope-fill: 100.0%" in html
 
 
@@ -420,9 +420,10 @@ def test_template_closing_popover_shows_plan_status() -> None:
     under = _row(html, ">Under<")
     assert "envelope-closing-pop" in under
     assert "envelope-closing-host" in under
-    # The status now shows the funding fraction and the full derivation.
-    assert "50.0% funded" in under
+    # A monthly plan shows the verdict and derivation, but no funded fraction:
+    # its ring is fixed, so a percentage would mislead.
     assert "under plan by 50.00" in under
+    assert "% funded" not in under
     assert "target 100.00 = monthly 100.00" in under
 
 
@@ -984,6 +985,63 @@ def test_config_refuses_a_non_source_write(tmp_path: Path) -> None:
             config="{'write': 'notes.txt'}",
             ledger_path=tmp_path / "main.bean",
         )
+
+
+def _ledger_write_extension(
+    tmp_path: Path, *, write: str, config: str | None = None
+) -> Envelopes:
+    """Build an extension over a ledger that declares a write target.
+
+    Args:
+        tmp_path: The directory to write the ledger into.
+        write: The ``write`` metadata value on the start directive.
+        config: An optional extension config string.
+
+    Returns:
+        The extension, loaded.
+    """
+    path = tmp_path / "main.bean"
+    path.write_text(
+        'option "operating_currency" "USD"\n'
+        "2020-01-01 open Assets:Checking USD\n"
+        "  on-budget: TRUE\n"
+        '2024-01-01 custom "envelope" "start"\n'
+        f'  write: "{write}"\n'
+        '2024-01-01 custom "envelope" "open" "Groceries"\n',
+        encoding="utf-8",
+    )
+    entries, _errors, options = loader.load_file(path)
+    ledger = cast(
+        "FavaLedger",
+        SimpleNamespace(
+            all_entries=entries, options=options, beancount_file_path=str(path)
+        ),
+    )
+    extension = Envelopes(ledger, config)
+    extension.after_load_file()
+    return extension
+
+
+def test_ledger_declares_a_write_target(tmp_path: Path) -> None:
+    """A write target on the start directive turns writing on."""
+    extension = _ledger_write_extension(tmp_path, write="Envelope.bean")
+    assert extension.writable is True
+    assert extension.write_target == (tmp_path / "Envelope.bean").resolve()
+
+
+def test_config_write_overrides_the_ledger_target(tmp_path: Path) -> None:
+    """The config's write key wins over the ledger's declared target."""
+    extension = _ledger_write_extension(
+        tmp_path, write="Envelope.bean", config="{'write': 'Other.bean'}"
+    )
+    assert extension.write_target == (tmp_path / "Other.bean").resolve()
+
+
+def test_ledger_write_escape_stays_read_only(tmp_path: Path) -> None:
+    """A ledger target outside the ledger directory leaves the report read-only."""
+    extension = _ledger_write_extension(tmp_path, write="../evil.bean")
+    assert extension.writable is False
+    assert extension.write_target is None
 
 
 def test_commit_endpoint_is_registered() -> None:
@@ -1658,6 +1716,17 @@ def test_action_entry_covers_every_verb() -> None:
     unplan = fava_ext._action_entry(
         {"action": "unplan", "envelope": "Groceries", "date": "2024-02-01"}, result
     )
+    opened = fava_ext._action_entry(
+        {
+            "action": "open",
+            "envelope": "Hawaii",
+            "monthly": "500",
+            "parent": "Trips",
+            "note": "Trip to Hawaii.",
+            "date": "2024-02-01",
+        },
+        result,
+    )
     assert actions.render(allocate).endswith('"Groceries" 10.00 USD')
     assert actions.render(plan) == (
         '2024-02-01 custom "envelope" "plan" "Groceries"\n'
@@ -1665,6 +1734,11 @@ def test_action_entry_covers_every_verb() -> None:
         "  priority: 2"
     )
     assert actions.render(unplan).endswith('"unplan" "Groceries"')
+    rendered_open = actions.render(opened)
+    assert rendered_open.startswith('2024-02-01 custom "envelope" "open" "Hawaii"')
+    assert "monthly: 500" in rendered_open
+    assert 'parent: "Trips"' in rendered_open
+    assert 'note: "Trip to Hawaii."' in rendered_open
 
 
 def test_prefill_covers_uncovered_spending() -> None:
@@ -1986,9 +2060,9 @@ def test_reports_span_full_history_without_a_filter(
     monkeypatch.setattr(Envelopes, "_filter_range", lambda _self: None)
     reports = extension.reports()
     assert [month.month for month in reports.rows[0].months] == [
-        date(2024, 1, 1),
-        date(2024, 2, 1),
         date(2024, 3, 1),
+        date(2024, 2, 1),
+        date(2024, 1, 1),
     ]
 
 
@@ -2132,3 +2206,31 @@ def test_plan_review_is_not_shown_by_default() -> None:
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
     assert "Avg / month" not in html
     assert "Plans allocate" not in html
+
+
+def test_template_shows_an_envelope_note() -> None:
+    """An envelope's popover shows the note from its open directive."""
+    html = _render(_extension("sample.bean"), {})
+    assert 'class="envelope-note"' in html
+    assert "Family trip: flights, hotel and food." in html
+
+
+def test_template_offers_new_envelope_when_writable(tmp_path: Path) -> None:
+    """A write-enabled grid has a create-envelope control in the nav."""
+    extension = _ledger_write_extension(tmp_path, write="Envelope.bean")
+    html = _render(extension, {})
+    assert "+ New envelope" in html
+    assert 'name="action" value="open"' in html
+
+
+def test_template_hides_new_envelope_when_read_only() -> None:
+    """A read-only grid has no create-envelope control."""
+    html = _render(_extension("basic.bean"), {})
+    assert "+ New envelope" not in html
+
+
+def test_template_cash_popover_lists_contributors() -> None:
+    """The cash figure opens a popover of the contributing accounts."""
+    html = _render(_extension("sample.bean"), {})
+    assert 'id="cash-' in html
+    assert "Assets:Checking" in html

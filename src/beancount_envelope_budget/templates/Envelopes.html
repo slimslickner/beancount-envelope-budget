@@ -51,7 +51,7 @@
   {%- set base = request.path if request.path.endswith('/') else request.path ~ '/' -%}
   {%- set action = base ~ 'commit' if extension.writable else '' -%}
   {%- set plan = extension.plan_fields(envelope.name, month) if extension.writable else none -%}
-  <td class="envelope-name{{ ' envelope-pop-host envelope-plan-host' if shows else '' }}">{% if shows %}<input type="checkbox" class="envelope-pop-toggle" id="plan-{{ ident }}"><label class="envelope-pop-label" for="plan-{{ ident }}">{{ envelope.name }}</label><label class="envelope-pop-backdrop" for="plan-{{ ident }}"></label><div class="envelope-pop envelope-plan-pop">{% for line in envelope.plans %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ extension.plan_text(line) }}</a>{% endfor %}<a class="envelope-history-link" href="?view=envelope&amp;envelope={{ envelope.name | urlencode }}">View history</a>{% if extension.writable %}<form method="post" action="{{ action }}" data-create><input type="hidden" name="action" value="plan"><input type="hidden" name="envelope" value="{{ envelope.name }}"><label>Monthly <input name="monthly" size="8" placeholder="500 or avg3" value="{{ plan.monthly }}"></label><label>Up to <input name="up_to" size="8" value="{{ plan.up_to }}"></label><label>Priority <input name="priority" size="4" value="{{ plan.priority }}"></label><label>Goal <input name="goal" size="8" value="{{ plan.goal }}"></label><label>By <input type="date" name="by" value="{{ plan.by }}"></label><input type="date" name="date" value="{{ extension.fill_date(month) }}"><button type="submit">Set plan</button></form><form method="post" action="{{ action }}" data-create><input type="hidden" name="action" value="unplan"><input type="hidden" name="envelope" value="{{ envelope.name }}"><input type="date" name="date" value="{{ extension.fill_date(month) }}"><button type="submit">Clear plan</button></form>{% endif %}</div>{% else %}{{ envelope.name }}{% endif %}</td>
+  <td class="envelope-name{{ ' envelope-pop-host envelope-plan-host' if shows else '' }}">{% if shows %}<input type="checkbox" class="envelope-pop-toggle" id="plan-{{ ident }}"><label class="envelope-pop-label" for="plan-{{ ident }}">{{ envelope.name }}</label><label class="envelope-pop-backdrop" for="plan-{{ ident }}"></label><div class="envelope-pop envelope-plan-pop">{% for line in envelope.plans %}<a href="#context-{{ line.entry_hash }}">{{ line.date.isoformat() }} &middot; {{ extension.plan_text(line) }}</a>{% endfor %}{% if envelope.note %}<p class="envelope-note">{{ envelope.note }}</p>{% endif %}<a class="envelope-history-link" href="?view=envelope&amp;envelope={{ envelope.name | urlencode }}">View history</a>{% if extension.writable %}<form method="post" action="{{ action }}" data-create><input type="hidden" name="action" value="plan"><input type="hidden" name="envelope" value="{{ envelope.name }}"><label>Monthly <input name="monthly" size="8" placeholder="500 or avg3" value="{{ plan.monthly }}"></label><label>Up to <input name="up_to" size="8" value="{{ plan.up_to }}"></label><label>Priority <input name="priority" size="4" value="{{ plan.priority }}"></label><label>Goal <input name="goal" size="8" value="{{ plan.goal }}"></label><label>By <input type="date" name="by" value="{{ plan.by }}"></label><input type="date" name="date" value="{{ extension.fill_date(month) }}"><button type="submit">Set plan</button></form><form method="post" action="{{ action }}" data-create><input type="hidden" name="action" value="unplan"><input type="hidden" name="envelope" value="{{ envelope.name }}"><input type="date" name="date" value="{{ extension.fill_date(month) }}"><button type="submit">Clear plan</button></form>{% endif %}</div>{% else %}{{ envelope.name }}{% endif %}</td>
 {%- endmacro %}
 {% if not has_start %}
   <p>There is no <code>custom "envelope" "start"</code> directive, so there is nothing to show.</p>
@@ -287,6 +287,26 @@
         font-weight: 600;
         cursor: pointer;
       }
+      /* The "new envelope" control sits beside the legend in the nav; its
+         popover holds the create form and grows leftward to stay on screen. */
+      .envelope-new-host {
+        flex: 0 0 auto;
+      }
+      .envelope-new-label {
+        display: inline-block;
+        padding: 0 0.4em;
+        border: 1px solid rgba(128, 128, 128, 0.5);
+        border-radius: 3px;
+        line-height: 1.5;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .envelope-new-pop {
+        left: auto;
+        right: 0;
+        min-width: 22rem;
+      }
       .envelope-legend-pop {
         min-width: 0;
         white-space: nowrap;
@@ -381,10 +401,13 @@
         display: block;
         opacity: 0.7;
       }
-      /* A planned envelope carries a small ring beside its closing balance,
-         filled in proportion to its goal (or monthly target). It inherits the
-         closing balance's funding colour, and is sized in ems so it adds no
-         height to the row. */
+      /* A planned envelope carries a small ring beside its closing balance. A
+         goal or up-to envelope is filled in proportion to its goal (or its
+         ceiling); a plain monthly plan has no bounded "full" point, so its ring
+         is fixed — full when the month's allocation meets the plan, empty when
+         it falls short — and the three shapes below carry the status. It
+         inherits the closing balance's funding colour, and is sized in ems so it
+         adds no height to the row. */
       .envelope-ring {
         position: relative;
         display: inline-block;
@@ -607,6 +630,12 @@
         margin-top: 0.35rem;
         font-size: 0.8em;
         opacity: 0.85;
+      }
+      /* The envelope's note, free text from its open directive. It wraps to a
+         readable measure, unlike the ledger lines around it. */
+      .envelope-note {
+        max-width: 32em;
+        margin: 0.35rem 0 0.1rem;
       }
       /* The month-level actions live in the header: a small "actions" label
          that opens a popover of bulk funding commands. */
@@ -953,6 +982,28 @@
             <span class="envelope-legend-pair"><span class="envelope-legend-swatch envelope-legend-under"></span> under plan</span>
           </div>
         </span>
+        {% if extension.writable %}
+          <span class="envelope-pop-host envelope-new-host">
+            <input type="checkbox" class="envelope-pop-toggle" id="new-envelope">
+            <label class="envelope-pop-label envelope-new-label" for="new-envelope">+ New envelope</label>
+            <label class="envelope-pop-backdrop" for="new-envelope"></label>
+            <div class="envelope-pop envelope-new-pop">
+              <form method="post" action="{{ base ~ 'commit' }}" data-create>
+                <input type="hidden" name="action" value="open">
+                <label>Name <input name="envelope" size="16" required></label>
+                <label>Monthly <input name="monthly" size="8" placeholder="500 or avg3"></label>
+                <label>Up to <input name="up_to" size="8"></label>
+                <label>Priority <input name="priority" size="4"></label>
+                <label>Goal <input name="goal" size="8"></label>
+                <label>By <input type="date" name="by"></label>
+                <label>Parent <input name="parent" size="12"></label>
+                <label>Note <input name="note" size="24"></label>
+                <input type="date" name="date" value="{{ extension.fill_date(today) }}">
+                <button type="submit">Create envelope</button>
+              </form>
+            </div>
+          </span>
+        {% endif %}
       {% endif %}
       <span class="envelope-nav-tabs">
         <a class="envelope-tab{{ '' if reports or review or history_mode else ' envelope-tab-active' }}" href="?">Envelopes</a>
@@ -1257,7 +1308,7 @@
             {% for cell in view.cash %}
               <td class="num{{ ' envelope-sep' if not loop.first else '' }}"></td>
               <td class="num"></td>
-              <td class="num{{ ' envelope-neg' if colors and cell.closing < 0 else '' }}">{{ extension.money(cell.closing) }}</td>
+              <td class="num{{ ' envelope-neg' if colors and cell.closing < 0 else '' }}{{ ' envelope-pop-host' if cell.accounts else '' }}">{% if cell.accounts %}<input type="checkbox" class="envelope-pop-toggle" id="cash-{{ cell.month.strftime('%Y%m') }}"><label class="envelope-pop-label" for="cash-{{ cell.month.strftime('%Y%m') }}">{{ extension.money(cell.closing) }}</label><label class="envelope-pop-backdrop" for="cash-{{ cell.month.strftime('%Y%m') }}"></label><div class="envelope-detail">{% for account, balance in cell.accounts %}<div>{{ account }} &middot; {{ extension.money(balance) }}</div>{% endfor %}</div>{% else %}{{ extension.money(cell.closing) }}{% endif %}</td>
             {% endfor %}
           </tr>
         </tbody>

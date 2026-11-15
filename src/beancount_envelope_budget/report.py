@@ -479,11 +479,14 @@ class Cell:
             no goal.
         up_to: The envelope's balance ceiling this month, or ``None`` when it has
             no ``up-to``.
-        fill: How full the envelope is toward its goal, clamped to ``0`` to
-            ``1`` — the amount credited toward the plan this month (see
+        fill: How full the envelope's ring reads, clamped to ``0`` to ``1``. A
+            goal or ``up-to`` envelope fills in proportion — the amount credited
+            toward the plan this month (see
             :meth:`~beancount_envelope_budget.core.EnvelopeReport.funded_at`)
-            divided by its ``goal``, or by its ``target`` when it has no goal.
-            ``None`` when it has neither.
+            divided by its ``goal`` or its ceiling. A plain ``monthly`` plan has
+            no bounded "full" point, so it is fixed: ``1`` when the month's
+            funding meets the plan, ``0`` when it falls short. ``None`` when
+            there is no plan.
         allocations: The ``allocate`` directives dated in this month, each
             linking back to its source directive.
         pool: For the pool row, the pool's ledger lines in this month, each on
@@ -491,6 +494,9 @@ class Cell:
         explanation: The arithmetic behind the month's plan verdict — its target,
             funded amount and top-up — or ``None`` when the envelope has no
             plan.
+        accounts: For the cash row, the cash-leg accounts contributing to the
+            closing balance and their balances; empty for envelopes and the
+            pool.
     """
 
     month: date
@@ -510,6 +516,7 @@ class Cell:
     allocations: tuple[AllocationLine, ...] = ()
     pool: tuple[PoolEntry, ...] = ()
     explanation: FundingExplanation | None = None
+    accounts: tuple[tuple[str, Decimal], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -524,6 +531,7 @@ class EnvelopeView:
         plans: Every plan directive for the envelope — its ``open`` base first,
             then each dated ``plan``/``unplan`` change in order — for the Fava
             plan popover.
+        note: Free text from the ``open`` directive, or ``None``.
     """
 
     name: str
@@ -531,6 +539,7 @@ class EnvelopeView:
     cells: tuple[Cell, ...]
     parent: str | None = None
     plans: tuple[PlanLine, ...] = ()
+    note: str | None = None
 
     @property
     def visible(self) -> bool:
@@ -711,7 +720,7 @@ class ReportRow:
 
     Attributes:
         title: The row's label, such as ``Top spending`` or ``Cash and pool``.
-        months: One :class:`MonthReport` per report month, ascending.
+        months: One :class:`MonthReport` per report month, newest first.
     """
 
     title: str
@@ -735,7 +744,8 @@ class Reports:
             every table's name column can be the same width.
         amount_chars: The length of the longest formatted amount across the
             rows, so every table's amount column can fit it.
-        months: The report months, ascending, aligned with every row's columns.
+        months: The report months, newest first, aligned with every row's
+            columns.
         month_status: One :class:`MonthStatus` per month, aligned with
             :attr:`months`, for the funding-by-month overview.
     """
@@ -1602,6 +1612,27 @@ def _fill(reference: Decimal | None, funded: Decimal) -> Decimal | None:
     return min(max(funded / reference, Decimal(0)), Decimal(1))
 
 
+def _fixed_fill(funding: str | None) -> Decimal | None:
+    """Return a fixed ring fill for a plain monthly plan.
+
+    A ``monthly`` plan has no bounded "full" point, so its ring is not
+    proportional: it reads full when the month's allocation meets the plan
+    (``on`` or ``over``) and empty when it falls short (``under``). The shape
+    then carries the status, using the same three shapes the goal and up-to
+    rings use.
+
+    Args:
+        funding: The month's funding status, or ``None``.
+
+    Returns:
+        ``1`` when funded to plan, ``0`` when short, or ``None`` when there is
+        no plan to judge against.
+    """
+    if funding is None:
+        return None
+    return Decimal(1) if funding in ("on", "over") else Decimal(0)
+
+
 def _sort_key(name: str) -> str:
     """Return the sort key for an envelope or parent name.
 
@@ -1949,10 +1980,11 @@ def build_reports(
     """Build a table-only reports view of a budget over a month range.
 
     Unlike :func:`build_view`, which spans one to three months for the ledger
-    grid, this spans a run of computed months as report rows of month columns:
-    the cash and pool balances, then the per-month top spending, allocated and
-    ending-balance envelopes. It is pure and data only, so the Fava report and
-    any future caller share the same numbers.
+    grid, this spans a run of computed months as report rows of month columns —
+    newest first, so the latest month leads — the cash and pool balances, then
+    the per-month top spending, allocated and ending-balance envelopes. It is
+    pure and data only, so the Fava report and any future caller share the same
+    numbers.
 
     ``start`` and ``end`` narrow the months shown, for the Fava window's date
     filter. They select whole months: a month is kept when its first day is on
@@ -2001,6 +2033,9 @@ def build_reports(
             currency=result.operating_currency,
             rows=(),
         )
+    # Newest first, so the most recent month is the leftmost column and the
+    # report opens on what just happened rather than at the far end of a scroll.
+    months = tuple(reversed(months))
     rows = (_balance_row(result, months), *_ranking_rows(result, months))
     return Reports(
         has_start=True,
@@ -2646,10 +2681,19 @@ def _envelope_view(
             up_to = plan.up_to
             reference = _round_to_cent(plan.up_to)
             funding = "on" if plan_top_up(report, on) == 0 else "under"
-        else:
+            fill = _fill(reference, funded)
+        elif plan.goal is not None:
             up_to = None
-            reference = plan.goal if plan.goal is not None else target
+            reference = plan.goal
             funding = _funding(target, funded)
+            fill = _fill(reference, funded)
+        else:
+            # A plain monthly plan has no bounded "full" point, so it gets a
+            # fixed status glyph — full when the month's allocation is met,
+            # empty when it is short — rather than a proportional ring.
+            up_to = None
+            funding = _funding(target, funded)
+            fill = _fixed_fill(funding)
         cells.append(
             _cell(
                 row,
@@ -2661,7 +2705,7 @@ def _envelope_view(
                 funding=funding,
                 goal=plan.goal,
                 up_to=up_to,
-                fill=_fill(reference, funded),
+                fill=fill,
                 allocations=allocations.get((report.name, month), []),
                 explanation=funding_explanation(report, on),
             )
@@ -2672,6 +2716,7 @@ def _envelope_view(
         cells=tuple(cells),
         parent=envelope.parent,
         plans=_plan_lines(envelope),
+        note=envelope.note,
     )
 
 
@@ -2824,7 +2869,29 @@ def _cash_cell(result: BudgetResult, month: date, available: set[date]) -> Cell:
         closing=closing,
         detail=(),
         detail_total=0,
+        accounts=_cash_accounts(result, month),
     )
+
+
+def _cash_accounts(
+    result: BudgetResult, month: date
+) -> tuple[tuple[str, Decimal], ...]:
+    """Return the cash-leg accounts contributing to a month's cash balance.
+
+    Args:
+        result: The computed budget.
+        month: The month to evaluate.
+
+    Returns:
+        The ``(account, balance)`` pairs, or an empty tuple before the range.
+    """
+    goal = month_of(month)
+    if not result.cash or goal < result.months[0]:
+        return ()
+    index = bisect_left(result.cash, goal, key=lambda row: row.month)
+    if index < len(result.cash) and result.cash[index].month == goal:
+        return result.cash[index].accounts
+    return result.cash[-1].accounts
 
 
 def _cash_balance(result: BudgetResult, month: date) -> Decimal:
@@ -3020,6 +3087,10 @@ def _cell_json(cell: Cell) -> dict[str, object]:
         ],
         "pool": [_pool_entry_json(entry) for entry in cell.pool],
         "explanation": _explanation_json(cell.explanation),
+        "accounts": [
+            {"account": account, "balance": f"{balance:.2f}"}
+            for account, balance in cell.accounts
+        ],
     }
 
 
