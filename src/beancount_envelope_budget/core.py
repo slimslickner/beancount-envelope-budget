@@ -251,6 +251,7 @@ class Envelope:
         plan: The base plan, from the ``open`` metadata.
         plans: Dated overrides, sorted by date.
         parent: A grouping label set on ``open``, or ``None``.
+        note: Free text set on ``open``, or ``None``.
         source_hash: The Beancount hash of the ``open`` directive, for linking
             back to it in Fava (empty when there is no source).
         close_hash: The Beancount hash of the ``close`` directive, for linking
@@ -264,6 +265,7 @@ class Envelope:
     plan: Plan
     plans: tuple[PlanChange, ...]
     parent: str | None = None
+    note: str | None = None
     source_hash: str = ""
     close_hash: str = ""
 
@@ -730,6 +732,7 @@ class _Draft:
     plans: list[PlanChange] = field(default_factory=list)
     closed: date | None = None
     parent: str | None = None
+    note: str | None = None
     source_hash: str = ""
     close_hash: str = ""
 
@@ -746,6 +749,7 @@ class _Draft:
             plan=self.plan,
             plans=tuple(sorted(self.plans, key=lambda change: change.date)),
             parent=self.parent,
+            note=self.note,
             source_hash=self.source_hash,
             close_hash=self.close_hash,
         )
@@ -1571,6 +1575,16 @@ def _handle_open(
             )
         )
         parent = None
+    note = raw.meta.get("note")
+    if note is not None and not isinstance(note, str):
+        diagnostics.append(
+            _diag(
+                "E008",
+                entry=raw.entry,
+                detail=f"note for {name} must be a string",
+            )
+        )
+        note = None
     plan = Plan(
         monthly=_parse_monthly(raw.meta.get("monthly"), name, raw.entry, diagnostics),
         priority=_parse_priority(
@@ -1587,6 +1601,7 @@ def _handle_open(
         opened=raw.date,
         plan=plan,
         parent=parent,
+        note=note,
         source_hash=compare.hash_entry(raw.entry),
     )
     order.append(name)

@@ -180,7 +180,7 @@ DIRECTIVE_VERBS: tuple[DirectiveVerb, ...] = (
                 description="The name of the envelope to declare.",
             ),
         ),
-        metadata=("monthly", "up-to", "priority", "goal", "by", "parent"),
+        metadata=("monthly", "up-to", "priority", "goal", "by", "parent", "note"),
         description="Declares an envelope.",
     ),
     DirectiveVerb(
@@ -363,6 +363,17 @@ METADATA_KEYS: tuple[MetadataKey, ...] = (
             "relative to the ledger's directory. Declared on the `start` "
             "directive, it is the write target the CLI's `--write` and the "
             "Fava report both default to."
+        ),
+    ),
+    MetadataKey(
+        key="note",
+        kind=ValueKind.STRING,
+        required=False,
+        default=None,
+        applies_to=(AppliesTo.ENVELOPE_OPEN,),
+        description=(
+            "Free text about an envelope, such as what it is for. Shown in the "
+            "envelope's popover in the Fava report. Set on `open` only."
         ),
     ),
 )

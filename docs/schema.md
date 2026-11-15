@@ -23,7 +23,7 @@ Declares an envelope.
 | `envelope` | string | yes | The name of the envelope to declare. |
 
 
-Metadata: `monthly`, `up-to`, `priority`, `goal`, `by`, `parent`.
+Metadata: `monthly`, `up-to`, `priority`, `goal`, `by`, `parent`, `note`.
 
 ### `allocate`
 
@@ -87,6 +87,7 @@ Metadata: none.
 | `up-to` | decimal | no | — | envelope open, envelope plan | A balance ceiling paired with `monthly`: fund by the monthly amount each month, but never above this balance. Requires `monthly` and is mutually exclusive with `goal`. |
 | `parent` | string | no | — | envelope open | A grouping label. Envelopes with the same parent are shown together under a heading, with a subtotal of their balances. |
 | `write` | string | no | — | envelope start | The Beancount file that generated directives are appended to, relative to the ledger's directory. Declared on the `start` directive, it is the write target the CLI's `--write` and the Fava report both default to. |
+| `note` | string | no | — | envelope open | Free text about an envelope, such as what it is for. Shown in the envelope's popover in the Fava report. Set on `open` only. |
 
 
 ## Reserved values

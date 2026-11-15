@@ -76,6 +76,7 @@ option "operating_currency" "USD"
 2024-01-01 custom "envelope" "open" "Vacation"
   goal: 3000.00 USD
   by: 2024-06-30
+  note: "Family trip: flights, hotel and food."
 2024-01-01 custom "envelope" "open" "Laptop"
   goal: 1500.00 USD
   by: 2024-05-31

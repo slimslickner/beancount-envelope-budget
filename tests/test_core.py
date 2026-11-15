@@ -633,3 +633,30 @@ option "operating_currency" "USD"
     result = compute(entries, options)
     assert "E008" in _codes(result)
     assert result.write_target is None
+
+
+def test_open_reads_a_note() -> None:
+    """A note on the open directive is carried on the envelope."""
+    ledger = """
+option "operating_currency" "USD"
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Hawaii"
+  note: "Trip to Hawaii for the family."
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    result = compute(entries, options)
+    assert _envelope(result, "Hawaii").envelope.note == "Trip to Hawaii for the family."
+
+
+def test_open_note_must_be_a_string() -> None:
+    """A non-string note is E008 and is ignored."""
+    ledger = """
+option "operating_currency" "USD"
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Hawaii"
+  note: 123
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    result = compute(entries, options)
+    assert "E008" in _codes(result)
+    assert _envelope(result, "Hawaii").envelope.note is None

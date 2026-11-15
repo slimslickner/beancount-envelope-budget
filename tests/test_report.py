@@ -620,3 +620,19 @@ def test_suggestion_cells_and_summary_line() -> None:
         "0",
         "under-saving",
     )
+
+
+def test_view_carries_an_envelope_note() -> None:
+    """The open directive's note reaches the envelope view."""
+    result = _compute("sample.bean")
+    view = build_view(result)
+    vacation = next(e for e in view.envelopes if e.name == "Vacation")
+    assert vacation.note == "Family trip: flights, hotel and food."
+
+
+def test_view_note_is_none_without_one() -> None:
+    """An envelope with no note has ``None``."""
+    result = _compute("sample.bean")
+    view = build_view(result)
+    groceries = next(e for e in view.envelopes if e.name == "Groceries")
+    assert groceries.note is None

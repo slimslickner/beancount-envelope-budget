@@ -524,6 +524,7 @@ class EnvelopeView:
         plans: Every plan directive for the envelope — its ``open`` base first,
             then each dated ``plan``/``unplan`` change in order — for the Fava
             plan popover.
+        note: Free text from the ``open`` directive, or ``None``.
     """
 
     name: str
@@ -531,6 +532,7 @@ class EnvelopeView:
     cells: tuple[Cell, ...]
     parent: str | None = None
     plans: tuple[PlanLine, ...] = ()
+    note: str | None = None
 
     @property
     def visible(self) -> bool:
@@ -2672,6 +2674,7 @@ def _envelope_view(
         cells=tuple(cells),
         parent=envelope.parent,
         plans=_plan_lines(envelope),
+        note=envelope.note,
     )
 
 

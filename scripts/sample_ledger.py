@@ -275,6 +275,7 @@ def _declarations() -> list[str]:
         f'{START.isoformat()} custom "envelope" "open" "Vacation"',
         "  goal: 3000.00 USD",
         f"  by: {_last_day(_month(START, 5)).isoformat()}",
+        '  note: "Family trip: flights, hotel and food."',
         f'{START.isoformat()} custom "envelope" "open" "Laptop"',
         "  goal: 1500.00 USD",
         f"  by: {_last_day(_month(START, 4)).isoformat()}",

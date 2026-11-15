@@ -2189,3 +2189,10 @@ def test_plan_review_is_not_shown_by_default() -> None:
     html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "1"})
     assert "Avg / month" not in html
     assert "Plans allocate" not in html
+
+
+def test_template_shows_an_envelope_note() -> None:
+    """An envelope's popover shows the note from its open directive."""
+    html = _render(_extension("sample.bean"), {})
+    assert 'class="envelope-note"' in html
+    assert "Family trip: flights, hotel and food." in html
