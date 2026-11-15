@@ -31,6 +31,11 @@ def test_sample_loads_clean() -> None:
     assert result.diagnostics == ()
 
 
+def test_sample_declares_a_write_target() -> None:
+    """The start directive declares the write target the CLI and Fava share."""
+    assert _result().write_target == "Envelope.bean"
+
+
 def test_sample_holds_the_invariant() -> None:
     """Pool plus envelopes equals cash at every month end."""
     result = _result()

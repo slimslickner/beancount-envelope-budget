@@ -18,6 +18,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from beancount.core import compare, convert, interpolate
@@ -650,6 +651,8 @@ class BudgetResult:
             back to its source.
         pre_start_cash: The cash held on the day before the start date; the
             pool's opening balance and the cash carried into the first month.
+        write_target: The file generated directives are appended to, from the
+            ``write`` metadata on the ``start`` directive, or ``None``.
     """
 
     start: date | None
@@ -663,6 +666,7 @@ class BudgetResult:
     activity: tuple[ActivityEvent, ...] = ()
     allocations: tuple[AllocationEvent, ...] = ()
     pre_start_cash: Decimal = Decimal(0)
+    write_target: str | None = None
 
     def envelope(self, name: str) -> EnvelopeReport | None:
         """Return the report for an envelope by name.
@@ -1174,6 +1178,94 @@ def _is_start(entry: Custom) -> bool:
         ``True`` when the first value is ``start``.
     """
     return bool(entry.values) and _unwrap(entry.values[0]) == "start"
+
+
+def _write_target(
+    entries: list[Directive],
+    start: date | None,
+    options: Mapping[str, object],
+    diagnostics: list[Diagnostic],
+) -> str | None:
+    """Read and check the optional write target on the ``start`` directive.
+
+    The target is the ledger's own declaration of where generated directives go,
+    so the CLI's ``--write`` and the Fava report share one source. It must be a
+    non-empty string naming a Beancount file inside the ledger's directory; a bad
+    path is reported rather than used.
+
+    Args:
+        entries: The ledger entries.
+        start: The start date, or ``None`` when tracking is not configured.
+        options: The Beancount options map, for the ledger's directory.
+        diagnostics: The list to append diagnostics to.
+
+    Returns:
+        The write target path text, or ``None`` when none is declared.
+    """
+    if start is None:
+        return None
+    for entry in entries:
+        if (
+            not isinstance(entry, Custom)
+            or entry.type != "envelope"
+            or not _is_start(entry)
+            or entry.date != start
+        ):
+            continue
+        value = entry.meta.get("write")
+        if value is None:
+            return None
+        if not isinstance(value, str) or not value.strip():
+            diagnostics.append(
+                _diag("E008", entry=entry, detail="write must be a path string")
+            )
+            return None
+        target = value.strip()
+        problem = _write_target_problem(target, options)
+        if problem is not None:
+            diagnostics.append(_diag("E008", entry=entry, detail=problem))
+            return None
+        return target
+    return None
+
+
+def _write_target_problem(target: str, options: Mapping[str, object]) -> str | None:
+    """Describe why a write target is unusable, or ``None`` when it is fine.
+
+    Args:
+        target: The ``write`` metadata text.
+        options: The Beancount options map, for the ledger's directory.
+
+    Returns:
+        A diagnostic detail, or ``None`` when the target is a Beancount file
+        inside the ledger's directory.
+    """
+    path = Path(target)
+    if path.suffix not in (".bean", ".beancount"):
+        return f"write target {target} is not a .bean or .beancount file"
+    base = _ledger_base(options)
+    if base is None:
+        return None
+    resolved = (base / path).resolve() if not path.is_absolute() else path.resolve()
+    if not resolved.is_relative_to(base):
+        return f"write target {target} is outside the ledger directory"
+    return None
+
+
+def _ledger_base(options: Mapping[str, object]) -> Path | None:
+    """Return the ledger's directory, resolved, or ``None`` when unknown.
+
+    Args:
+        options: The Beancount options map.
+
+    Returns:
+        The resolved directory of the loaded ledger, or ``None`` for a
+        synthetic ledger such as one loaded from a string.
+    """
+    filename = options.get("filename")
+    if not isinstance(filename, str) or filename.startswith("<"):
+        return None
+    return Path(filename).resolve().parent
 
 
 def _custom_directives(
@@ -2452,6 +2544,7 @@ def compute(
     operating_currency = _operating_currency(options, diagnostics)
     accounts = _scan_accounts(entries, diagnostics)
     start = _start_date(entries, diagnostics)
+    write_target = _write_target(entries, start, options, diagnostics)
     if start is None:
         return BudgetResult(
             start=None,
@@ -2483,6 +2576,7 @@ def compute(
         effects=effects,
         pre_start_cash=pre_start_cash,
         diagnostics=diagnostics,
+        write_target=write_target,
     )
 
 
@@ -2526,6 +2620,7 @@ def _build_result(
     effects: _Effects,
     pre_start_cash: Decimal,
     diagnostics: list[Diagnostic],
+    write_target: str | None,
 ) -> BudgetResult:
     """Assemble the result from the gathered events.
 
@@ -2536,6 +2631,7 @@ def _build_result(
         effects: The activity, cash, resolution and detail events.
         pre_start_cash: The cash held before the start date.
         diagnostics: The list to append diagnostics to.
+        write_target: The write target declared on the start directive, if any.
 
     Returns:
         The assembled :class:`BudgetResult`.
@@ -2597,6 +2693,7 @@ def _build_result(
         activity=effects.details,
         allocations=declarations.allocate,
         pre_start_cash=pre_start_cash,
+        write_target=write_target,
     )
 
 

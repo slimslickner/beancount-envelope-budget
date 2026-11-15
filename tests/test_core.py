@@ -591,3 +591,45 @@ option "operating_currency" "USD"
     )
     assert any(d.code == "E008" for d in result.diagnostics)
     assert any(d.code == "E010" for d in result.diagnostics)
+
+
+def test_start_declares_a_write_target() -> None:
+    """The write metadata on the start directive is carried on the result."""
+    ledger = """
+option "operating_currency" "USD"
+2024-01-01 custom "envelope" "start"
+  write: "Envelope.bean"
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    assert compute(entries, options).write_target == "Envelope.bean"
+
+
+def test_write_target_without_start_is_none() -> None:
+    """A ledger with no start directive has no write target."""
+    assert compute([], {}).write_target is None
+
+
+def test_write_target_must_be_a_string() -> None:
+    """A non-string write metadata is E008 and is ignored."""
+    ledger = """
+option "operating_currency" "USD"
+2024-01-01 custom "envelope" "start"
+  write: 123
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    result = compute(entries, options)
+    assert "E008" in _codes(result)
+    assert result.write_target is None
+
+
+def test_write_target_must_be_a_beancount_file() -> None:
+    """A write target that is not a Beancount source is E008 and ignored."""
+    ledger = """
+option "operating_currency" "USD"
+2024-01-01 custom "envelope" "start"
+  write: "notes.txt"
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    result = compute(entries, options)
+    assert "E008" in _codes(result)
+    assert result.write_target is None

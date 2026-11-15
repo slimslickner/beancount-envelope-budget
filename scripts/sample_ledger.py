@@ -255,6 +255,7 @@ def _declarations() -> list[str]:
     """
     return [
         f'{START.isoformat()} custom "envelope" "start"',
+        '  write: "Envelope.bean"',
         "",
         "; --- Envelope declarations ------------------------------------",
         "",

@@ -986,6 +986,63 @@ def test_config_refuses_a_non_source_write(tmp_path: Path) -> None:
         )
 
 
+def _ledger_write_extension(
+    tmp_path: Path, *, write: str, config: str | None = None
+) -> Envelopes:
+    """Build an extension over a ledger that declares a write target.
+
+    Args:
+        tmp_path: The directory to write the ledger into.
+        write: The ``write`` metadata value on the start directive.
+        config: An optional extension config string.
+
+    Returns:
+        The extension, loaded.
+    """
+    path = tmp_path / "main.bean"
+    path.write_text(
+        'option "operating_currency" "USD"\n'
+        "2020-01-01 open Assets:Checking USD\n"
+        "  on-budget: TRUE\n"
+        '2024-01-01 custom "envelope" "start"\n'
+        f'  write: "{write}"\n'
+        '2024-01-01 custom "envelope" "open" "Groceries"\n',
+        encoding="utf-8",
+    )
+    entries, _errors, options = loader.load_file(path)
+    ledger = cast(
+        "FavaLedger",
+        SimpleNamespace(
+            all_entries=entries, options=options, beancount_file_path=str(path)
+        ),
+    )
+    extension = Envelopes(ledger, config)
+    extension.after_load_file()
+    return extension
+
+
+def test_ledger_declares_a_write_target(tmp_path: Path) -> None:
+    """A write target on the start directive turns writing on."""
+    extension = _ledger_write_extension(tmp_path, write="Envelope.bean")
+    assert extension.writable is True
+    assert extension.write_target == (tmp_path / "Envelope.bean").resolve()
+
+
+def test_config_write_overrides_the_ledger_target(tmp_path: Path) -> None:
+    """The config's write key wins over the ledger's declared target."""
+    extension = _ledger_write_extension(
+        tmp_path, write="Envelope.bean", config="{'write': 'Other.bean'}"
+    )
+    assert extension.write_target == (tmp_path / "Other.bean").resolve()
+
+
+def test_ledger_write_escape_stays_read_only(tmp_path: Path) -> None:
+    """A ledger target outside the ledger directory leaves the report read-only."""
+    extension = _ledger_write_extension(tmp_path, write="../evil.bean")
+    assert extension.writable is False
+    assert extension.write_target is None
+
+
 def test_commit_endpoint_is_registered() -> None:
     """The commit and source endpoints are POST handlers."""
     extension = _extension("basic.bean")

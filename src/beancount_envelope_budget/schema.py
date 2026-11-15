@@ -59,6 +59,7 @@ class AppliesTo(StrEnum):
     """Where a metadata key may appear."""
 
     ACCOUNT_OPEN = "account open"
+    ENVELOPE_START = "envelope start"
     ENVELOPE_OPEN = "envelope open"
     ENVELOPE_PLAN = "envelope plan"
     TRANSACTION = "transaction"
@@ -163,7 +164,7 @@ DIRECTIVE_VERBS: tuple[DirectiveVerb, ...] = (
     DirectiveVerb(
         verb="start",
         positionals=(),
-        metadata=(),
+        metadata=("write",),
         description=(
             "Start of tracking. Earlier postings and allocations are ignored; "
             "the pool starts at the cash balance just before this date."
@@ -349,6 +350,19 @@ METADATA_KEYS: tuple[MetadataKey, ...] = (
         description=(
             "A grouping label. Envelopes with the same parent are shown together "
             "under a heading, with a subtotal of their balances."
+        ),
+    ),
+    MetadataKey(
+        key="write",
+        kind=ValueKind.STRING,
+        required=False,
+        default=None,
+        applies_to=(AppliesTo.ENVELOPE_START,),
+        description=(
+            "The Beancount file that generated directives are appended to, "
+            "relative to the ledger's directory. Declared on the `start` "
+            "directive, it is the write target the CLI's `--write` and the "
+            "Fava report both default to."
         ),
     ),
 )

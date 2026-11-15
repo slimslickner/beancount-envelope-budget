@@ -84,13 +84,13 @@ def directive_line_count(lines: list[str], lineno: int) -> int:
 
 
 def append(path: Path, entry: Custom) -> None:
-    """Append a directive to a file.
+    """Append a directive to a file, creating the file when it is missing.
 
     Args:
         path: The file to edit.
         entry: The directive to append.
     """
-    lines = _read_lines(path)
+    lines = _read_lines(path) if path.exists() else []
     ending = _ending(lines)
     if lines and not lines[-1].endswith(("\n", "\r")):
         lines[-1] += ending

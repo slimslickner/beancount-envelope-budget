@@ -11,7 +11,7 @@ Every `custom "envelope"` directive verb, metadata key and reserved value the pl
 Start of tracking. Earlier postings and allocations are ignored; the pool starts at the cash balance just before this date.
 
 
-Metadata: none.
+Metadata: `write`.
 
 ### `open`
 
@@ -86,6 +86,7 @@ Metadata: none.
 | `by` | date | no | — | envelope open, envelope plan | The date by which the goal should be reached, e.g. 2028-06-01. |
 | `up-to` | decimal | no | — | envelope open, envelope plan | A balance ceiling paired with `monthly`: fund by the monthly amount each month, but never above this balance. Requires `monthly` and is mutually exclusive with `goal`. |
 | `parent` | string | no | — | envelope open | A grouping label. Envelopes with the same parent are shown together under a heading, with a subtotal of their balances. |
+| `write` | string | no | — | envelope start | The Beancount file that generated directives are appended to, relative to the ledger's directory. Declared on the `start` directive, it is the write target the CLI's `--write` and the Fava report both default to. |
 
 
 ## Reserved values

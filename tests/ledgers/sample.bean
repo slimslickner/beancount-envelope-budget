@@ -56,6 +56,7 @@ option "operating_currency" "USD"
   Equity:Opening-Balances -25000.00 USD
 
 2024-01-01 custom "envelope" "start"
+  write: "Envelope.bean"
 
 ; --- Envelope declarations ------------------------------------
 

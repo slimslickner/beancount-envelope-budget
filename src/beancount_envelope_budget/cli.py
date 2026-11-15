@@ -109,6 +109,10 @@ _HISTORY_TEXT_COLUMNS = 3
 #: blank rather than a zero the eye must skip.
 _HISTORY_DIRECTIVES = frozenset({"open", "plan", "unplan", "close"})
 
+#: What argparse stores for a bare ``--write``: use the write target the ledger
+#: declares on its ``start`` directive rather than a path named on the command.
+_WRITE_FROM_LEDGER = object()
+
 
 @dataclass(frozen=True, slots=True)
 class _Loaded:
@@ -866,7 +870,7 @@ def _fund_month(
     entries = [
         actions.allocate(name, amount, day, currency) for name, amount in allocations
     ]
-    status = _emit(entries, args)
+    status = _emit(entries, args, result.write_target)
     for name, amount in unfunded:
         print(f"; UNFUNDED {name}: needs {_money(amount)} {currency}")
     return 1 if args.strict and unfunded else status
@@ -896,7 +900,7 @@ def _fund_cleanup(
     entries = [
         actions.allocate(name, -amount, day, currency) for name, amount in releases
     ]
-    return _emit(entries, args)
+    return _emit(entries, args, result.write_target)
 
 
 def _fund_topup(
@@ -919,7 +923,7 @@ def _fund_topup(
         return 2
     on = args.date or date.today()  # noqa: DTZ011 - local today is intended
     lines, unfunded, overfunded = _plan_topup(result, on, args.reserve, pattern)
-    status = _emit(lines, args)
+    status = _emit(lines, args, result.write_target)
     for name, amount in unfunded:
         print(f"; UNFUNDED {name}: needs {_money(amount)} {result.operating_currency}")
     for name, amount in overfunded:
@@ -967,15 +971,24 @@ def _fund_range(
         pattern,
         force=args.force,
     )
-    return _emit(entries, args)
+    return _emit(entries, args, loaded.result.write_target)
 
 
-def _emit(entries: list[Custom], args: argparse.Namespace) -> int:
+def _emit(
+    entries: list[Custom],
+    args: argparse.Namespace,
+    ledger_target: str | None,
+) -> int:
     """Print generated directives, or append them to ``--write`` and recheck.
+
+    ``--write`` is opt-in: with no flag the directives are printed and the
+    ledger is untouched. A bare ``--write`` uses the target the ledger declares
+    on its ``start`` directive; ``--write FILE`` overrides it.
 
     Args:
         entries: The generated directives.
         args: Parsed arguments; ``args.ledger`` and the optional ``args.write``.
+        ledger_target: The write target declared by the ledger, if any.
 
     Returns:
         The process exit status.
@@ -984,8 +997,16 @@ def _emit(entries: list[Custom], args: argparse.Namespace) -> int:
         for entry in entries:
             print(actions.render(entry))
         return 0
+    target = args.write if isinstance(args.write, Path) else ledger_target
+    if target is None:
+        print(
+            "no write target: pass --write FILE, or declare `write` on the "
+            "start directive",
+            file=sys.stderr,
+        )
+        return 2
     try:
-        goal = writer.resolve_target(args.write, args.ledger.parent)
+        goal = writer.resolve_target(Path(target), args.ledger.parent)
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 2
@@ -1020,18 +1041,6 @@ def _recheck(path: Path) -> int:
     return 1 if errors else 0
 
 
-def _currency_of(path: Path) -> str | None:
-    """Load a ledger and return its operating currency.
-
-    Args:
-        path: The ledger path.
-
-    Returns:
-        The operating currency, or ``None``.
-    """
-    return _load(path).result.operating_currency
-
-
 def _cmd_allocate(args: argparse.Namespace) -> int:
     """Print or write one ``allocate`` directive.
 
@@ -1044,13 +1053,15 @@ def _cmd_allocate(args: argparse.Namespace) -> int:
     if not args.ledger.exists():
         print(f"no such ledger: {args.ledger}", file=sys.stderr)
         return 2
-    currency = _currency_of(args.ledger)
-    if currency is None:
+    loaded = _load(args.ledger)
+    if not loaded.result.operating_currency:
         print("the ledger has no operating currency", file=sys.stderr)
         return 2
     day = args.date or date.today()  # noqa: DTZ011 - local today is intended
-    entry = actions.allocate(args.envelope, args.amount, day, currency)
-    return _emit([entry], args)
+    entry = actions.allocate(
+        args.envelope, args.amount, day, loaded.result.operating_currency
+    )
+    return _emit([entry], args, loaded.result.write_target)
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:
@@ -1074,16 +1085,17 @@ def _cmd_plan(args: argparse.Namespace) -> int:
         print("a plan needs at least one of --monthly/--priority/--goal/--by")
         return 2
     day = args.date or date.today()  # noqa: DTZ011 - local today is intended
+    loaded = _load(args.ledger)
     entry = actions.plan(
         args.envelope,
         day,
         monthly=args.monthly,
         priority=args.priority,
         goal=args.goal,
-        goal_currency=_currency_of(args.ledger),
+        goal_currency=loaded.result.operating_currency,
         by=args.by,
     )
-    return _emit([entry], args)
+    return _emit([entry], args, loaded.result.write_target)
 
 
 def _cmd_unplan(args: argparse.Namespace) -> int:
@@ -1099,7 +1111,8 @@ def _cmd_unplan(args: argparse.Namespace) -> int:
         print(f"no such ledger: {args.ledger}", file=sys.stderr)
         return 2
     day = args.date or date.today()  # noqa: DTZ011 - local today is intended
-    return _emit([actions.unplan(args.envelope, day)], args)
+    loaded = _load(args.ledger)
+    return _emit([actions.unplan(args.envelope, day)], args, loaded.result.write_target)
 
 
 def _compile_pattern(value: str | None, option: str) -> re.Pattern[str] | None:
@@ -2228,18 +2241,25 @@ def _ledger_argument(parser: argparse.ArgumentParser) -> None:
 
 
 def _write_argument(parser: argparse.ArgumentParser) -> None:
-    """Add the shared ``--write FILE`` opt-in to a command.
+    """Add the shared ``--write [FILE]`` opt-in to a command.
+
+    The flag takes an optional value: a bare ``--write`` uses the write target
+    the ledger declares on its ``start`` directive, and ``--write FILE``
+    overrides it. Absent, the command prints its directives and writes nothing.
 
     Args:
         parser: The subcommand parser.
     """
     action = parser.add_argument(
         "--write",
+        nargs="?",
+        const=_WRITE_FROM_LEDGER,
         type=Path,
         metavar="FILE",
         help=(
-            "append the directive(s) to this file (relative to the ledger's "
-            "directory) instead of printing them; the ledger is reloaded after"
+            "append the directive(s) to FILE (relative to the ledger's "
+            "directory); with no FILE, to the target declared by the ledger's "
+            "start directive. The ledger is reloaded after"
         ),
     )
     setattr(action, "completer", FilesCompleter(_LEDGER_EXTENSIONS))  # noqa: B010
