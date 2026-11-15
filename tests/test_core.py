@@ -660,3 +660,41 @@ option "operating_currency" "USD"
     result = compute(entries, options)
     assert "E008" in _codes(result)
     assert _envelope(result, "Hawaii").envelope.note is None
+
+
+def test_cash_accounts_sum_to_the_balance(load_budget) -> None:
+    """The cash row's per-account balances add up to its total."""
+    result = load_budget("sample.bean")
+    for row in result.cash:
+        assert sum((balance for _, balance in row.accounts), D(0)) == row.balance
+
+
+def test_cash_accounts_include_pre_start_and_negative() -> None:
+    """A pre-start holding and a negative credit card are both listed."""
+    ledger = """
+option "operating_currency" "USD"
+2020-01-01 open Assets:Checking USD
+  on-budget: TRUE
+2020-01-01 open Liabilities:Card USD
+  on-budget: TRUE
+2020-01-01 open Expenses:Stuff USD
+  envelope: "Stuff"
+2020-01-01 open Equity:Opening-Balances USD
+2023-12-31 * "Opening"
+  Assets:Checking            1000.00 USD
+  Equity:Opening-Balances   -1000.00 USD
+2024-01-01 custom "envelope" "start"
+2024-01-01 custom "envelope" "open" "Stuff"
+2024-01-15 * "buy on the card"
+  Expenses:Stuff    80.00 USD
+  Liabilities:Card -80.00 USD
+"""
+    entries, _errors, options = loader.load_string(ledger)
+    result = compute(entries, options)
+    assert result.diagnostics == ()
+    row = result.cash[-1]
+    assert dict(row.accounts) == {
+        "Assets:Checking": D("1000"),
+        "Liabilities:Card": D("-80"),
+    }
+    assert row.balance == D("920")

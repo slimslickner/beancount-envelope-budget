@@ -494,6 +494,9 @@ class Cell:
         explanation: The arithmetic behind the month's plan verdict — its target,
             funded amount and top-up — or ``None`` when the envelope has no
             plan.
+        accounts: For the cash row, the cash-leg accounts contributing to the
+            closing balance and their balances; empty for envelopes and the
+            pool.
     """
 
     month: date
@@ -513,6 +516,7 @@ class Cell:
     allocations: tuple[AllocationLine, ...] = ()
     pool: tuple[PoolEntry, ...] = ()
     explanation: FundingExplanation | None = None
+    accounts: tuple[tuple[str, Decimal], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -2860,7 +2864,29 @@ def _cash_cell(result: BudgetResult, month: date, available: set[date]) -> Cell:
         closing=closing,
         detail=(),
         detail_total=0,
+        accounts=_cash_accounts(result, month),
     )
+
+
+def _cash_accounts(
+    result: BudgetResult, month: date
+) -> tuple[tuple[str, Decimal], ...]:
+    """Return the cash-leg accounts contributing to a month's cash balance.
+
+    Args:
+        result: The computed budget.
+        month: The month to evaluate.
+
+    Returns:
+        The ``(account, balance)`` pairs, or an empty tuple before the range.
+    """
+    goal = month_of(month)
+    if not result.cash or goal < result.months[0]:
+        return ()
+    index = bisect_left(result.cash, goal, key=lambda row: row.month)
+    if index < len(result.cash) and result.cash[index].month == goal:
+        return result.cash[index].accounts
+    return result.cash[-1].accounts
 
 
 def _cash_balance(result: BudgetResult, month: date) -> Decimal:
@@ -3056,6 +3082,10 @@ def _cell_json(cell: Cell) -> dict[str, object]:
         ],
         "pool": [_pool_entry_json(entry) for entry in cell.pool],
         "explanation": _explanation_json(cell.explanation),
+        "accounts": [
+            {"account": account, "balance": f"{balance:.2f}"}
+            for account, balance in cell.accounts
+        ],
     }
 
 

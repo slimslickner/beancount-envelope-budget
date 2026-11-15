@@ -1308,7 +1308,7 @@
             {% for cell in view.cash %}
               <td class="num{{ ' envelope-sep' if not loop.first else '' }}"></td>
               <td class="num"></td>
-              <td class="num{{ ' envelope-neg' if colors and cell.closing < 0 else '' }}">{{ extension.money(cell.closing) }}</td>
+              <td class="num{{ ' envelope-neg' if colors and cell.closing < 0 else '' }}{{ ' envelope-pop-host' if cell.accounts else '' }}">{% if cell.accounts %}<input type="checkbox" class="envelope-pop-toggle" id="cash-{{ cell.month.strftime('%Y%m') }}"><label class="envelope-pop-label" for="cash-{{ cell.month.strftime('%Y%m') }}">{{ extension.money(cell.closing) }}</label><label class="envelope-pop-backdrop" for="cash-{{ cell.month.strftime('%Y%m') }}"></label><div class="envelope-detail">{% for account, balance in cell.accounts %}<div>{{ account }} &middot; {{ extension.money(balance) }}</div>{% endfor %}</div>{% else %}{{ extension.money(cell.closing) }}{% endif %}</td>
             {% endfor %}
           </tr>
         </tbody>

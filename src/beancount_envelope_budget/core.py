@@ -627,10 +627,14 @@ class CashRow:
     Attributes:
         month: The first day of the month.
         balance: The ledger's cash balance on the last day of that month.
+        accounts: The cash-leg accounts contributing to ``balance`` and their
+            balances that month, in account order. The balances sum to
+            ``balance``.
     """
 
     month: date
     balance: Decimal
+    accounts: tuple[tuple[str, Decimal], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1911,6 +1915,8 @@ class _Effects:
     Attributes:
         activity: ``(envelope or pool, month, amount)`` activity events.
         cash: ``(date, amount)`` cash changes.
+        cash_accounts: ``(account, date, amount)`` cash-leg movements, so the cash
+            balance can be broken down by account.
         resolved: ``(id(posting), envelope)`` resolutions, when requested.
     """
 
@@ -1918,6 +1924,7 @@ class _Effects:
     cash: tuple[tuple[date, Decimal], ...]
     resolved: tuple[tuple[int, str], ...] = ()
     details: tuple[ActivityEvent, ...] = ()
+    cash_accounts: tuple[tuple[str, date, Decimal], ...] = ()
 
 
 def _resolve_envelope(
@@ -2066,6 +2073,8 @@ class _Scan:
         activity: The ``(destination, date, amount)`` events, extended in place.
         details: The per-posting detail events, extended in place.
         resolved: The ``(id(posting), envelope)`` pairs, extended in place.
+        cash_accounts: The ``(account, date, amount)`` cash-leg movements,
+            extended in place, so the cash balance can be broken down by account.
         collect: What to record alongside the balances.
     """
 
@@ -2076,6 +2085,7 @@ class _Scan:
     activity: list[tuple[str, date, Decimal]]
     details: list[ActivityEvent]
     resolved: list[tuple[int, str]]
+    cash_accounts: list[tuple[str, date, Decimal]]
     collect: _Collect
 
 
@@ -2106,6 +2116,7 @@ def _process_transactions(
     cash: list[tuple[date, Decimal]] = []
     resolved: list[tuple[int, str]] = []
     details: list[ActivityEvent] = []
+    cash_accounts: list[tuple[str, date, Decimal]] = []
     scan = _Scan(
         valuation,
         accounts,
@@ -2114,6 +2125,7 @@ def _process_transactions(
         activity,
         details,
         resolved,
+        cash_accounts,
         collect,
     )
     operating_currency = valuation.currency
@@ -2137,6 +2149,7 @@ def _process_transactions(
         cash=tuple(cash),
         resolved=tuple(resolved),
         details=tuple(details),
+        cash_accounts=tuple(cash_accounts),
     )
 
 
@@ -2168,6 +2181,10 @@ def _gather_transaction(
     cash_total = sum(
         (display[id(posting)] or Decimal(0) for posting in cash_postings), Decimal(0)
     )
+    for posting in cash_postings:
+        number = display[id(posting)]
+        if number is not None:
+            scan.cash_accounts.append((posting.account, entry.date, number))
     _absorb_rounding(
         entry,
         scan.valuation,
@@ -2583,13 +2600,15 @@ def compute(
         diagnostics,
         _Collect(collect_resolved, collect_activity),
     )
-    pre_start_cash = _pre_start_cash(entries, accounts, start, valuation)
+    pre_start_accounts = _pre_start_cash(entries, accounts, start, valuation)
+    pre_start_cash = sum(pre_start_accounts.values(), Decimal(0))
     return _build_result(
         start=start,
         operating_currency=operating_currency,
         declarations=declarations,
         effects=effects,
         pre_start_cash=pre_start_cash,
+        pre_start_accounts=pre_start_accounts,
         diagnostics=diagnostics,
         write_target=write_target,
     )
@@ -2600,8 +2619,8 @@ def _pre_start_cash(
     accounts: dict[str, AccountInfo],
     start: date,
     valuation: _Valuation,
-) -> Decimal:
-    """Sum the cash balance on the day before the start date.
+) -> dict[str, Decimal]:
+    """Sum the cash balance on the day before the start date, by account.
 
     Args:
         entries: The ledger entries.
@@ -2610,9 +2629,10 @@ def _pre_start_cash(
         valuation: The operating currency and display context.
 
     Returns:
-        The cash held before the start date, at display precision.
+        The cash held before the start date, at display precision, keyed by the
+        account that holds it.
     """
-    total = Decimal(0)
+    balances: dict[str, Decimal] = defaultdict(Decimal)
     for entry in entries:
         if not isinstance(entry, Transaction) or entry.date >= start:
             continue
@@ -2623,8 +2643,8 @@ def _pre_start_cash(
             value = valuation.value(posting)
             if value is None:
                 continue
-            total += value
-    return total
+            balances[posting.account] += value
+    return balances
 
 
 def _build_result(
@@ -2634,6 +2654,7 @@ def _build_result(
     declarations: _Declarations,
     effects: _Effects,
     pre_start_cash: Decimal,
+    pre_start_accounts: dict[str, Decimal],
     diagnostics: list[Diagnostic],
     write_target: str | None,
 ) -> BudgetResult:
@@ -2645,6 +2666,7 @@ def _build_result(
         declarations: The declared envelopes and allocation events.
         effects: The activity, cash, resolution and detail events.
         pre_start_cash: The cash held before the start date.
+        pre_start_accounts: The pre-start cash, keyed by account.
         diagnostics: The list to append diagnostics to.
         write_target: The write target declared on the start directive, if any.
 
@@ -2688,7 +2710,7 @@ def _build_result(
         for envelope in declarations.envelopes
     )
 
-    cash_rows = _cash_rows(months, cash, pre_start_cash)
+    cash_rows = _cash_rows(months, cash, effects.cash_accounts, pre_start_accounts)
     _check_invariant(
         pool_rows, envelope_reports, cash_rows, operating_currency, diagnostics
     )
@@ -2742,24 +2764,42 @@ def _month_range(
 def _cash_rows(
     months: list[date],
     cash: tuple[tuple[date, Decimal], ...],
-    pre_start_cash: Decimal,
+    cash_accounts: tuple[tuple[str, date, Decimal], ...],
+    pre_start_accounts: dict[str, Decimal],
 ) -> tuple[CashRow, ...]:
-    """Build the month-end cash balance rows.
+    """Build the month-end cash balance rows, broken down by account.
+
+    Each row carries the total balance, which the invariant checks, and the
+    accounts contributing to it, so the report can show where the cash sits.
+    The accounts are the cash-leg accounts the total is summed from, so their
+    balances always add up to the row's ``balance``.
 
     Args:
         months: The months in range.
         cash: The ``(date, amount)`` cash changes.
-        pre_start_cash: The cash held before the start date.
+        cash_accounts: The ``(account, date, amount)`` cash-leg movements.
+        pre_start_accounts: The pre-start cash, keyed by account.
 
     Returns:
         One :class:`CashRow` per month.
     """
     by_month = _by_month(list(cash))
+    changes: dict[str, dict[date, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+    for account, when, amount in cash_accounts:
+        changes[account][month_of(when)] += amount
+    balances = defaultdict(Decimal, pre_start_accounts)
     rows: list[CashRow] = []
-    balance = pre_start_cash
+    total = sum(pre_start_accounts.values(), Decimal(0))
     for month in months:
-        balance += by_month.get(month, Decimal(0))
-        rows.append(CashRow(month=month, balance=balance))
+        total += by_month.get(month, Decimal(0))
+        for account, by_date in changes.items():
+            balances[account] += by_date.get(month, Decimal(0))
+        accounts = tuple(
+            (account, balance)
+            for account, balance in sorted(balances.items())
+            if balance != 0
+        )
+        rows.append(CashRow(month=month, balance=total, accounts=accounts))
     return tuple(rows)
 
 

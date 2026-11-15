@@ -636,3 +636,18 @@ def test_view_note_is_none_without_one() -> None:
     view = build_view(result)
     groceries = next(e for e in view.envelopes if e.name == "Groceries")
     assert groceries.note is None
+
+
+def test_cash_cell_carries_contributing_accounts() -> None:
+    """The cash cell lists the accounts behind the month's balance."""
+    result = _compute("sample.bean")
+    view = build_view(result)
+    cell = view.cash[-1]
+    assert dict(cell.accounts)["Assets:Checking"] is not None
+    assert sum((balance for _, balance in cell.accounts), D(0)) == cell.closing
+
+
+def test_envelope_cells_have_no_cash_accounts() -> None:
+    """Only the cash row carries contributing accounts."""
+    view = build_view(_compute("sample.bean"))
+    assert all(not envelope.cells[0].accounts for envelope in view.envelopes)

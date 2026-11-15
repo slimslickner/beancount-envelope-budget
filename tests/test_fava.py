@@ -2227,3 +2227,10 @@ def test_template_hides_new_envelope_when_read_only() -> None:
     """A read-only grid has no create-envelope control."""
     html = _render(_extension("basic.bean"), {})
     assert "+ New envelope" not in html
+
+
+def test_template_cash_popover_lists_contributors() -> None:
+    """The cash figure opens a popover of the contributing accounts."""
+    html = _render(_extension("sample.bean"), {})
+    assert 'id="cash-' in html
+    assert "Assets:Checking" in html
