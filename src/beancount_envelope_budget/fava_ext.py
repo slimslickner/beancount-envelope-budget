@@ -1139,6 +1139,20 @@ def _form_optional_decimal(value: str | None) -> Decimal | None:
     return None if value is None or not value.strip() else Decimal(value)
 
 
+def _form_optional_text(value: str | None) -> str | None:
+    """Return an optional text form field, treated as unset when blank.
+
+    Args:
+        value: The raw field, or ``None``.
+
+    Returns:
+        The trimmed text, or ``None`` when blank.
+    """
+    if value is None:
+        return None
+    return value.strip() or None
+
+
 def _form_monthly(value: str | None) -> Decimal | str | None:
     """Parse a ``monthly`` form field: a number or ``avgN``.
 
@@ -1313,6 +1327,19 @@ def _action_entry(params: Mapping[str, str], result: BudgetResult) -> Custom:
     action = params.get("action")
     day = _form_day(params.get("date"))
     currency = result.operating_currency
+    if action == "open":
+        return actions.open_envelope(
+            params["envelope"],
+            day,
+            monthly=_form_monthly(params.get("monthly")),
+            priority=_form_optional_decimal(params.get("priority")),
+            goal=_form_optional_decimal(params.get("goal")),
+            goal_currency=currency,
+            by=_form_optional_day(params.get("by")),
+            up_to=_form_optional_decimal(params.get("up_to")),
+            parent=_form_optional_text(params.get("parent")),
+            note=_form_optional_text(params.get("note")),
+        )
     if action == "allocate":
         return actions.allocate(
             params["envelope"],

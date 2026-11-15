@@ -1715,6 +1715,17 @@ def test_action_entry_covers_every_verb() -> None:
     unplan = fava_ext._action_entry(
         {"action": "unplan", "envelope": "Groceries", "date": "2024-02-01"}, result
     )
+    opened = fava_ext._action_entry(
+        {
+            "action": "open",
+            "envelope": "Hawaii",
+            "monthly": "500",
+            "parent": "Trips",
+            "note": "Trip to Hawaii.",
+            "date": "2024-02-01",
+        },
+        result,
+    )
     assert actions.render(allocate).endswith('"Groceries" 10.00 USD')
     assert actions.render(plan) == (
         '2024-02-01 custom "envelope" "plan" "Groceries"\n'
@@ -1722,6 +1733,11 @@ def test_action_entry_covers_every_verb() -> None:
         "  priority: 2"
     )
     assert actions.render(unplan).endswith('"unplan" "Groceries"')
+    rendered_open = actions.render(opened)
+    assert rendered_open.startswith('2024-02-01 custom "envelope" "open" "Hawaii"')
+    assert "monthly: 500" in rendered_open
+    assert 'parent: "Trips"' in rendered_open
+    assert 'note: "Trip to Hawaii."' in rendered_open
 
 
 def test_prefill_covers_uncovered_spending() -> None:
@@ -2196,3 +2212,17 @@ def test_template_shows_an_envelope_note() -> None:
     html = _render(_extension("sample.bean"), {})
     assert 'class="envelope-note"' in html
     assert "Family trip: flights, hotel and food." in html
+
+
+def test_template_offers_new_envelope_when_writable(tmp_path: Path) -> None:
+    """A write-enabled grid has a create-envelope control in the nav."""
+    extension = _ledger_write_extension(tmp_path, write="Envelope.bean")
+    html = _render(extension, {})
+    assert "+ New envelope" in html
+    assert 'name="action" value="open"' in html
+
+
+def test_template_hides_new_envelope_when_read_only() -> None:
+    """A read-only grid has no create-envelope control."""
+    html = _render(_extension("basic.bean"), {})
+    assert "+ New envelope" not in html

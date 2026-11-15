@@ -287,6 +287,26 @@
         font-weight: 600;
         cursor: pointer;
       }
+      /* The "new envelope" control sits beside the legend in the nav; its
+         popover holds the create form and grows leftward to stay on screen. */
+      .envelope-new-host {
+        flex: 0 0 auto;
+      }
+      .envelope-new-label {
+        display: inline-block;
+        padding: 0 0.4em;
+        border: 1px solid rgba(128, 128, 128, 0.5);
+        border-radius: 3px;
+        line-height: 1.5;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .envelope-new-pop {
+        left: auto;
+        right: 0;
+        min-width: 22rem;
+      }
       .envelope-legend-pop {
         min-width: 0;
         white-space: nowrap;
@@ -959,6 +979,28 @@
             <span class="envelope-legend-pair"><span class="envelope-legend-swatch envelope-legend-under"></span> under plan</span>
           </div>
         </span>
+        {% if extension.writable %}
+          <span class="envelope-pop-host envelope-new-host">
+            <input type="checkbox" class="envelope-pop-toggle" id="new-envelope">
+            <label class="envelope-pop-label envelope-new-label" for="new-envelope">+ New envelope</label>
+            <label class="envelope-pop-backdrop" for="new-envelope"></label>
+            <div class="envelope-pop envelope-new-pop">
+              <form method="post" action="{{ base ~ 'commit' }}" data-create>
+                <input type="hidden" name="action" value="open">
+                <label>Name <input name="envelope" size="16" required></label>
+                <label>Monthly <input name="monthly" size="8" placeholder="500 or avg3"></label>
+                <label>Up to <input name="up_to" size="8"></label>
+                <label>Priority <input name="priority" size="4"></label>
+                <label>Goal <input name="goal" size="8"></label>
+                <label>By <input type="date" name="by"></label>
+                <label>Parent <input name="parent" size="12"></label>
+                <label>Note <input name="note" size="24"></label>
+                <input type="date" name="date" value="{{ extension.fill_date(today) }}">
+                <button type="submit">Create envelope</button>
+              </form>
+            </div>
+          </span>
+        {% endif %}
       {% endif %}
       <span class="envelope-nav-tabs">
         <a class="envelope-tab{{ '' if reports or review or history_mode else ' envelope-tab-active' }}" href="?">Envelopes</a>
