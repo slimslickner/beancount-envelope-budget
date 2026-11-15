@@ -679,37 +679,14 @@ def _format_pool_ledger(ledger: PoolLedger, currency: str) -> str:
         )
         for entry in ledger.entries
     ]
-    widths = [len(label) for label in header]
-    for row in rows:
-        widths = [
-            max(width, len(cell)) for width, cell in zip(widths, row, strict=True)
-        ]
-    lines.append(_pool_table_row(header, widths))
-    lines.append("  ".join("-" * width for width in widths))
-    lines.extend(_pool_table_row(row, widths) for row in rows)
+    widths = _column_widths([header], rows)
+    lines.append(_render_row(header, widths, _POOL_TEXT_COLUMNS))
+    lines.append(_rule(widths))
+    lines.extend(_render_row(row, widths, _POOL_TEXT_COLUMNS) for row in rows)
     if ledger.low is not None and ledger.low < 0:
         lines.append("")
         lines.append(f"Lowest: {_money(ledger.low)} on {ledger.low_date}")
     return "\n".join(lines)
-
-
-def _pool_table_row(row: tuple[str, ...], widths: list[int]) -> str:
-    """Render one pool-ledger row with left-aligned text and right-aligned money.
-
-    Args:
-        row: The row's cells.
-        widths: The column widths.
-
-    Returns:
-        The rendered row.
-    """
-    cells = [
-        cell.ljust(widths[index])
-        if index < _POOL_TEXT_COLUMNS
-        else cell.rjust(widths[index])
-        for index, cell in enumerate(row)
-    ]
-    return "  ".join(cells).rstrip()
 
 
 def _cmd_history(args: argparse.Namespace) -> int:
@@ -778,21 +755,12 @@ def _format_history(history: EnvelopeHistory) -> str:
         for month in history.months
         for line in month.lines
     ]
-    widths = [len(cell) for cell in header]
-    for row in rows:
-        widths = [
-            max(width, len(cell)) for width, cell in zip(widths, row, strict=True)
-        ]
+    widths = _column_widths([header], rows)
 
-    def render(cells: tuple[str, ...]) -> str:
-        return "  ".join(
-            cell.ljust(widths[index])
-            if index < _HISTORY_TEXT_COLUMNS
-            else cell.rjust(widths[index])
-            for index, cell in enumerate(cells)
-        )
-
-    body = [render(header), "  ".join("-" * width for width in widths)]
+    body = [
+        _render_row(header, widths, _HISTORY_TEXT_COLUMNS),
+        _rule(widths),
+    ]
     index = 0
     for month in history.months:
         body.append(
@@ -801,7 +769,8 @@ def _format_history(history: EnvelopeHistory) -> str:
             f"closing {_money(month.closing)}"
         )
         body.extend(
-            f"  {render(rows[index + offset])}" for offset in range(len(month.lines))
+            f"  {_render_row(rows[index + offset], widths, _HISTORY_TEXT_COLUMNS)}"
+            for offset in range(len(month.lines))
         )
         index += len(month.lines)
     return "\n".join([*lines, "", *body])
@@ -1991,25 +1960,60 @@ def _envelope_rows(view: BudgetView) -> list[tuple[str, ...]]:
     return rows
 
 
-def _view_headers(view: BudgetView) -> list[tuple[str, ...]]:
-    """Build the two header rows for the unified table.
+def _view_headers(view: BudgetView) -> tuple[str, ...]:
+    """Build the metric header row for the unified table.
 
     Args:
         view: The view to render.
 
     Returns:
-        A month heading row spanning each month's three columns, then a metric
-        row naming the columns.
+        The column names: ``Envelope`` and ``Opening`` once, then each month's
+        ``Allocated``, ``Activity`` and ``Closing``.
     """
-    headings = ["", ""]
     metrics = ["Envelope", "Opening"]
+    for _ in view.months:
+        metrics.extend(("Allocated", "Activity", "Closing"))
+    return tuple(metrics)
+
+
+def _view_month_header(view: BudgetView, widths: list[int]) -> str:
+    """Build the month heading row that spans each month's columns.
+
+    Each label is left-aligned over the whole span of its month's columns, so a
+    label such as ``2026-11 (projected)`` sits above its columns instead of
+    widowing out a single money column as it would placed in one cell.
+
+    Args:
+        view: The view to render.
+        widths: The column widths, computed from the metric and data rows.
+
+    Returns:
+        The rendered month heading row.
+    """
+    parts = [" " * widths[0]]
     for index, month in enumerate(view.months):
+        start, end = _month_span(index)
+        span = sum(widths[start : end + 1]) + 2 * (end - start)
         label = f"{month:%Y-%m}"
         if view.projected[index]:
             label += " (projected)"
-        headings.extend((label, "", ""))
-        metrics.extend(("Allocated", "Activity", "Closing"))
-    return [tuple(headings), tuple(metrics)]
+        parts.append(label.ljust(span))
+    return "  ".join(parts).rstrip()
+
+
+def _month_span(index: int) -> tuple[int, int]:
+    """Return a month's first and last column in the unified table.
+
+    Args:
+        index: The month's position in the view.
+
+    Returns:
+        The inclusive column range. The first month also owns the ``Opening``
+        column; every later month spans only Allocated, Activity and Closing.
+    """
+    if index == 0:
+        return 1, 4
+    return 2 + 3 * index, 4 + 3 * index
 
 
 def _format_view(view: BudgetView) -> str:
@@ -2027,7 +2031,16 @@ def _format_view(view: BudgetView) -> str:
     rows = _envelope_rows(view)
     rows.append(_row("Pool", view.pool))
     rows.append(_cash_row(view.cash))
-    table = _grid(_view_headers(view), rows)
+    metrics = _view_headers(view)
+    widths = _column_widths([metrics], rows)
+    table = "\n".join(
+        (
+            _view_month_header(view, widths),
+            _render_row(metrics, widths, 1),
+            _rule(widths),
+            *(_render_row(row, widths, 1) for row in rows),
+        )
+    )
     rendered = f"{heading}\n\n{table}"
     if view.warnings:
         rendered += "\n\n" + "\n".join(
@@ -2101,45 +2114,100 @@ def _monthly_need(goal: Decimal, saved: Decimal, remaining: int) -> Decimal:
     return (shortfall / remaining).quantize(_CENT, rounding=ROUND_CEILING)
 
 
-def _grid(header: list[tuple[str, ...]], rows: list[tuple[str, ...]]) -> str:
-    """Render a grid with a left-aligned first column and right-aligned rest.
+def _grid(
+    header: Sequence[tuple[str, ...]],
+    rows: Sequence[tuple[str, ...]],
+    *,
+    text_columns: int = 1,
+) -> str:
+    """Render a grid of aligned columns.
+
+    The leading ``text_columns`` columns are left-aligned and the rest are
+    right-aligned, which is how every table here reads: names and dates on the
+    left, money on the right.
+
+    Args:
+        header: The header rows, all the same width.
+        rows: The body rows.
+        text_columns: How many leading columns are left-aligned.
+
+    Returns:
+        The rendered grid.
+    """
+    widths = _column_widths(header, rows)
+    lines = [_render_row(row, widths, text_columns) for row in header]
+    lines.append(_rule(widths))
+    lines.extend(_render_row(row, widths, text_columns) for row in rows)
+    return "\n".join(lines)
+
+
+def _column_widths(
+    header: Sequence[tuple[str, ...]],
+    rows: Sequence[tuple[str, ...]],
+) -> list[int]:
+    """Return the width of each column, the widest cell it holds.
 
     Args:
         header: The header rows, all the same width.
         rows: The body rows.
 
     Returns:
-        The rendered grid.
+        One width per column.
     """
     widths = [0] * len(header[0])
     for row in (*header, *rows):
         for index, cell in enumerate(row):
             widths[index] = max(widths[index], len(cell))
-
-    def render(cells: tuple[str, ...]) -> str:
-        parts = [
-            cell.ljust(widths[index]) if index == 0 else cell.rjust(widths[index])
-            for index, cell in enumerate(cells)
-        ]
-        return "  ".join(parts).rstrip()
-
-    lines = [render(row) for row in header]
-    lines.append("  ".join("-" * width for width in widths))
-    lines.extend(render(row) for row in rows)
-    return "\n".join(lines)
+    return widths
 
 
-def _table(headers: tuple[str, ...], rows: list[tuple[str, ...]]) -> str:
-    """Render a left-aligned first column and right-aligned numeric columns.
+def _render_row(cells: tuple[str, ...], widths: list[int], text_columns: int) -> str:
+    """Render one row with its leading text columns left-aligned.
+
+    Args:
+        cells: The row's cells.
+        widths: The column widths.
+        text_columns: How many leading columns are left-aligned.
+
+    Returns:
+        The rendered row, without trailing spaces.
+    """
+    parts = [
+        cell.ljust(widths[index]) if index < text_columns else cell.rjust(widths[index])
+        for index, cell in enumerate(cells)
+    ]
+    return "  ".join(parts).rstrip()
+
+
+def _rule(widths: list[int]) -> str:
+    """Render the dashed rule under a grid's header.
+
+    Args:
+        widths: The column widths.
+
+    Returns:
+        The header rule.
+    """
+    return "  ".join("-" * width for width in widths)
+
+
+def _table(
+    headers: tuple[str, ...],
+    rows: Sequence[tuple[str, ...]],
+    *,
+    text_columns: int = 1,
+) -> str:
+    """Render a headed table, text on the left and numbers on the right.
 
     Args:
         headers: The column headings.
         rows: The body rows.
+        text_columns: How many leading columns are left-aligned.
 
     Returns:
         The rendered table.
     """
-    return _grid([headers], rows)
+    return _grid([headers], rows, text_columns=text_columns)
 
 
 # --- Argument parser -----------------------------------------------------------

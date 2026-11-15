@@ -140,6 +140,28 @@ def test_report_multiple_months(capsys: pytest.CaptureFixture[str]) -> None:
     assert "2024-03" in out
 
 
+def test_report_month_heading_spans_its_columns(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The month label sits above its columns, not inside one money column."""
+    assert (
+        cli.main(
+            ["report", _ledger("basic.bean"), "--month", "2030-01", "--months", "1"]
+        )
+        == 0
+    )
+    lines = capsys.readouterr().out.splitlines()
+    heading = next(line for line in lines if "2030-01" in line)
+    metrics = next(line for line in lines if "Opening" in line)
+    # The label starts over the month's span, left of the Allocated column.
+    assert heading.index("2030-01") < metrics.index("Allocated")
+    # And the label's length does not widen the Allocated column: it stays as
+    # wide as its own heading plus the two-space separator.
+    assert (
+        metrics.index("Activity") - metrics.index("Allocated") == len("Allocated") + 2
+    )
+
+
 def test_report_groups_by_parent(capsys: pytest.CaptureFixture[str]) -> None:
     """The report totals each parent category on its heading row."""
     assert (
