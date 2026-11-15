@@ -320,7 +320,7 @@ Add `'color-closing-balance': False` to drop the red, green and amber from the c
 
 ### Monthly Reports
 
-The **Monthly Reports** tab (the link beside *Envelopes*, or `?view=monthly_reports`) shows the budget's whole history rather than one to three months, as table rows of month columns that scroll together horizontally. The first row is the cash and pool balance per month; the rest rank the top spending, allocated and ending-balance envelopes. Every column is the same fixed width, and each row's title stays pinned as its months scroll past. The tab is plain tables — no JavaScript and no charting dependency.
+The **Monthly Reports** tab (the link beside *Envelopes*, or `?view=monthly_reports`) shows the budget's whole history rather than one to three months, as table rows of month columns that scroll together horizontally. The months run newest first, so the latest month is the leftmost column and the tab opens on recent history rather than at the far end of a scroll. The first row is the cash and pool balance per month; the rest rank the top spending, allocated and ending-balance envelopes. Every column is the same fixed width, and each row's title stays pinned as its months scroll past. The tab is plain tables — no JavaScript and no charting dependency.
 
 When a date filter is set at the top of the Fava window, the Monthly Reports tab narrows to the months that fall inside it, and shows only those columns. The balances are cumulative, so they are still drawn from the whole budget and simply *displayed* for the months in range, never recomputed from a truncated history. With no filter the tab spans full history, as does the CLI `report`, which has no window.
 

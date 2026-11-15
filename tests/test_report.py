@@ -651,3 +651,11 @@ def test_envelope_cells_have_no_cash_accounts() -> None:
     """Only the cash row carries contributing accounts."""
     view = build_view(_compute("sample.bean"))
     assert all(not envelope.cells[0].accounts for envelope in view.envelopes)
+
+
+def test_reports_months_run_newest_first() -> None:
+    """The report columns lead with the most recent month."""
+    reports = build_reports(_compute("fund_backfill.bean"))
+    months = [month.month for month in reports.rows[0].months]
+    assert months == sorted(months, reverse=True)
+    assert reports.months == tuple(months)

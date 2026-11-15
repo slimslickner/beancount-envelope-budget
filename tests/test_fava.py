@@ -2060,9 +2060,9 @@ def test_reports_span_full_history_without_a_filter(
     monkeypatch.setattr(Envelopes, "_filter_range", lambda _self: None)
     reports = extension.reports()
     assert [month.month for month in reports.rows[0].months] == [
-        date(2024, 1, 1),
-        date(2024, 2, 1),
         date(2024, 3, 1),
+        date(2024, 2, 1),
+        date(2024, 1, 1),
     ]
 
 

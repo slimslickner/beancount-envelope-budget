@@ -720,7 +720,7 @@ class ReportRow:
 
     Attributes:
         title: The row's label, such as ``Top spending`` or ``Cash and pool``.
-        months: One :class:`MonthReport` per report month, ascending.
+        months: One :class:`MonthReport` per report month, newest first.
     """
 
     title: str
@@ -744,7 +744,8 @@ class Reports:
             every table's name column can be the same width.
         amount_chars: The length of the longest formatted amount across the
             rows, so every table's amount column can fit it.
-        months: The report months, ascending, aligned with every row's columns.
+        months: The report months, newest first, aligned with every row's
+            columns.
         month_status: One :class:`MonthStatus` per month, aligned with
             :attr:`months`, for the funding-by-month overview.
     """
@@ -1979,10 +1980,11 @@ def build_reports(
     """Build a table-only reports view of a budget over a month range.
 
     Unlike :func:`build_view`, which spans one to three months for the ledger
-    grid, this spans a run of computed months as report rows of month columns:
-    the cash and pool balances, then the per-month top spending, allocated and
-    ending-balance envelopes. It is pure and data only, so the Fava report and
-    any future caller share the same numbers.
+    grid, this spans a run of computed months as report rows of month columns —
+    newest first, so the latest month leads — the cash and pool balances, then
+    the per-month top spending, allocated and ending-balance envelopes. It is
+    pure and data only, so the Fava report and any future caller share the same
+    numbers.
 
     ``start`` and ``end`` narrow the months shown, for the Fava window's date
     filter. They select whole months: a month is kept when its first day is on
@@ -2031,6 +2033,9 @@ def build_reports(
             currency=result.operating_currency,
             rows=(),
         )
+    # Newest first, so the most recent month is the leftmost column and the
+    # report opens on what just happened rather than at the far end of a scroll.
+    months = tuple(reversed(months))
     rows = (_balance_row(result, months), *_ranking_rows(result, months))
     return Reports(
         has_start=True,
