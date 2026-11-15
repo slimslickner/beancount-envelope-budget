@@ -55,10 +55,11 @@ def test_household_monthly_flow_and_over_funding() -> None:
     """A carried balance does not fund a month; an over-allocation reads over."""
     subscriptions = _view("Subscriptions")
     assert [cell.funding for cell in subscriptions.cells] == ["on", "under", "under"]
-    assert subscriptions.cells[1].fill == D("0.5")
+    # A plain monthly ring is fixed: full when the month is funded, empty when
+    # not, so a half-funded month still reads as a bare (empty) ring.
+    assert [cell.fill for cell in subscriptions.cells] == [D("1"), D("0"), D("0")]
     # March opens with February's 5 but allocates nothing: the flow is zero.
     assert subscriptions.cells[2].opening == D("5")
-    assert subscriptions.cells[2].fill == D("0")
 
     mortgage = _view("Mortgage")
     assert [cell.funding for cell in mortgage.cells] == ["on", "on", "over"]

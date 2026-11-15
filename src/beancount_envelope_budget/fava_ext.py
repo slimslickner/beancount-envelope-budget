@@ -776,7 +776,7 @@ class Envelopes(FavaExtensionBase):
         verdict = funding_verdict(explanation)
         if verdict is not None:
             lead.append(verdict)
-        if cell.fill is not None:
+        if cell.fill is not None and (cell.goal is not None or cell.up_to is not None):
             lead.append(f"{cell.fill * 100:.1f}% funded")
         lines: list[str] = [" - ".join(lead)] if lead else []
         lines.extend(funding_derivation_lines(explanation))

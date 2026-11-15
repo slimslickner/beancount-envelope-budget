@@ -11,7 +11,7 @@ The schema allows four shapes (from `Plan`), and `priority` orders funding witho
 | Shape | Target | Funded (measured against) | Status | Ring fill | Top-up |
 | --- | --- | --- | --- | --- | --- |
 | No plan | `—` | `—` | none | none | `0` |
-| `monthly` | `M` (the month's amount) | `A` (this month's allocation) | compare `A` vs `M` | `A / M` | `max(0, M − A)` |
+| `monthly` | `M` (the month's amount) | `A` (this month's allocation) | compare `A` vs `M` | full when `A ≥ M`, else empty | `max(0, M − A)` |
 | `monthly` + `up-to` | `min(up_to, O + M)` | `C` (closing balance) | on when top-up is `0`, else under | `C / up_to` | `min(max(0, M − A), max(0, up_to − C))` |
 | `goal` (+ `by`) | `goal × elapsed / total` | cumulative contributions | compare | `funded / goal` | `max(0, target − funded)` |
 
@@ -33,7 +33,7 @@ A goal envelope is funded by its **cumulative contributions**: the goal-start mo
 
 ## How the figures are used
 
-- The **target** and **funded** amount drive the closing balance's colour and the ring's fill in the report, and the under/on/over verdict in `explain` and the Fava closing popover.
+- The **target** and **funded** amount drive the closing balance's colour and the ring's fill in the report, and the under/on/over verdict in `explain` and the Fava closing popover. A goal or `up-to` ring fills in proportion to its `goal` or ceiling; a plain `monthly` ring has no bounded "full" point, so it is fixed — filled when the month is funded, a dashed empty ring when it is short, plus a centre dot when it is over.
 - The **top-up** is the prefill on the add-allocation form and what `fund --mode topup` allocates.
 - The **envelope need** backs the month-level *fully fund* and *fund with available* actions and `fund --mode fully-fund` / `fund-available`, and `priority` orders them when the pool caps the run.
 - `funded` is also what `suggest` and the over-funded note read for goal envelopes.

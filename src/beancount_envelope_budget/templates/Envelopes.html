@@ -401,10 +401,13 @@
         display: block;
         opacity: 0.7;
       }
-      /* A planned envelope carries a small ring beside its closing balance,
-         filled in proportion to its goal (or monthly target). It inherits the
-         closing balance's funding colour, and is sized in ems so it adds no
-         height to the row. */
+      /* A planned envelope carries a small ring beside its closing balance. A
+         goal or up-to envelope is filled in proportion to its goal (or its
+         ceiling); a plain monthly plan has no bounded "full" point, so its ring
+         is fixed — full when the month's allocation meets the plan, empty when
+         it falls short — and the three shapes below carry the status. It
+         inherits the closing balance's funding colour, and is sized in ems so it
+         adds no height to the row. */
       .envelope-ring {
         position: relative;
         display: inline-block;

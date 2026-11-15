@@ -277,7 +277,7 @@ def test_monthly_partial_allocation_reads_under() -> None:
     cell = partial.cells[0]
     assert cell.target == D("100")
     assert cell.funding == "under"
-    assert cell.fill == D("0.5")
+    assert cell.fill == D("0")
 
 
 def test_monthly_over_allocation_reads_over() -> None:

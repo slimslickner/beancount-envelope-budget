@@ -479,11 +479,14 @@ class Cell:
             no goal.
         up_to: The envelope's balance ceiling this month, or ``None`` when it has
             no ``up-to``.
-        fill: How full the envelope is toward its goal, clamped to ``0`` to
-            ``1`` — the amount credited toward the plan this month (see
+        fill: How full the envelope's ring reads, clamped to ``0`` to ``1``. A
+            goal or ``up-to`` envelope fills in proportion — the amount credited
+            toward the plan this month (see
             :meth:`~beancount_envelope_budget.core.EnvelopeReport.funded_at`)
-            divided by its ``goal``, or by its ``target`` when it has no goal.
-            ``None`` when it has neither.
+            divided by its ``goal`` or its ceiling. A plain ``monthly`` plan has
+            no bounded "full" point, so it is fixed: ``1`` when the month's
+            funding meets the plan, ``0`` when it falls short. ``None`` when
+            there is no plan.
         allocations: The ``allocate`` directives dated in this month, each
             linking back to its source directive.
         pool: For the pool row, the pool's ledger lines in this month, each on
@@ -1604,6 +1607,27 @@ def _fill(reference: Decimal | None, funded: Decimal) -> Decimal | None:
     return min(max(funded / reference, Decimal(0)), Decimal(1))
 
 
+def _fixed_fill(funding: str | None) -> Decimal | None:
+    """Return a fixed ring fill for a plain monthly plan.
+
+    A ``monthly`` plan has no bounded "full" point, so its ring is not
+    proportional: it reads full when the month's allocation meets the plan
+    (``on`` or ``over``) and empty when it falls short (``under``). The shape
+    then carries the status, using the same three shapes the goal and up-to
+    rings use.
+
+    Args:
+        funding: The month's funding status, or ``None``.
+
+    Returns:
+        ``1`` when funded to plan, ``0`` when short, or ``None`` when there is
+        no plan to judge against.
+    """
+    if funding is None:
+        return None
+    return Decimal(1) if funding in ("on", "over") else Decimal(0)
+
+
 def _sort_key(name: str) -> str:
     """Return the sort key for an envelope or parent name.
 
@@ -2648,10 +2672,19 @@ def _envelope_view(
             up_to = plan.up_to
             reference = _round_to_cent(plan.up_to)
             funding = "on" if plan_top_up(report, on) == 0 else "under"
-        else:
+            fill = _fill(reference, funded)
+        elif plan.goal is not None:
             up_to = None
-            reference = plan.goal if plan.goal is not None else target
+            reference = plan.goal
             funding = _funding(target, funded)
+            fill = _fill(reference, funded)
+        else:
+            # A plain monthly plan has no bounded "full" point, so it gets a
+            # fixed status glyph — full when the month's allocation is met,
+            # empty when it is short — rather than a proportional ring.
+            up_to = None
+            funding = _funding(target, funded)
+            fill = _fixed_fill(funding)
         cells.append(
             _cell(
                 row,
@@ -2663,7 +2696,7 @@ def _envelope_view(
                 funding=funding,
                 goal=plan.goal,
                 up_to=up_to,
-                fill=_fill(reference, funded),
+                fill=fill,
                 allocations=allocations.get((report.name, month), []),
                 explanation=funding_explanation(report, on),
             )
