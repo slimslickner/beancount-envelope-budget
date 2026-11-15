@@ -136,6 +136,21 @@ beancount-envelope-budget completion SHELL   # bash or zsh
 
 See `docs/cli.md` for the full reference and `beancount-envelope-budget --help`.
 
+### Shell completion
+
+Tab completion covers subcommands, flags, files and — on commands that name an envelope or account — the names from your ledger. Enable it by adding one line to your shell's startup file:
+
+```sh
+# bash
+eval "$(register-python-argcomplete --shell bash beancount-envelope-budget)"
+
+# zsh
+autoload -U compinit && compinit
+eval "$(register-python-argcomplete --shell zsh beancount-envelope-budget)"
+```
+
+`beancount-envelope-budget completion bash|zsh` prints the same snippet. In zsh, `compinit` must run before the `eval`, because the generated script registers itself with `compdef`, which `compinit` provides; `bashcompinit` is not needed and will silently fail to register. With the completion in place, plugins such as `fzf-tab` can fuzzy-match the candidates.
+
 ## Documentation
 
 - [`docs/concepts.md`](docs/concepts.md) — the model, syntax, resolution rules and computation, written for users.

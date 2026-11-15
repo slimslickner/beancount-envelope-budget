@@ -400,15 +400,20 @@ def test_suggest_json(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_completion_bash(capsys: pytest.CaptureFixture[str]) -> None:
-    """The bash snippet registers argcomplete."""
+    """The bash snippet registers argcomplete without a shell prelude."""
     assert cli.main(["completion", "bash"]) == 0
-    assert "register-python-argcomplete" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "register-python-argcomplete --shell bash" in out
+    assert "bashcompinit" not in out
 
 
 def test_completion_zsh(capsys: pytest.CaptureFixture[str]) -> None:
-    """The zsh snippet enables bashcompinit first."""
+    """The zsh snippet runs compinit, which defines the compdef it needs."""
     assert cli.main(["completion", "zsh"]) == 0
-    assert "bashcompinit" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "autoload -U compinit && compinit" in out
+    assert "register-python-argcomplete --shell zsh" in out
+    assert "bashcompinit" not in out
 
 
 def test_completion_rejects_other_shells() -> None:

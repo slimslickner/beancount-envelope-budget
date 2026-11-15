@@ -810,6 +810,10 @@ def _format_history(history: EnvelopeHistory) -> str:
 def _cmd_completion(args: argparse.Namespace) -> int:
     """Print the shell snippet that enables tab completion.
 
+    ``register-python-argcomplete`` emits a zsh-native script whose last line is
+    ``compdef``, which only exists after zsh's ``compinit`` runs. Zsh is set up
+    with ``compinit``; bash needs no prelude.
+
     Args:
         args: Parsed arguments; ``args.shell`` is ``bash`` or ``zsh``.
 
@@ -817,8 +821,11 @@ def _cmd_completion(args: argparse.Namespace) -> int:
         The process exit status.
     """
     if args.shell == "zsh":
-        print("autoload -U bashcompinit && bashcompinit")
-    print('eval "$(register-python-argcomplete beancount-envelope-budget)"')
+        print("autoload -U compinit && compinit")
+    print(
+        'eval "$(register-python-argcomplete'
+        f' --shell {args.shell} beancount-envelope-budget)"'
+    )
     return 0
 
 
