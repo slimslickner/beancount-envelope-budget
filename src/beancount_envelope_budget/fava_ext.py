@@ -719,14 +719,14 @@ class Envelopes(FavaExtensionBase):
         return f"{value:.2f}"
 
     def fill_percent(self, cell: Cell) -> str:
-        """Format a cell's goal fill as a CSS percentage.
+        """Format a cell's ring fill as a CSS percentage.
 
         Args:
             cell: The view cell.
 
         Returns:
             The fill from ``0%`` to ``100%``, or ``0%`` when the cell has no
-            goal or target to measure against.
+            plan or target to measure against.
         """
         return f"{cell.fill * 100:.1f}%" if cell.fill is not None else "0%"
 
@@ -776,7 +776,7 @@ class Envelopes(FavaExtensionBase):
         verdict = funding_verdict(explanation)
         if verdict is not None:
             lead.append(verdict)
-        if cell.fill is not None and (cell.goal is not None or cell.up_to is not None):
+        if cell.fill is not None:
             lead.append(f"{cell.fill * 100:.1f}% funded")
         lines: list[str] = [" - ".join(lead)] if lead else []
         lines.extend(funding_derivation_lines(explanation))
