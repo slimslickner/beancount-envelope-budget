@@ -344,11 +344,11 @@ def test_report_goal_fill() -> None:
     assert D("0") < cell.fill < D("1")
 
 
-def test_report_monthly_fill_is_fixed() -> None:
-    """A monthly envelope's ring is fixed: full when funded, empty when short."""
+def test_report_monthly_fill_is_proportional() -> None:
+    """A monthly ring fills in proportion to the month's allocation."""
     view = _extension("funding_colors.bean").report("2024-01", "1")
     fills = {e.name: e.cells[0].fill for e in view.envelopes}
-    assert fills["Under"] == D("0")
+    assert fills["Under"] == D("50") / D("100")
     assert fills["On"] == D("1")
     assert fills["Over"] == D("1")
 
@@ -387,7 +387,7 @@ def test_template_renders_funding_ring() -> None:
         _extension("funding_colors.bean"), {"month": "2024-01", "months": "1"}
     )
     assert 'class="envelope-ring"' in html
-    assert "--envelope-fill: 0.0%" in html
+    assert "--envelope-fill: 50.0%" in html
     assert "--envelope-fill: 100.0%" in html
 
 
@@ -420,10 +420,10 @@ def test_template_closing_popover_shows_plan_status() -> None:
     under = _row(html, ">Under<")
     assert "envelope-closing-pop" in under
     assert "envelope-closing-host" in under
-    # A monthly plan shows the verdict and derivation, but no funded fraction:
-    # its ring is fixed, so a percentage would mislead.
+    # A monthly plan shows the verdict, the derivation and how full the ring is:
+    # its ring is proportional, so the funded fraction is meaningful.
     assert "under plan by 50.00" in under
-    assert "% funded" not in under
+    assert "50.0% funded" in under
     assert "target 100.00 = monthly 100.00" in under
 
 
