@@ -227,11 +227,11 @@ def _pin_ledger() -> str:
 def test_pin_write_edits_the_ledger(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """--write applies the insertions without touching anything else."""
+    """--apply applies the insertions without touching anything else."""
     path = tmp_path / "main.bean"
     path.write_text(_pin_ledger(), encoding="utf-8")
     before = _result(str(path))
-    code = cli.main(["pin", str(path), "--account", "^Expenses:Groceries$", "--write"])
+    code = cli.main(["pin", str(path), "--account", "^Expenses:Groceries$", "--apply"])
     assert code == 0
     assert "pinned 1 posting(s)" in capsys.readouterr().out
     text = path.read_text(encoding="utf-8")
@@ -244,10 +244,10 @@ def test_pin_write_edits_the_ledger(
 def test_pin_write_is_idempotent(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A second --write finds nothing to do."""
+    """A second --apply finds nothing to do."""
     path = tmp_path / "main.bean"
     path.write_text(_pin_ledger(), encoding="utf-8")
-    args = ["pin", str(path), "--account", "^Expenses:Groceries$", "--write"]
+    args = ["pin", str(path), "--account", "^Expenses:Groceries$", "--apply"]
     assert cli.main(args) == 0
     capsys.readouterr()
     assert cli.main(args) == 0
@@ -259,7 +259,7 @@ def test_pin_write_is_idempotent(
 def test_pin_write_across_multiple_files(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """--write edits every file that holds a matching posting."""
+    """--apply edits every file that holds a matching posting."""
     (tmp_path / "main.bean").write_text(
         'option "operating_currency" "USD"\n'
         "2020-01-01 open Assets:Checking USD\n"
@@ -289,7 +289,7 @@ def test_pin_write_across_multiple_files(
             str(tmp_path / "main.bean"),
             "--account",
             "^Expenses:Groceries$",
-            "--write",
+            "--apply",
         ]
     )
     assert code == 0
@@ -301,11 +301,11 @@ def test_pin_write_across_multiple_files(
 def test_pin_write_preserves_crlf(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """--write keeps the file's CRLF line endings."""
+    """--apply keeps the file's CRLF line endings."""
     path = tmp_path / "main.bean"
     path.write_bytes(_pin_ledger().replace("\n", "\r\n").encode("utf-8"))
     assert (
-        cli.main(["pin", str(path), "--account", "^Expenses:Groceries$", "--write"])
+        cli.main(["pin", str(path), "--account", "^Expenses:Groceries$", "--apply"])
         == 0
     )
     capsys.readouterr()

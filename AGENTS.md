@@ -12,9 +12,10 @@ Guidance for AI agents working **on this repository** (for using the tool, see t
 | `src/beancount_envelope_budget/report.py` | Pure view model (`build_view`, `to_jsonable`) shared by the CLI and Fava. |
 | `src/beancount_envelope_budget/schema.py` | The registries: directive verbs, metadata keys, reserved values, error codes. |
 | `src/beancount_envelope_budget/plugin.py` | Beancount plugin: runs the core, returns entries plus diagnostics. |
-| `src/beancount_envelope_budget/cli.py` | `beancount-envelope-budget`: check, report, suggest, fund, pin, schema, docs, completion. |
+| `src/beancount_envelope_budget/cli.py` | `beancount-envelope-budget`: check, report, explain, pool, history, suggest, fund, allocate, plan, unplan, pin, consolidate, clear; also renders the generated docs. |
 | `src/beancount_envelope_budget/fava_ext.py` + `templates/` | The read-only Fava report. Only module that imports Fava. |
 | `tests/` | pytest; `tests/ledgers/` has one fixture per case, plus the generated all-features `sample.bean`. |
+| `scripts/docs.py` | Regenerates `docs/cli.md`, `docs/schema.md` and `docs/errors.md`; `--check` fails when any is stale. |
 | `scripts/sample_ledger.py` | Generates `tests/ledgers/sample.bean`; `--check` fails when it is stale. |
 | `scripts/benchmark.py` | Times the loader and the budget over the sample at scale; also a smoke test. |
 | `.github/workflows/` | The CI gate and the manual `release` job (tag, build, publish to TestPyPI or PyPI). |
@@ -28,17 +29,17 @@ Guidance for AI agents working **on this repository** (for using the tool, see t
 A change is complete when this passes — it is the same command CI runs:
 
 ```sh
-uv run ruff format --check && uv run ruff check && uv run ty check && uv run pytest && uv run beancount-envelope-budget docs --check && uv run python scripts/sample_ledger.py --check
+uv run ruff format --check && uv run ruff check && uv run ty check && uv run pytest && uv run python scripts/docs.py --check && uv run python scripts/sample_ledger.py --check
 ```
 
 - **ruff** (format + lint, `select = ["ALL"]`, commented ignores) and **ty** must both be clean. Do not merge a change that fails either.
 - `pytest` runs doctests and enforces a coverage floor on `core.py`.
-- `docs --check` fails if a generated doc is stale; regenerate with `uv run beancount-envelope-budget docs`.
+- `scripts/docs.py --check` fails if a generated doc is stale; regenerate with `uv run python scripts/docs.py`.
 - `sample_ledger.py --check` fails if `tests/ledgers/sample.bean` is stale; regenerate it with `uv run python scripts/sample_ledger.py` after adding a feature to the generator.
 
 ## Conventions
 
-See [`docs/style-guide.md`](docs/style-guide.md) for the full guide. The short version: money is `Decimal`; records are frozen slotted dataclasses; every public symbol has a Google-style docstring with doctests where useful; `core.py` imports only `beancount` (plus our `schema` and the standard library), and only `fava_ext.py` imports Fava; only `pin --write` edits a ledger file; the registries in `schema.py` are the source of truth for schema and errors; the release notes are generated from merged pull requests, so title and label each PR (there is no `CHANGELOG.md`).
+See [`docs/style-guide.md`](docs/style-guide.md) for the full guide. The short version: money is `Decimal`; records are frozen slotted dataclasses; every public symbol has a Google-style docstring with doctests where useful; `core.py` imports only `beancount` (plus our `schema` and the standard library), and only `fava_ext.py` imports Fava; only `pin --apply` edits a ledger file by literal line insertion; the registries in `schema.py` are the source of truth for schema and errors; the release notes are generated from merged pull requests, so title and label each PR (there is no `CHANGELOG.md`).
 
 ## Commits
 
@@ -53,7 +54,7 @@ Use `feat`, `fix`, `docs`, `test`, `refactor` or `chore` as the type. Keep the s
 ## Gotchas
 
 - Never rewrite a ledger by regenerating it; `pin` edits files by literal line insertion using each posting's `filename`/`lineno`.
-- `docs/cli.md`, `docs/schema.md` and `docs/errors.md` are generated — edit the parser or the registry, then run `docs`.
+- `docs/cli.md`, `docs/schema.md` and `docs/errors.md` are generated — edit the parser or the registry, then run `uv run python scripts/docs.py`.
 - `tests/ledgers/sample.bean` is generated too — add the feature to `scripts/sample_ledger.py`, regenerate, and keep `test_sample.py` green.
 - The version comes from the git tag (`hatch-vcs`), not a file. A release is the manual `release.yml` workflow; never edit a version or create a release tag by hand. See `docs/releasing.md`.
 - The `report`/`fava_ext` numbers must come from `report.build_view`, not be recomputed, so the CLI and the web report never disagree.

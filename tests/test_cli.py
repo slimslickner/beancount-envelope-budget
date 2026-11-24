@@ -1,4 +1,4 @@
-"""CLI tests: check, report, suggest and completion."""
+"""CLI tests: check, report and suggest."""
 
 from __future__ import annotations
 
@@ -451,35 +451,14 @@ def test_suggest_json(capsys: pytest.CaptureFixture[str]) -> None:
     assert groceries["reading"] == "under-saving"
 
 
-def test_completion_bash(capsys: pytest.CaptureFixture[str]) -> None:
-    """The bash snippet registers argcomplete without a shell prelude."""
-    assert cli.main(["completion", "bash"]) == 0
-    out = capsys.readouterr().out
-    assert "register-python-argcomplete --shell bash" in out
-    assert "bashcompinit" not in out
-
-
-def test_completion_zsh(capsys: pytest.CaptureFixture[str]) -> None:
-    """The zsh snippet runs compinit, which defines the compdef it needs."""
-    assert cli.main(["completion", "zsh"]) == 0
-    out = capsys.readouterr().out
-    assert "autoload -U compinit && compinit" in out
-    assert "register-python-argcomplete --shell zsh" in out
-    assert "bashcompinit" not in out
-
-
-def test_completion_rejects_other_shells() -> None:
-    """An unsupported shell is a usage error."""
-    with pytest.raises(SystemExit) as exit_info:
-        cli.main(["completion", "fish"])
-    assert exit_info.value.code == 2
-
-
-def test_schema_json(capsys: pytest.CaptureFixture[str]) -> None:
-    """`schema --json` prints parseable JSON."""
-    assert cli.main(["schema", "--json"]) == 0
+def test_check_json_reports_counts(capsys: pytest.CaptureFixture[str]) -> None:
+    """`check --json` prints parseable diagnostics and the exit code matches."""
+    assert cli.main(["check", _ledger("basic.bean"), "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["directive_verbs"]
+    assert payload["error_count"] == 0
+    assert payload["warning_count"] == 0
+    assert payload["diagnostics"] == []
+    assert payload["beancount"] == []
 
 
 def test_check_dedupes_plugin_errors(

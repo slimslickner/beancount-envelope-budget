@@ -48,6 +48,7 @@ def test_fund_actuals(capsys: pytest.CaptureFixture[str]) -> None:
     code = cli.main(
         [
             "fund",
+            "backfill",
             _ledger("fund_backfill.bean"),
             "--from",
             "2024-01",
@@ -70,6 +71,7 @@ def test_fund_overspend(capsys: pytest.CaptureFixture[str]) -> None:
     code = cli.main(
         [
             "fund",
+            "backfill",
             _ledger("fund_backfill.bean"),
             "--from",
             "2024-01",
@@ -91,6 +93,7 @@ def test_fund_copy_rolls_forward(capsys: pytest.CaptureFixture[str]) -> None:
     code = cli.main(
         [
             "fund",
+            "backfill",
             _ledger("basic.bean"),
             "--from",
             "2024-02",
@@ -111,6 +114,7 @@ def test_fund_skips_existing_allocations(capsys: pytest.CaptureFixture[str]) -> 
     code = cli.main(
         [
             "fund",
+            "backfill",
             _ledger("basic.bean"),
             "--from",
             "2024-01",
@@ -129,6 +133,7 @@ def test_fund_force_overrides_skip(capsys: pytest.CaptureFixture[str]) -> None:
     code = cli.main(
         [
             "fund",
+            "backfill",
             _ledger("basic.bean"),
             "--from",
             "2024-01",
@@ -147,6 +152,7 @@ def test_fund_envelopes_filter(capsys: pytest.CaptureFixture[str]) -> None:
     """--envelopes restricts funding to matching names."""
     args = [
         "fund",
+        "backfill",
         _ledger("fund_backfill.bean"),
         "--from",
         "2024-01",
@@ -164,6 +170,7 @@ def test_fund_rejects_bad_pattern(capsys: pytest.CaptureFixture[str]) -> None:
     code = cli.main(
         [
             "fund",
+            "backfill",
             _ledger("fund_backfill.bean"),
             "--from",
             "2024-01",
@@ -177,10 +184,11 @@ def test_fund_rejects_bad_pattern(capsys: pytest.CaptureFixture[str]) -> None:
     assert "invalid --envelopes pattern" in capsys.readouterr().err
 
 
-def test_fund_requires_range(capsys: pytest.CaptureFixture[str]) -> None:
-    """actuals/overspend/copy require --from and --to."""
-    assert cli.main(["fund", _ledger("basic.bean")]) == 2
-    assert "--from and --to are required" in capsys.readouterr().err
+def test_fund_requires_range() -> None:
+    """backfill requires --from and --to."""
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["fund", "backfill", _ledger("basic.bean")])
+    assert exit_info.value.code == 2
 
 
 def test_fund_rejects_reversed_range(capsys: pytest.CaptureFixture[str]) -> None:
@@ -188,6 +196,7 @@ def test_fund_rejects_reversed_range(capsys: pytest.CaptureFixture[str]) -> None
     code = cli.main(
         [
             "fund",
+            "backfill",
             _ledger("basic.bean"),
             "--from",
             "2024-03",
@@ -202,7 +211,15 @@ def test_fund_rejects_reversed_range(capsys: pytest.CaptureFixture[str]) -> None
 def test_topup_level(capsys: pytest.CaptureFixture[str]) -> None:
     """topup funds an envelope up to its level."""
     code = cli.main(
-        ["fund", _ledger("topup_level.bean"), "--mode", "topup", "--date", "2024-02-15"]
+        [
+            "fund",
+            "month",
+            _ledger("topup_level.bean"),
+            "--mode",
+            "topup",
+            "--date",
+            "2024-02-15",
+        ]
     )
     assert code == 0
     assert _lines(capsys) == [
@@ -215,6 +232,7 @@ def test_topup_up_to_stops_at_the_ceiling(capsys: pytest.CaptureFixture[str]) ->
     code = cli.main(
         [
             "fund",
+            "month",
             _ledger("up_to.bean"),
             "--mode",
             "topup",
@@ -255,7 +273,7 @@ def test_topup_up_to_uses_the_monthly_allowance(
         "  Assets:Checking -300.00 USD\n",
         encoding="utf-8",
     )
-    args = ["fund", str(ledger), "--mode", "topup", "--date", "2024-03-25"]
+    args = ["fund", "month", str(ledger), "--mode", "topup", "--date", "2024-03-25"]
     assert cli.main(args) == 0
     assert _lines(capsys) == [
         '2024-03-25 custom "envelope" "allocate" "Car" 150.00 USD',
@@ -275,6 +293,7 @@ def test_topup_credits_monthly_allocation(capsys: pytest.CaptureFixture[str]) ->
     code = cli.main(
         [
             "fund",
+            "month",
             _ledger("funding_spent.bean"),
             "--mode",
             "topup",
@@ -291,6 +310,7 @@ def test_topup_shortage(capsys: pytest.CaptureFixture[str]) -> None:
     code = cli.main(
         [
             "fund",
+            "month",
             _ledger("topup_shortage.bean"),
             "--mode",
             "topup",
@@ -313,6 +333,7 @@ def test_topup_reserve(capsys: pytest.CaptureFixture[str]) -> None:
     code = cli.main(
         [
             "fund",
+            "month",
             _ledger("topup_shortage.bean"),
             "--mode",
             "topup",
@@ -331,7 +352,7 @@ def test_topup_reserve(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_topup_plan_change(capsys: pytest.CaptureFixture[str]) -> None:
     """A plan directive changes the monthly amount from its date."""
-    args = ["fund", _ledger("topup_plan.bean"), "--mode", "topup"]
+    args = ["fund", "month", _ledger("topup_plan.bean"), "--mode", "topup"]
     assert cli.main([*args, "--date", "2027-12-15"]) == 0
     assert _lines(capsys) == [
         '2027-12-15 custom "envelope" "allocate" "Mortgage" 2500.00 USD',
@@ -344,7 +365,7 @@ def test_topup_plan_change(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_topup_goal_proration(capsys: pytest.CaptureFixture[str]) -> None:
     """A goal envelope funds to the on-track level for the run month."""
-    args = ["fund", _ledger("topup_goal.bean"), "--mode", "topup"]
+    args = ["fund", "month", _ledger("topup_goal.bean"), "--mode", "topup"]
     assert cli.main([*args, "--date", "2024-03-15"]) == 0
     assert _lines(capsys) == [
         '2024-03-15 custom "envelope" "allocate" "Emergency" 3000.00 USD',
@@ -358,7 +379,7 @@ def test_topup_goal_proration(capsys: pytest.CaptureFixture[str]) -> None:
 def test_topup_goal_spend_is_not_refunded(capsys: pytest.CaptureFixture[str]) -> None:
     """Topup funds contributions, so spending before the deadline is not topped
     up again (the Disney-style goal)."""
-    args = ["fund", _ledger("topup_goal_spend.bean"), "--mode", "topup"]
+    args = ["fund", "month", _ledger("topup_goal_spend.bean"), "--mode", "topup"]
     assert cli.main([*args, "--date", "2024-02-29"]) == 0
     # Contributions are $1000; the level is $2000; the $500 repair is spent,
     # not re-funded, so the gap is the February schedule only.
@@ -385,7 +406,7 @@ def test_topup_goal_rerun(tmp_path: Path, capsys: pytest.CaptureFixture[str]) ->
         '2024-03-15 custom "envelope" "allocate" "Emergency" 3000.00 USD\n',
         encoding="utf-8",
     )
-    args = ["fund", str(ledger), "--mode", "topup"]
+    args = ["fund", "month", str(ledger), "--mode", "topup"]
     assert cli.main([*args, "--date", "2024-03-20"]) == 0
     assert _lines(capsys) == []
     assert cli.main([*args, "--date", "2024-04-15"]) == 0
@@ -412,7 +433,7 @@ def test_topup_goal_rerun_subcent(
         (_LEDGERS / "topup_goal_subcent.bean").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    args = ["fund", str(ledger), "--mode", "topup"]
+    args = ["fund", "month", str(ledger), "--mode", "topup"]
     assert cli.main([*args, "--date", "2024-01-15"]) == 0
     assert _lines(capsys) == [
         '2024-01-15 custom "envelope" "allocate" "Goal" 142.86 USD',
@@ -432,6 +453,7 @@ def test_topup_goal_raise_same_month(capsys: pytest.CaptureFixture[str]) -> None
     code = cli.main(
         [
             "fund",
+            "month",
             _ledger("topup_goal_raise.bean"),
             "--mode",
             "topup",
@@ -452,6 +474,7 @@ def test_topup_goal_reduce_reports_overfunded(
     code = cli.main(
         [
             "fund",
+            "month",
             _ledger("topup_goal_reduce.bean"),
             "--mode",
             "topup",
@@ -486,7 +509,15 @@ def test_topup_avg6() -> None:
 def test_topup_skips_unplanned_envelope(capsys: pytest.CaptureFixture[str]) -> None:
     """After unplan, topup no longer funds the envelope."""
     code = cli.main(
-        ["fund", _ledger("unplan.bean"), "--mode", "topup", "--date", "2024-02-15"]
+        [
+            "fund",
+            "month",
+            _ledger("unplan.bean"),
+            "--mode",
+            "topup",
+            "--date",
+            "2024-02-15",
+        ]
     )
     assert code == 0
     assert _lines(capsys) == []
@@ -509,7 +540,7 @@ def test_topup_rerun(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None
         "  Income:Salary     -1000.00 USD\n",
         encoding="utf-8",
     )
-    args = ["fund", str(ledger), "--mode", "topup"]
+    args = ["fund", "month", str(ledger), "--mode", "topup"]
 
     assert cli.main([*args, "--date", "2024-01-06"]) == 0
     first = capsys.readouterr().out
@@ -532,38 +563,40 @@ def test_topup_rerun(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None
     assert _lines(capsys) == []
 
 
-def test_topup_rejects_range(capsys: pytest.CaptureFixture[str]) -> None:
-    """topup takes --date, not --from/--to."""
-    code = cli.main(
-        [
-            "fund",
-            _ledger("topup_level.bean"),
-            "--mode",
-            "topup",
-            "--from",
-            "2024-01",
-        ]
-    )
-    assert code == 2
-    assert "--mode topup takes --date" in capsys.readouterr().err
+def test_month_rejects_from_flag() -> None:
+    """A month action takes --date, so --from is rejected by argparse."""
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(
+            [
+                "fund",
+                "month",
+                _ledger("topup_level.bean"),
+                "--mode",
+                "topup",
+                "--from",
+                "2024-01",
+            ]
+        )
+    assert exit_info.value.code == 2
 
 
-def test_fund_rejects_date_for_range(capsys: pytest.CaptureFixture[str]) -> None:
-    """--date is only for the date-based modes."""
-    code = cli.main(
-        [
-            "fund",
-            _ledger("basic.bean"),
-            "--from",
-            "2024-01",
-            "--to",
-            "2024-01",
-            "--date",
-            "2024-01-01",
-        ]
-    )
-    assert code == 2
-    assert "--date is only valid with --mode topup" in capsys.readouterr().err
+def test_backfill_rejects_date_flag() -> None:
+    """A backfill takes --from/--to, so --date is rejected by argparse."""
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(
+            [
+                "fund",
+                "backfill",
+                _ledger("basic.bean"),
+                "--from",
+                "2024-01",
+                "--to",
+                "2024-01",
+                "--date",
+                "2024-01-01",
+            ]
+        )
+    assert exit_info.value.code == 2
 
 
 def test_fund_fully(capsys: pytest.CaptureFixture[str]) -> None:
@@ -571,6 +604,7 @@ def test_fund_fully(capsys: pytest.CaptureFixture[str]) -> None:
     code = cli.main(
         [
             "fund",
+            "month",
             _ledger("prefill.bean"),
             "--mode",
             "fully-fund",
@@ -592,9 +626,11 @@ def test_fund_available_caps_by_the_pool(capsys: pytest.CaptureFixture[str]) -> 
     code = cli.main(
         [
             "fund",
+            "month",
             _ledger("prefill.bean"),
             "--mode",
-            "fund-available",
+            "fully-fund",
+            "--available",
             "--date",
             "2024-01-31",
             "--reserve",
@@ -611,20 +647,21 @@ def test_fund_available_caps_by_the_pool(capsys: pytest.CaptureFixture[str]) -> 
     assert "; UNFUNDED Car: needs 823.08 USD" in lines
 
 
-def test_fund_month_rejects_range(capsys: pytest.CaptureFixture[str]) -> None:
-    """fully-fund and fund-available take --date, not --from/--to."""
-    code = cli.main(
-        [
-            "fund",
-            _ledger("prefill.bean"),
-            "--mode",
-            "fully-fund",
-            "--from",
-            "2024-01",
-        ]
-    )
-    assert code == 2
-    assert "--mode fully-fund takes --date" in capsys.readouterr().err
+def test_month_rejects_range_flags() -> None:
+    """fully-fund is a month action, so --from is rejected by argparse."""
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(
+            [
+                "fund",
+                "month",
+                _ledger("prefill.bean"),
+                "--mode",
+                "fully-fund",
+                "--from",
+                "2024-01",
+            ]
+        )
+    assert exit_info.value.code == 2
 
 
 def test_fund_month_envelopes_filter(capsys: pytest.CaptureFixture[str]) -> None:
@@ -632,6 +669,7 @@ def test_fund_month_envelopes_filter(capsys: pytest.CaptureFixture[str]) -> None
     code = cli.main(
         [
             "fund",
+            "month",
             _ledger("prefill.bean"),
             "--mode",
             "fully-fund",
@@ -650,7 +688,15 @@ def test_fund_month_envelopes_filter(capsys: pytest.CaptureFixture[str]) -> None
 def test_cleanup_releases_up_to_overshoot(capsys: pytest.CaptureFixture[str]) -> None:
     """cleanup writes a negative allocate for the balance above an up-to ceiling."""
     code = cli.main(
-        ["fund", _ledger("cleanup.bean"), "--mode", "cleanup", "--date", "2024-01-31"]
+        [
+            "fund",
+            "month",
+            _ledger("cleanup.bean"),
+            "--mode",
+            "cleanup",
+            "--date",
+            "2024-01-31",
+        ]
     )
     assert code == 0
     assert _lines(capsys) == [
@@ -661,7 +707,15 @@ def test_cleanup_releases_up_to_overshoot(capsys: pytest.CaptureFixture[str]) ->
 def test_cleanup_nothing_to_clean(capsys: pytest.CaptureFixture[str]) -> None:
     """An up-to envelope at or below its ceiling needs no cleanup."""
     code = cli.main(
-        ["fund", _ledger("up_to.bean"), "--mode", "cleanup", "--date", "2024-02-29"]
+        [
+            "fund",
+            "month",
+            _ledger("up_to.bean"),
+            "--mode",
+            "cleanup",
+            "--date",
+            "2024-02-29",
+        ]
     )
     assert code == 0
     assert _lines(capsys) == []
@@ -671,6 +725,7 @@ def test_cleanup_envelopes_filter(capsys: pytest.CaptureFixture[str]) -> None:
     """--envelopes restricts a cleanup to matching names."""
     args = [
         "fund",
+        "month",
         _ledger("cleanup.bean"),
         "--mode",
         "cleanup",
@@ -693,7 +748,7 @@ def test_cleanup_rerun_is_idempotent(
     ledger.write_text(
         (_LEDGERS / "cleanup.bean").read_text(encoding="utf-8"), encoding="utf-8"
     )
-    args = ["fund", str(ledger), "--mode", "cleanup", "--date", "2024-01-31"]
+    args = ["fund", "month", str(ledger), "--mode", "cleanup", "--date", "2024-01-31"]
     assert cli.main(args) == 0
     assert _lines(capsys) == [
         '2024-01-31 custom "envelope" "allocate" "Car" -150.00 USD',
@@ -707,19 +762,27 @@ def test_cleanup_rerun_is_idempotent(
     assert _lines(capsys) == []
 
 
-def test_cleanup_rejects_range(capsys: pytest.CaptureFixture[str]) -> None:
-    """cleanup takes --date, not --from/--to."""
-    code = cli.main(
-        ["fund", _ledger("cleanup.bean"), "--mode", "cleanup", "--from", "2024-01"]
-    )
-    assert code == 2
-    assert "--mode cleanup takes --date" in capsys.readouterr().err
+def test_cleanup_rejects_from_flag() -> None:
+    """cleanup takes --date, so --from is rejected by argparse."""
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(
+            [
+                "fund",
+                "month",
+                _ledger("cleanup.bean"),
+                "--mode",
+                "cleanup",
+                "--from",
+                "2024-01",
+            ]
+        )
+    assert exit_info.value.code == 2
 
 
 def test_fund_rejects_unknown_mode() -> None:
     """An unknown mode is a usage error."""
     with pytest.raises(SystemExit) as exit_info:
-        cli.main(["fund", _ledger("basic.bean"), "--mode", "bogus"])
+        cli.main(["fund", "month", _ledger("basic.bean"), "--mode", "bogus"])
     assert exit_info.value.code == 2
 
 

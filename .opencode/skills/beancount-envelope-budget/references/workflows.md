@@ -35,7 +35,7 @@ beancount-envelope-budget check main.bean
 After a paycheck, top the envelopes back up to their planned targets.
 
 ```sh
-beancount-envelope-budget fund main.bean --mode topup --date 2027-03-01 --reserve 500
+beancount-envelope-budget fund month main.bean --mode topup --date 2027-03-01 --reserve 500
 ```
 
 This prints `allocate` directives, funding envelopes in priority order to their target — what is left of a `monthly` envelope's month, the capped allowance of a `monthly` + `up-to` plan, or the on-track contribution for a goal — and holding `--reserve` back in the pool. Anything that could not be funded prints as a comment, and a goal already above its target prints as overfunded:
@@ -53,29 +53,29 @@ Append the output to a file you `include`, then re-check. Rerunning after anothe
 
 ```sh
 # bring every negative envelope back to zero for the current month
-beancount-envelope-budget fund main.bean --from 2027-03 --to 2027-03 --mode overspend
+beancount-envelope-budget fund backfill main.bean --from 2027-03 --to 2027-03 --mode overspend
 ```
 
 `overspend` only covers what is already negative; it never pre-funds the next month. Use `--envelopes REGEX` to restrict it, and `actuals` over a range if you want each month to close flat.
 
-To fund a whole month in one pass — meeting each plan *and* covering any overspend — use the month actions. `fully-fund` funds every envelope to its plan target or its overspend, whichever is greater, and `fund-available` does the same in priority order while keeping the pool non-negative:
+To fund a whole month in one pass — meeting each plan *and* covering any overspend — use the month actions. `fully-fund` funds every envelope to its plan target or its overspend, whichever is greater, and `fully-fund --available` does the same in priority order while keeping the pool non-negative:
 
 ```sh
 # meet every plan and cover every overspend for the current month
-beancount-envelope-budget fund main.bean --mode fully-fund --date 2027-03-31
+beancount-envelope-budget fund month main.bean --mode fully-fund --date 2027-03-31
 
 # the same, but stop before the pool would go negative
-beancount-envelope-budget fund main.bean --mode fund-available --reserve 500
+beancount-envelope-budget fund month main.bean --mode fully-fund --available --reserve 500
 ```
 
-Both take `--date` (defaulting to today) and print one `allocate` per envelope that needs funding; `fund-available` prints `; UNFUNDED` for anything the pool could not cover, and `--strict` makes that a non-zero exit.
+Both take `--date` (defaulting to today) and print one `allocate` per envelope that needs funding; `--available` prints `; UNFUNDED` for anything the pool could not cover, and `--strict` makes that a non-zero exit.
 
 ## Clean up an up-to overshoot
 
 An `up-to` envelope can end a month holding more than its ceiling — a refund or income into it, or an allocation larger than its monthly allowance. `cleanup` releases that excess back to the pool, taking the balance to `up_to` so the month reads on plan again:
 
 ```sh
-beancount-envelope-budget fund main.bean --mode cleanup --date 2027-03-31
+beancount-envelope-budget fund month main.bean --mode cleanup --date 2027-03-31
 ```
 
 ```beancount
@@ -89,17 +89,17 @@ Only `up-to` envelopes are swept: a `monthly`/`avgN` flow is judged by the money
 If you already have transactions, generate allocations that match what you actually spent, so each month closes flat and the pool absorbs the surplus.
 
 ```sh
-beancount-envelope-budget fund main.bean --from 2024-01 --to 2025-12 --mode actuals > envelope_backfill.bean
+beancount-envelope-budget fund backfill main.bean --from 2024-01 --to 2025-12 --mode actuals > envelope_backfill.bean
 ```
 
 Add `include "envelope_backfill.bean"` to the ledger and check. The other modes:
 
 ```sh
 # only top negative envelopes back to zero
-beancount-envelope-budget fund main.bean --from 2024-01 --to 2025-12 --mode overspend
+beancount-envelope-budget fund backfill main.bean --from 2024-01 --to 2025-12 --mode overspend
 
 # roll one month forward by repeating last month's allocation
-beancount-envelope-budget fund main.bean --from 2027-04 --to 2027-04 --mode copy
+beancount-envelope-budget fund backfill main.bean --from 2027-04 --to 2027-04 --mode copy
 ```
 
 All three skip envelope-months that already have an allocation; add `--force` to regenerate one, or `--envelopes '^Car$'` to restrict the run.
@@ -141,7 +141,7 @@ To move `Expenses:Groceries` from the `Groceries` envelope to a new `Food` envel
 beancount-envelope-budget pin main.bean --account '^Expenses:Groceries$' --through 2025-12-31
 
 # 2. write it once you are happy
-beancount-envelope-budget pin main.bean --account '^Expenses:Groceries$' --through 2025-12-31 --write
+beancount-envelope-budget pin main.bean --account '^Expenses:Groceries$' --through 2025-12-31 --apply
 
 # 3. now change the account's metadata to the new envelope
 ```
@@ -161,7 +161,7 @@ beancount-envelope-budget consolidate main.bean --envelope '^Groceries$'
 beancount-envelope-budget consolidate main.bean --month 2025-12
 
 # 3. write once you are happy, then re-check
-beancount-envelope-budget consolidate main.bean --write
+beancount-envelope-budget consolidate main.bean --apply
 beancount-envelope-budget check main.bean
 ```
 
@@ -179,7 +179,7 @@ beancount-envelope-budget clear main.bean --month 2025-12
 beancount-envelope-budget clear main.bean --envelope '^Groceries$'
 
 # 3. write once you are happy, then re-check
-beancount-envelope-budget clear main.bean --month 2025-12 --write
+beancount-envelope-budget clear main.bean --month 2025-12 --apply
 beancount-envelope-budget check main.bean
 ```
 

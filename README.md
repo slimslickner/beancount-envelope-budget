@@ -99,40 +99,37 @@ An envelope's **plan** is its `monthly`, `priority`, `goal` and `by` metadata. S
 2029-01-01 custom "envelope" "unplan" "Mortgage"  ;; stop funding, keep balance
 ```
 
-`plan` takes the same metadata as `open` and changes only the fields it names, so `open` and `plan` resolve to the same plan. `monthly` may be a number or `"avgN"` — the average of the last N completed months of spending — so `"avg3"` tracks spending without a fixed figure. A plan funds an envelope one of three ways: `monthly` is the month's funding target, `monthly` with an `up-to` ceiling adds that amount each month but stops at a balance, or a `goal` with a `by` date is a one-shot savings goal. A `goal` is mutually exclusive with `monthly` and with `up-to`, and a `goal` needs a `by`. A plan that names only one half of a pair, or conflicts, is reported as `E010` rather than silently ignored. `unplan` stops `fund --mode topup` funding the envelope while it keeps its balance.
+`plan` takes the same metadata as `open` and changes only the fields it names, so `open` and `plan` resolve to the same plan. `monthly` may be a number or `"avgN"` — the average of the last N completed months of spending — so `"avg3"` tracks spending without a fixed figure. A plan funds an envelope one of three ways: `monthly` is the month's funding target, `monthly` with an `up-to` ceiling adds that amount each month but stops at a balance, or a `goal` with a `by` date is a one-shot savings goal. A `goal` is mutually exclusive with `monthly` and with `up-to`, and a `goal` needs a `by`. A plan that names only one half of a pair, or conflicts, is reported as `E010` rather than silently ignored. `unplan` stops `fund month --mode topup` funding the envelope while it keeps its balance.
 
 An `up-to` envelope treats `monthly` as a per-month contribution allowance: each month `fund` adds up to that amount, but never past the ceiling. Once it is full the allowance goes unspent and funding stops; spending re-opens room, but only the current month's remaining allowance can refill it.
 
-A goal envelope's **target** is the contributions it should have made to stay on schedule — its `goal`, grown linearly from the month the goal took effect to its `by` month, counting both ends. `fund --mode topup` funds up to that target and reports `; OVERFUNDED <name>: ... above plan` when a reduced plan leaves the envelope above it; `suggest` prints the monthly pace to reach the goal on time. A goal is funded by cumulative contributions, so spending before `by` — even paying for the thing you saved for — never un-funds it. A `monthly` envelope is a flow: it is funded by the money assigned that month, so a month with no allocation reads as unfunded even when a balance carried in. See [`docs/funding.md`](docs/funding.md) for each plan shape and every figure.
+A goal envelope's **target** is the contributions it should have made to stay on schedule — its `goal`, grown linearly from the month the goal took effect to its `by` month, counting both ends. `fund month --mode topup` funds up to that target and reports `; OVERFUNDED <name>: ... above plan` when a reduced plan leaves the envelope above it; `suggest` prints the monthly pace to reach the goal on time. A goal is funded by cumulative contributions, so spending before `by` — even paying for the thing you saved for — never un-funds it. A `monthly` envelope is a flow: it is funded by the money assigned that month, so a month with no allocation reads as unfunded even when a balance carried in. See [`docs/funding.md`](docs/funding.md) for each plan shape and every figure.
 
 ## Commands
 
 ```sh
-beancount-envelope-budget check  LEDGER
+beancount-envelope-budget check  LEDGER [--json]
 beancount-envelope-budget report LEDGER [--month YYYY-MM] [--months N] [--json]
 beancount-envelope-budget explain LEDGER [--month YYYY-MM] [--envelope REGEX] [--json]
 beancount-envelope-budget history LEDGER --envelope REGEX [--json]
-beancount-envelope-budget suggest LEDGER
-beancount-envelope-budget fund LEDGER --from YYYY-MM --to YYYY-MM [--mode actuals|overspend|copy] [--envelopes REGEX] [--force]
-beancount-envelope-budget fund LEDGER --mode topup [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]
-beancount-envelope-budget fund LEDGER --mode fully-fund|fund-available [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]
-beancount-envelope-budget fund LEDGER --mode cleanup [--date YYYY-MM-DD] [--envelopes REGEX]
-beancount-envelope-budget pin LEDGER --account REGEX [--through YYYY-MM-DD] [--write]
-beancount-envelope-budget consolidate LEDGER [--envelope REGEX] [--month YYYY-MM] [--write]
-beancount-envelope-budget clear LEDGER [--envelope REGEX] [--month YYYY-MM] [--write]
-beancount-envelope-budget schema [--json]
-beancount-envelope-budget docs [--check]
-beancount-envelope-budget completion SHELL   # bash or zsh
+beancount-envelope-budget suggest LEDGER [--window N] [--json]
+beancount-envelope-budget fund backfill LEDGER --from YYYY-MM --to YYYY-MM [--mode actuals|overspend|copy] [--envelopes REGEX] [--force]
+beancount-envelope-budget fund month LEDGER --mode topup [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]
+beancount-envelope-budget fund month LEDGER --mode fully-fund [--available] [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]
+beancount-envelope-budget fund month LEDGER --mode cleanup [--date YYYY-MM-DD] [--envelopes REGEX]
+beancount-envelope-budget pin LEDGER --account REGEX [--through YYYY-MM-DD] [--apply]
+beancount-envelope-budget consolidate LEDGER [--envelope REGEX] [--month YYYY-MM] [--apply]
+beancount-envelope-budget clear LEDGER [--envelope REGEX] [--month YYYY-MM] [--apply]
 ```
 
 - `check` exits non-zero on any error.
 - `report` prints one table spanning one to three months: a row per envelope with allocated, activity and closing per month, plus the pool and cash rows; `--show-opening` adds the window's opening balance column to the left. Parent headings and envelopes are ordered alphabetically; a zero-padded number prefix (`01`, `02`, `10`) puts a name in a chosen place.
 - `explain` shows how each planned envelope is evaluated for a month: the resolved `monthly` and the completed months an `avgN` averaged, the `up-to` ceiling formula, or the goal schedule, plus the funding target, the funded amount, the under/on/over verdict and the suggested top-up.
 - `history` prints one envelope's whole history as a vertical ledger, grouped by month — its `open` and plan directives, every allocation, the postings that moved it and its `close`, each with the running balance. `--envelope` selects the envelope; the Fava report has an **Envelope History** tab that shows the same and links each line to its source.
-- `fund` prints `allocate` directives to stdout (redirect them into a file you include); it never edits your ledger. The `actuals`, `overspend` and `copy` modes backfill a month range and skip months that already have an allocation; `topup` funds envelopes up to their target in priority order from the pool, and reports any envelope already above its target. `fully-fund` and `fund-available` fund every envelope to its plan or its overspend, whichever is greater, the latter stopping before the pool would go negative. `cleanup` releases any `up-to` envelope's balance above its ceiling back to the pool, so the month reads on plan again. These are the same actions the Fava report offers on each month heading.
-- `pin` freezes the resolved envelope onto matching postings as metadata, so you can change an account's envelope afterwards without reclassifying history. It prints a diff by default; `--write` edits the files in place.
-- `consolidate` merges an envelope-month's several `allocate` directives into one, dated the last day of the month (or today, for the current month), so a history funded in several passes reads as one line. The net amount is unchanged, so balances, the pool and the invariant are unchanged. With no filter it walks the whole ledger; `--envelope` and `--month` narrow it. It prints a diff by default; `--write` edits the files in place. The Fava report offers the same for one envelope-month or one month.
-- `clear` deletes every `allocate` directive in a month, or matching an envelope, so the month can be funded again from scratch; the funds return to the pool. At least one of `--month` and `--envelope` is required, so a bare run cannot wipe the whole ledger. It prints a diff by default; `--write` edits the files in place. The Fava report offers the same as **Clear this month** on a month heading, with a confirmation first.
+- `fund` prints `allocate` directives to stdout (redirect them into a file you include); it never edits your ledger. `fund backfill` funds a month range — `actuals` (the default), `overspend` or `copy` — and skips months that already have an allocation. `fund month` funds a single month: `topup` funds envelopes up to their target in priority order from the pool and reports any envelope already above its target; `fully-fund` funds every envelope to its plan or its overspend, whichever is greater, and `--available` stops before the pool would go negative; `cleanup` releases any `up-to` envelope's balance above its ceiling back to the pool, so the month reads on plan again. These are the same actions the Fava report offers on each month heading.
+- `pin` freezes the resolved envelope onto matching postings as metadata, so you can change an account's envelope afterwards without reclassifying history. It prints a diff by default; `--apply` edits the files in place.
+- `consolidate` merges an envelope-month's several `allocate` directives into one, dated the last day of the month (or today, for the current month), so a history funded in several passes reads as one line. The net amount is unchanged, so balances, the pool and the invariant are unchanged. With no filter it walks the whole ledger; `--envelope` and `--month` narrow it. It prints a diff by default; `--apply` edits the files in place. The Fava report offers the same for one envelope-month or one month.
+- `clear` deletes every `allocate` directive in a month, or matching an envelope, so the month can be funded again from scratch; the funds return to the pool. At least one of `--month` and `--envelope` is required, so a bare run cannot wipe the whole ledger. It prints a diff by default; `--apply` edits the files in place. The Fava report offers the same as **Clear this month** on a month heading, with a confirmation first.
 - Commands that generate directives (`fund`, `allocate`, `plan`, `unplan`) print them, or append them with `--write`: a bare `--write` uses the file the ledger declares as `write` metadata on its `start` directive, and `--write FILE` names one explicitly. The Fava report's write target defaults to the same ledger declaration.
 
 See `docs/cli.md` for the full reference and `beancount-envelope-budget --help`.
@@ -150,7 +147,7 @@ autoload -U compinit && compinit
 eval "$(register-python-argcomplete --shell zsh beancount-envelope-budget)"
 ```
 
-`beancount-envelope-budget completion bash|zsh` prints the same snippet. In zsh, `compinit` must run before the `eval`, because the generated script registers itself with `compdef`, which `compinit` provides; `bashcompinit` is not needed and will silently fail to register. With the completion in place, plugins such as `fzf-tab` can fuzzy-match the candidates.
+In zsh, `compinit` must run before the `eval`, because the generated script registers itself with `compdef`, which `compinit` provides; `bashcompinit` is not needed and will silently fail to register. With the completion in place, plugins such as `fzf-tab` can fuzzy-match the candidates.
 
 ## Documentation
 
@@ -170,7 +167,7 @@ eval "$(register-python-argcomplete --shell zsh beancount-envelope-budget)"
 A change is complete when the gate passes:
 
 ```sh
-uv run ruff format --check && uv run ruff check && uv run ty check && uv run pytest && uv run beancount-envelope-budget docs --check && uv run python scripts/sample_ledger.py --check
+uv run ruff format --check && uv run ruff check && uv run ty check && uv run pytest && uv run python scripts/docs.py --check && uv run python scripts/sample_ledger.py --check
 ```
 
 `pytest` runs the doctests, enforces a coverage floor on the core, and the fixture ledgers double as tests. `scripts/benchmark.py` times the loader and the budget over a generated ledger at scale; `scripts/sample_ledger.py` produces it, and the gate keeps the committed instance current with `--check`.

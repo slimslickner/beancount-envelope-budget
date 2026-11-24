@@ -1,6 +1,6 @@
 """The CLI's opt-in writer for ``custom "envelope"`` directives.
 
-Pure code never touches disk. Alongside ``pin --write`` this is the only place
+Pure code never touches disk. Alongside ``pin --apply`` this is the only place
 the CLI edits a ledger file; Fava's report has its own writer over Fava's file
 API. Both render through :mod:`beancount_envelope_budget.actions` and both edit
 by literal line changes, never by regenerating a file, so line endings and the
