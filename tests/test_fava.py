@@ -848,45 +848,35 @@ def test_template_no_current_month_outside_window(
     assert "envelope-month-current" not in _month_strip(html)
 
 
-def test_month_strip_caps_at_eight(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The strip shows at most eight months, not the whole history."""
+def test_month_strip_lists_whole_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The strip runs from the budget's first month past the window's tail."""
     monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2027, 1, 1))
-    html = _render(_extension("disney_2028.bean"), {"month": "2027-03", "months": "2"})
-    strip = _month_strip(html)
-    assert strip.count('href="?month=') == 8
-    for label in ("Jan", "Feb", "Dec"):
-        assert f">{label}<" in strip
-    # The block spans late 2026 through early 2027, so both years are marked.
-    assert f">{2026}<" in strip
-    assert f">{2027}<" in strip
+    extension = _extension("disney_2028.bean")
+    links = extension.month_nav(extension.report("2027-06", "2").months)
+    # The budget starts in October 2026, well before the window, so its whole
+    # history is there to scroll back into.
+    assert links[0].month == date(2026, 10, 1)
+    # Enough months follow the window for it to sit in the middle, even on a
+    # wide screen.
+    after = sum(link.month > date(2027, 7, 1) for link in links)
+    assert after >= fava_ext._STRIP_TAIL
+    years = {link.month.year for link in links}
+    assert {2026, 2027} <= years
+    labels = {link.label for link in links}
+    assert {"Oct", "Aug"} <= labels
 
 
-def test_month_strip_blocks_around_window(
+def test_month_strip_starts_at_the_budgets_first_month(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The block sits around the window, with one trailing month to step to."""
+    """The strip starts at the budget's first month and marks only the window."""
     monkeypatch.setattr(Envelopes, "today_month", lambda _self: date(2030, 1, 1))
     extension = _extension("disney_2028.bean")
     links = extension.month_nav(extension.report("2027-06", "2").months)
-    assert [link.month for link in links] == [
-        date(2027, 1, 1),
-        date(2027, 2, 1),
-        date(2027, 3, 1),
-        date(2027, 4, 1),
-        date(2027, 5, 1),
+    assert links[0].month == date(2026, 10, 1)
+    assert [link.month for link in links if link.visible] == [
         date(2027, 6, 1),
         date(2027, 7, 1),
-        date(2027, 8, 1),
-    ]
-    assert [link.visible for link in links] == [
-        False,
-        False,
-        False,
-        False,
-        False,
-        True,
-        True,
-        False,
     ]
     june = next(link for link in links if link.month == date(2027, 6, 1))
     assert june.query == "month=2027-06&months=2"
@@ -1445,6 +1435,30 @@ def test_js_module_right_aligns_month_popovers() -> None:
     """
     source = (Path(fava_ext.__file__).parent / "Envelopes.js").read_text()
     assert 'host.classList.contains("envelope-month-host")' in source
+
+
+def test_js_module_centres_and_refits_the_month_strip() -> None:
+    """The module centres the visible window and re-fits it on resize (#114).
+
+    There is no JavaScript runtime in this project, so this only pins the
+    contract: the strip's whole visible window is centred, and a ResizeObserver
+    re-centres it when the space it has to spare changes.
+    """
+    source = (Path(fava_ext.__file__).parent / "Envelopes.js").read_text()
+    hook = source.split("onExtensionPageLoad(ctx)")[1]
+    assert "scroll_to_window();" in hook
+    assert "watch_month_strip();" in hook
+    assert 'strip.querySelectorAll(".envelope-month-visible")' in source
+    assert "function watch_month_strip(" in source
+    assert "new ResizeObserver(" in source
+
+
+def test_template_clips_the_month_strip() -> None:
+    """The strip clips to the nav's spare width, so the month count adapts."""
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
+    strip_css = html.split(".envelope-months {", 1)[1].split("}", 1)[0]
+    assert "overflow: hidden" in strip_css
+    assert "overflow-x: auto" not in strip_css
 
 
 def test_template_popovers_size_to_content() -> None:

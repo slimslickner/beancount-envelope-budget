@@ -115,8 +115,10 @@ __all__ = ["Envelopes", "MonthLink"]
 _DEFAULT_MONTHS = 3
 _MONTH_PATTERN = re.compile(r"^\d{4}-\d{2}$")
 
-#: The most month links the report's strip shows at once.
-_STRIP_MONTHS = 8
+#: How many projected months to render past the window, so the strip always has
+#: enough months after the visible window to centre it. A screen's worth on each
+#: side is what it takes; this is the right-hand half.
+_STRIP_TAIL = 24
 
 
 @dataclass(frozen=True, slots=True)
@@ -849,17 +851,22 @@ class Envelopes(FavaExtensionBase):
         return today_month()
 
     def month_nav(self, window: tuple[date, ...]) -> tuple[MonthLink, ...]:
-        """Build the selectable month strip, capped to a sliding block.
+        """Build the selectable month strip over the budget's whole history.
 
-        The strip lists at most :data:`_STRIP_MONTHS` months as three-letter
+        The strip lists every month from the budget's first up to
+        :data:`_STRIP_TAIL` months past the visible window, as three-letter
         abbreviations, so a user can jump several months at once rather than
-        stepping with the coarse previous/next links. The visible window sits at
-        the right, with a single trailing month past it — clicking that link
-        steps the window forward, which keeps working even when only one month is
-        shown. The block never starts before the budget's first month; near the
-        start it fills forward instead. Each link sets the window's first month
-        and preserves the current month count; today's month and every month in
-        the visible window are marked. It is a display concern built here from
+        stepping with the coarse previous/next links. The trailing run is mostly
+        projected months: it gives the report's JavaScript enough months on the
+        right for the window to sit in the middle, and it lets a window at the
+        end of the computed history — today, usually — centre like any other.
+        The strip is deliberately wider than any screen: the template clips it
+        to the available width, so the number of months on show adapts to the
+        space — fewer when narrow, more when wide — and the window sits at the
+        left edge once the budget's first month is reached (the scroll clamps at
+        zero). Each link sets the window's first month and preserves the current
+        month count; today's month and every month in the visible window are
+        marked. It is a display concern built here from
         :attr:`~beancount_envelope_budget.core.BudgetResult.months`, so the view
         model and the CLI are untouched.
 
@@ -867,19 +874,15 @@ class Envelopes(FavaExtensionBase):
             window: The currently visible months, ascending.
 
         Returns:
-            One :class:`MonthLink` per month in the block, ascending, at most
-            :data:`_STRIP_MONTHS` of them.
+            One :class:`MonthLink` per month in the strip, ascending.
         """
         result = self._result()
         today = self.today_month()
         visible = set(window)
         count = len(window)
-        first = result.months[0]
-        end = _shift_month(window[-1], 1)
-        start = _shift_month(end, -(_STRIP_MONTHS - 1))
-        if start < first:
-            start = first
-            end = _shift_month(first, _STRIP_MONTHS - 1)
+        start = result.months[0]
+        last = max(window[-1], result.months[-1])
+        end = _shift_month(last, _STRIP_TAIL)
         return tuple(
             MonthLink(
                 month=month,
