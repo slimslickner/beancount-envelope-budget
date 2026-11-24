@@ -117,7 +117,7 @@ beancount-envelope-budget report main.bean --month 2027-03 --months 3 --json
 beancount-envelope-budget suggest main.bean
 ```
 
-The report's `Pool` row is unassigned money and `Cash` is what the accounts actually hold; they satisfy `Cash = Pool + sum(envelopes)`.
+The report's `Pool` row is unassigned money and `Cash` is what the accounts actually hold; they satisfy `Cash = Pool + sum(envelopes)`. The window's opening balance column is hidden by default; add `--show-opening` to show it.
 
 An envelope's plan can change over time without touching history:
 

@@ -11,6 +11,11 @@ Set the default number of months shown (1 to
 
 The ``months`` query parameter overrides it.
 
+The window's opening balance column is hidden by default. Set ``show-opening``
+to ``True`` to add it back::
+
+    2024-01-01 custom "fava-extension" "beancount_envelope_budget.fava_ext" "{'show-opening': True}"
+
 Set ``color-closing-balance`` to ``False`` to drop the colour coding from the
 closing balances (the ring's shape still tells the plan status)::
 
@@ -155,8 +160,10 @@ class Envelopes(FavaExtensionBase):
                 key (1 to :data:`~beancount_envelope_budget.report.MAX_MONTHS`,
                 the default number of months shown), a ``write`` key (the
                 Beancount file to append directives to, relative to the ledger
-                directory; it wins over the ledger's own ``write`` metadata), and
-                a ``color-closing-balance`` key (a boolean; the closing balances
+                directory; it wins over the ledger's own ``write`` metadata), a
+                ``show-opening`` key (a boolean; the window's opening balance
+                column is hidden unless it is ``True``), and a
+                ``color-closing-balance`` key (a boolean; the closing balances
                 are colour-coded unless it is ``False``). A whole number sets the
                 month count. The ``months`` query parameter overrides the month
                 count. Writing stays off unless the config or the ledger's
@@ -172,6 +179,7 @@ class Envelopes(FavaExtensionBase):
         try:
             self.default_months = _default_months(self.config)
             self._config_target = self._resolve_write(_write_setting(self.config))
+            self._show_opening = _show_opening_setting(self.config)
             self._color_closing_balance = _color_setting(self.config)
         except (TypeError, ValueError) as error:
             raise ExtensionConfigError(SyntaxError(str(error)), config or "") from error
@@ -228,6 +236,18 @@ class Envelopes(FavaExtensionBase):
             True when the report may append directives.
         """
         return self.write_target is not None
+
+    @property
+    def show_opening(self) -> bool:
+        """Whether the window's opening balance column is shown.
+
+        The report hides the opening column by default; ``show-opening`` adds it
+        back, mirroring the CLI's ``--show-opening``.
+
+        Returns:
+            True only when ``show-opening`` is configured ``True``.
+        """
+        return self._show_opening
 
     @property
     def color_closing_balance(self) -> bool:
@@ -1087,6 +1107,30 @@ def _write_setting(config: object) -> str | None:
         return None
     if not isinstance(value, str):
         message = "write must be a path string"
+        raise TypeError(message)
+    return value
+
+
+def _show_opening_setting(config: object) -> bool:
+    """Read the optional ``show-opening`` flag from an extension config.
+
+    Args:
+        config: The parsed extension config.
+
+    Returns:
+        Whether the window's opening balance column is shown; ``False`` when the
+        key is absent.
+
+    Raises:
+        TypeError: If ``show-opening`` is present but not a boolean.
+    """
+    if not isinstance(config, dict):
+        return False
+    value = config.get("show-opening")
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        message = "show-opening must be true or false"
         raise TypeError(message)
     return value
 

@@ -140,6 +140,36 @@ def test_report_multiple_months(capsys: pytest.CaptureFixture[str]) -> None:
     assert "2024-03" in out
 
 
+def test_report_hides_opening_by_default(capsys: pytest.CaptureFixture[str]) -> None:
+    """The window's opening balance column is hidden unless asked for."""
+    assert cli.main(["report", _ledger("basic.bean"), "--month", "2024-01"]) == 0
+    out = capsys.readouterr().out
+    assert "Opening" not in out
+    metrics = next(line for line in out.splitlines() if "Allocated" in line)
+    assert metrics.split() == ["Envelope", "Allocated", "Activity", "Closing"]
+
+
+def test_report_show_opening(capsys: pytest.CaptureFixture[str]) -> None:
+    """--show-opening adds the window's opening balance column back."""
+    assert (
+        cli.main(
+            ["report", _ledger("basic.bean"), "--month", "2024-01", "--show-opening"]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    metrics = next(line for line in out.splitlines() if "Opening" in line)
+    assert metrics.split() == [
+        "Envelope",
+        "Opening",
+        "Allocated",
+        "Activity",
+        "Closing",
+    ]
+    pool = next(line for line in out.splitlines() if line.startswith("Pool"))
+    assert pool.split()[1] == "1000.00"
+
+
 def test_report_month_heading_spans_its_columns(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -152,9 +182,9 @@ def test_report_month_heading_spans_its_columns(
     )
     lines = capsys.readouterr().out.splitlines()
     heading = next(line for line in lines if "2030-01" in line)
-    metrics = next(line for line in lines if "Opening" in line)
-    # The label starts over the month's span, left of the Allocated column.
-    assert heading.index("2030-01") < metrics.index("Allocated")
+    metrics = next(line for line in lines if "Allocated" in line)
+    # With the opening column hidden the label starts over the Allocated column.
+    assert heading.index("2030-01") == metrics.index("Allocated")
     # And the label's length does not widen the Allocated column: it stays as
     # wide as its own heading plus the two-space separator.
     assert (
@@ -172,7 +202,7 @@ def test_report_groups_by_parent(capsys: pytest.CaptureFixture[str]) -> None:
     assert "[Transport]" in out
     assert "subtotal" not in out
     living = next(line for line in out.splitlines() if line.startswith("[Living]"))
-    assert living.split() == ["[Living]", "0.00", "1300.00", "-920.00", "380.00"]
+    assert living.split() == ["[Living]", "1300.00", "-920.00", "380.00"]
 
 
 def test_report_orders_groups_and_envelopes(capsys: pytest.CaptureFixture[str]) -> None:
@@ -208,7 +238,7 @@ def test_report_group_subtotal_excludes_closed_members(
         for line in capsys.readouterr().out.splitlines()
         if line.startswith("[Living]")
     )
-    assert living.split() == ["[Living]", "200.00", "0.00", "0.00", "200.00"]
+    assert living.split() == ["[Living]", "0.00", "0.00", "200.00"]
 
 
 def test_report_shows_group_in_close_month(capsys: pytest.CaptureFixture[str]) -> None:

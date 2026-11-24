@@ -142,6 +142,19 @@ def test_config_rejects_bad_color() -> None:
         _extension("basic.bean", config="{'color-closing-balance': 'nope'}")
 
 
+def test_config_show_opening() -> None:
+    """The opening column is hidden by default and shown when configured."""
+    assert _extension("basic.bean").show_opening is False
+    extension = _extension("basic.bean", config="{'show-opening': True}")
+    assert extension.show_opening is True
+
+
+def test_config_rejects_bad_show_opening() -> None:
+    """A show-opening that is not a boolean is an extension error."""
+    with pytest.raises(ExtensionConfigError):
+        _extension("basic.bean", config="{'show-opening': 'nope'}")
+
+
 def test_report_values() -> None:
     """The view carries the same numbers as the core."""
     view = _extension("basic.bean").report("2024-01", "1")
@@ -214,8 +227,9 @@ def test_template_spans_late_envelope_across_months() -> None:
     # Groceries and Late each get one row, plus Pool and Cash.
     rows = html.split("<tr")
     late = next(row for row in rows if ">Late<" in row)
-    # Name + opening + three columns for each of the three visible months.
-    assert late.count("<td") == 11
+    # Name + three columns for each of the three visible months (the opening
+    # column is hidden by default).
+    assert late.count("<td") == 10
 
 
 def test_report_clamps_and_parses(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -554,9 +568,20 @@ def test_template_renders_groups() -> None:
     assert "Transport" in html
     assert "envelope-subtotal" not in html
     assert "380.00" in html
-    # One table spans both visible months, four columns for the first
-    # (Opening plus its three) and three for the second.
+    # One table spans both visible months, three columns each: the opening
+    # column is hidden by default.
     assert html.count("<table") == 1
+    assert html.count('colspan="4"') == 0
+    assert html.count('colspan="3"') == 2
+
+
+def test_template_show_opening_restores_column() -> None:
+    """show-opening restores the Opening header and the first month's span."""
+    html = _render(
+        _extension("parent_groups.bean", config="{'show-opening': True}"),
+        {"month": "2024-01", "months": "2"},
+    )
+    assert "Opening" in html
     assert html.count('colspan="4"') == 1
     assert html.count('colspan="3"') == 1
 
@@ -705,7 +730,8 @@ def test_template_hides_rounded_investment_zero() -> None:
 def test_template_parent_subtotal_keeps_zeros() -> None:
     """A parent subtotal always shows its numbers, including zeros."""
     html = _render(
-        _extension("parent_groups.bean"), {"month": "2024-01", "months": "1"}
+        _extension("parent_groups.bean", config="{'show-opening': True}"),
+        {"month": "2024-01", "months": "1"},
     )
     assert ">0.00<" in _row(html, ">Living<")
 
