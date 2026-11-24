@@ -321,11 +321,12 @@ def _cmd_check(args: argparse.Namespace) -> int:
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
-    """Print opening, allocated, activity and closing per envelope.
+    """Print allocated, activity and closing per envelope, with the opening.
 
     Args:
-        args: Parsed arguments; ``args.ledger``, ``args.month`` and
-            ``args.months``. A missing month defaults to the current one.
+        args: Parsed arguments; ``args.ledger``, ``args.month``,
+            ``args.months`` and ``args.show_opening``. A missing month defaults
+            to the current one; the opening column is off unless asked for.
 
     Returns:
         The process exit status.
@@ -348,7 +349,7 @@ def _cmd_report(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(to_jsonable(view), indent=2))
     else:
-        print(_format_view(view))
+        print(_format_view(view, opening=args.show_opening))
     return 0
 
 
@@ -1903,26 +1904,30 @@ def _cell_values(cell: Cell) -> tuple[str, str, str]:
     return (_money(cell.allocated), _money(cell.activity), _money(cell.closing))
 
 
-def _row(name: str, cells: tuple[Cell, ...]) -> tuple[str, ...]:
+def _row(
+    name: str, cells: tuple[Cell, ...], *, opening: bool = True
+) -> tuple[str, ...]:
     """Build one envelope, group or pool row across the view's months.
 
     Args:
         name: The row label.
         cells: One cell per visible month.
+        opening: Whether to include the window's opening balance column.
 
     Returns:
-        The label, the window's opening balance, then allocated, activity and
-        closing per month. The opening is blank unless the first month is
-        within the row's life.
+        The label, the window's opening balance when ``opening``, then
+        allocated, activity and closing per month. The opening is blank unless
+        the first month is within the row's life.
     """
-    opening = _money(cells[0].opening) if cells and cells[0].visible else ""
-    values = [name, opening]
+    values = [name]
+    if opening:
+        values.append(_money(cells[0].opening) if cells and cells[0].visible else "")
     for cell in cells:
         values.extend(_cell_values(cell))
     return tuple(values)
 
 
-def _cash_row(cells: tuple[Cell, ...]) -> tuple[str, ...]:
+def _cash_row(cells: tuple[Cell, ...], *, opening: bool = True) -> tuple[str, ...]:
     """Build the cash row across the view's months.
 
     Cash posts to no envelope, so only its opening and each month's closing
@@ -1930,21 +1935,25 @@ def _cash_row(cells: tuple[Cell, ...]) -> tuple[str, ...]:
 
     Args:
         cells: One cash cell per visible month.
+        opening: Whether to include the window's opening balance column.
 
     Returns:
         The cash row.
     """
-    values = ["Cash", _money(cells[0].opening) if cells else ""]
+    values = ["Cash"]
+    if opening:
+        values.append(_money(cells[0].opening) if cells else "")
     for cell in cells:
         values.extend(("", "", _money(cell.closing)))
     return tuple(values)
 
 
-def _envelope_rows(view: BudgetView) -> list[tuple[str, ...]]:
+def _envelope_rows(view: BudgetView, *, opening: bool = True) -> list[tuple[str, ...]]:
     """Build the envelope rows, grouped by parent.
 
     Args:
         view: The view to render.
+        opening: Whether to include the window's opening balance column.
 
     Returns:
         One row per visible envelope spanning every visible month, with a
@@ -1957,39 +1966,44 @@ def _envelope_rows(view: BudgetView) -> list[tuple[str, ...]]:
     for group in view.groups:
         if group.parent is None:
             rows.extend(
-                _row(envelope.name, envelope.cells)
+                _row(envelope.name, envelope.cells, opening=opening)
                 for envelope in group.envelopes
                 if envelope.visible
             )
             continue
         if not group.visible:
             continue
-        rows.append(_row(f"[{group.parent}]", group.subtotal))
+        rows.append(_row(f"[{group.parent}]", group.subtotal, opening=opening))
         rows.extend(
-            _row(f"  {envelope.name}", envelope.cells)
+            _row(f"  {envelope.name}", envelope.cells, opening=opening)
             for envelope in group.envelopes
             if envelope.visible
         )
     return rows
 
 
-def _view_headers(view: BudgetView) -> tuple[str, ...]:
+def _view_headers(view: BudgetView, *, opening: bool = True) -> tuple[str, ...]:
     """Build the metric header row for the unified table.
 
     Args:
         view: The view to render.
+        opening: Whether to include the window's opening balance column.
 
     Returns:
-        The column names: ``Envelope`` and ``Opening`` once, then each month's
-        ``Allocated``, ``Activity`` and ``Closing``.
+        The column names: ``Envelope``, ``Opening`` when ``opening``, then each
+        month's ``Allocated``, ``Activity`` and ``Closing``.
     """
-    metrics = ["Envelope", "Opening"]
+    metrics = ["Envelope"]
+    if opening:
+        metrics.append("Opening")
     for _ in view.months:
         metrics.extend(("Allocated", "Activity", "Closing"))
     return tuple(metrics)
 
 
-def _view_month_header(view: BudgetView, widths: list[int]) -> str:
+def _view_month_header(
+    view: BudgetView, widths: list[int], *, opening: bool = True
+) -> str:
     """Build the month heading row that spans each month's columns.
 
     Each label is left-aligned over the whole span of its month's columns, so a
@@ -1999,13 +2013,14 @@ def _view_month_header(view: BudgetView, widths: list[int]) -> str:
     Args:
         view: The view to render.
         widths: The column widths, computed from the metric and data rows.
+        opening: Whether the first month owns the opening balance column.
 
     Returns:
         The rendered month heading row.
     """
     parts = [" " * widths[0]]
     for index, month in enumerate(view.months):
-        start, end = _month_span(index)
+        start, end = _month_span(index, opening=opening)
         span = sum(widths[start : end + 1]) + 2 * (end - start)
         label = f"{month:%Y-%m}"
         if view.projected[index]:
@@ -2014,26 +2029,30 @@ def _view_month_header(view: BudgetView, widths: list[int]) -> str:
     return "  ".join(parts).rstrip()
 
 
-def _month_span(index: int) -> tuple[int, int]:
+def _month_span(index: int, *, opening: bool = True) -> tuple[int, int]:
     """Return a month's first and last column in the unified table.
 
     Args:
         index: The month's position in the view.
+        opening: Whether the first month owns the opening balance column.
 
     Returns:
-        The inclusive column range. The first month also owns the ``Opening``
-        column; every later month spans only Allocated, Activity and Closing.
+        The inclusive column range. With ``opening`` the first month also owns
+        the ``Opening`` column, so it spans four columns; every later month
+        spans only Allocated, Activity and Closing. Without it every month spans
+        three columns.
     """
-    if index == 0:
-        return 1, 4
-    return 2 + 3 * index, 4 + 3 * index
+    if opening:
+        return (1, 4) if index == 0 else (2 + 3 * index, 4 + 3 * index)
+    return 1 + 3 * index, 3 + 3 * index
 
 
-def _format_view(view: BudgetView) -> str:
+def _format_view(view: BudgetView, *, opening: bool = True) -> str:
     """Render a budget view as one table spanning the visible months.
 
     Args:
         view: The view to render.
+        opening: Whether to include the window's opening balance column.
 
     Returns:
         The rendered report.
@@ -2041,14 +2060,14 @@ def _format_view(view: BudgetView) -> str:
     heading = "Envelope report"
     if view.currency:
         heading += f"\nAmounts in {view.currency}"
-    rows = _envelope_rows(view)
-    rows.append(_row("Pool", view.pool))
-    rows.append(_cash_row(view.cash))
-    metrics = _view_headers(view)
+    rows = _envelope_rows(view, opening=opening)
+    rows.append(_row("Pool", view.pool, opening=opening))
+    rows.append(_cash_row(view.cash, opening=opening))
+    metrics = _view_headers(view, opening=opening)
     widths = _column_widths([metrics], rows)
     table = "\n".join(
         (
-            _view_month_header(view, widths),
+            _view_month_header(view, widths, opening=opening),
             _render_row(metrics, widths, 1),
             _rule(widths),
             *(_render_row(row, widths, 1) for row in rows),
@@ -2302,35 +2321,7 @@ def build_parser() -> argparse.ArgumentParser:
     _ledger_argument(check)
     check.set_defaults(func=_cmd_check)
 
-    report = subparsers.add_parser(
-        "report",
-        help="print per-envelope balances for a month",
-        description=(
-            "Print opening, allocated, activity and closing for every "
-            "envelope, plus the pool and cash rows."
-        ),
-    )
-    _ledger_argument(report)
-    report.add_argument(
-        "--month",
-        type=_parse_month,
-        metavar="YYYY-MM",
-        help="the first month to report; defaults to the current month",
-    )
-    report.add_argument(
-        "--months",
-        type=int,
-        choices=(1, 2, 3),
-        default=1,
-        metavar="N",
-        help="how many months to show, forward from --month (1, 2 or 3)",
-    )
-    report.add_argument(
-        "--json",
-        action="store_true",
-        help="print the report as JSON instead of a table",
-    )
-    report.set_defaults(func=_cmd_report)
+    _add_report_parser(subparsers)
 
     _add_suggest_parser(subparsers)
 
@@ -2680,6 +2671,49 @@ def _add_completion_parser(subparsers: argparse._SubParsersAction) -> None:
         help="the shell to print a completion snippet for",
     )
     completion.set_defaults(func=_cmd_completion)
+
+
+def _add_report_parser(subparsers: argparse._SubParsersAction) -> None:
+    """Register the ``report`` subcommand.
+
+    Args:
+        subparsers: The subparsers action to extend.
+    """
+    report = subparsers.add_parser(
+        "report",
+        help="print per-envelope balances for a month",
+        description=(
+            "Print allocated, activity and closing for every envelope, plus "
+            "the pool and cash rows. The window's opening balance column is "
+            "hidden unless --show-opening."
+        ),
+    )
+    _ledger_argument(report)
+    report.add_argument(
+        "--month",
+        type=_parse_month,
+        metavar="YYYY-MM",
+        help="the first month to report; defaults to the current month",
+    )
+    report.add_argument(
+        "--months",
+        type=int,
+        choices=(1, 2, 3),
+        default=1,
+        metavar="N",
+        help="how many months to show, forward from --month (1, 2 or 3)",
+    )
+    report.add_argument(
+        "--show-opening",
+        action="store_true",
+        help="also show the window's opening balance column",
+    )
+    report.add_argument(
+        "--json",
+        action="store_true",
+        help="print the report as JSON instead of a table",
+    )
+    report.set_defaults(func=_cmd_report)
 
 
 def _add_suggest_parser(subparsers: argparse._SubParsersAction) -> None:

@@ -46,7 +46,7 @@ Run validation and the month-end invariant. Prints every error and warning and e
 
 ## `beancount-envelope-budget report`
 
-Print opening, allocated, activity and closing for every envelope, plus the pool and cash rows.
+Print allocated, activity and closing for every envelope, plus the pool and cash rows. The window's opening balance column is hidden unless --show-opening.
 
 
 | Option | Help |
@@ -55,6 +55,7 @@ Print opening, allocated, activity and closing for every envelope, plus the pool
 | `ledger` | path to the Beancount ledger (.bean or .beancount) |
 | `--month` | the first month to report; defaults to the current month |
 | `--months` | how many months to show, forward from --month (1, 2 or 3) |
+| `--show-opening` | also show the window's opening balance column |
 | `--json` | print the report as JSON instead of a table |
 
 ## `beancount-envelope-budget suggest`

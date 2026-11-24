@@ -10,6 +10,7 @@
 {% set currency = dash.currency if reports else suggestions.currency if review else history.currency if history_mode else view.currency %}
 {% set today = extension.today_month() %}
 {% set colors = extension.color_closing_balance %}
+{% set show_opening = extension.show_opening %}
 {% set base = request.path if request.path.endswith('/') else request.path ~ '/' %}
 {% macro opening(cell, blank=false) -%}
   <td class="num envelope-sep{{ ' envelope-neg' if cell.visible and cell.opening < 0 else '' }}">{% if cell.visible and not (blank and cell.opening == 0) %}{{ extension.money(cell.opening) }}{% endif %}</td>
@@ -1210,7 +1211,7 @@
       <table class="table envelope-table">
         <colgroup>
           <col class="envelope-leader">
-          <col class="envelope-value">
+          {% if show_opening %}<col class="envelope-value">{% endif %}
           {% for index in range(view.months|length) %}<col span="3" class="envelope-value">{% endfor %}
         </colgroup>
         <thead>
@@ -1226,7 +1227,7 @@
               {% set worst = status.worst %}
               {% set month_ident = header_month.strftime('%Y%m') %}
               {% set month_host = extension.writable or worst %}
-              <th colspan="{{ 4 if loop.first else 3 }}" class="envelope-sep{{ ' envelope-pop-host envelope-month-host' if month_host else '' }}">
+              <th colspan="{{ 4 if loop.first and show_opening else 3 }}" class="envelope-sep{{ ' envelope-pop-host envelope-month-host' if month_host else '' }}">
                 {{ header_month.strftime('%Y-%m') }}
                 {% if header_month == today %}<small>(current)</small>{% endif %}
                 {% if view.projected[index] %}<small>(projected)</small>{% endif %}
@@ -1251,7 +1252,7 @@
           </tr>
           <tr>
             {% for index in range(view.months|length) %}
-              {% if loop.first %}<th class="envelope-sep">Opening</th>{% endif %}
+              {% if loop.first and show_opening %}<th class="envelope-sep">Opening</th>{% endif %}
               <th class="envelope-sep">Allocated</th>
               <th>Activity</th>
               <th>Closing</th>
@@ -1266,8 +1267,8 @@
                   {% if envelope.visible %}
                     <tr>
                       {{ name_cell(envelope, view.months[0]) }}
-                      {{ opening(envelope.cells[0], blank=true) }}
-                      {% for cell in envelope.cells %}{{ amounts(cell, not loop.first, blank=true, name=envelope.name, plans=envelope.plans) }}{% endfor %}
+                      {% if show_opening %}{{ opening(envelope.cells[0], blank=true) }}{% endif %}
+                      {% for cell in envelope.cells %}{{ amounts(cell, not loop.first or not show_opening, blank=true, name=envelope.name, plans=envelope.plans) }}{% endfor %}
                     </tr>
                   {% endif %}
                 {% endfor %}
@@ -1280,15 +1281,15 @@
                   <input type="checkbox" class="envelope-toggle" id="envelope-group-{{ loop.index }}">
                   <label for="envelope-group-{{ loop.index }}">{{ group.parent }}</label>
                 </th>
-                {{ opening(group.subtotal[0]) }}
-                {% for cell in group.subtotal %}{{ amounts(cell, not loop.first) }}{% endfor %}
+                {% if show_opening %}{{ opening(group.subtotal[0]) }}{% endif %}
+                {% for cell in group.subtotal %}{{ amounts(cell, not loop.first or not show_opening) }}{% endfor %}
               </tr>
               {% for envelope in group.envelopes %}
                 {% if envelope.visible %}
                   <tr class="envelope-child">
                     {{ name_cell(envelope, view.months[0]) }}
-                    {{ opening(envelope.cells[0], blank=true) }}
-                    {% for cell in envelope.cells %}{{ amounts(cell, not loop.first, blank=true, name=envelope.name, plans=envelope.plans) }}{% endfor %}
+                    {% if show_opening %}{{ opening(envelope.cells[0], blank=true) }}{% endif %}
+                    {% for cell in envelope.cells %}{{ amounts(cell, not loop.first or not show_opening, blank=true, name=envelope.name, plans=envelope.plans) }}{% endfor %}
                   </tr>
                 {% endif %}
               {% endfor %}
@@ -1298,14 +1299,14 @@
         <tbody class="envelope-total-body">
           <tr class="envelope-total">
             <td>Pool</td>
-            {{ opening(view.pool[0]) }}
-            {% for cell in view.pool %}{{ pool_amounts(cell, not loop.first) }}{% endfor %}
+            {% if show_opening %}{{ opening(view.pool[0]) }}{% endif %}
+            {% for cell in view.pool %}{{ pool_amounts(cell, not loop.first or not show_opening) }}{% endfor %}
           </tr>
           <tr class="envelope-total">
             <td>Cash</td>
-            <td class="num envelope-sep{{ ' envelope-neg' if view.cash[0].opening < 0 else '' }}">{{ extension.money(view.cash[0].opening) }}</td>
+            {% if show_opening %}<td class="num envelope-sep{{ ' envelope-neg' if view.cash[0].opening < 0 else '' }}">{{ extension.money(view.cash[0].opening) }}</td>{% endif %}
             {% for cell in view.cash %}
-              <td class="num{{ ' envelope-sep' if not loop.first else '' }}"></td>
+              <td class="num{{ ' envelope-sep' if not loop.first or not show_opening else '' }}"></td>
               <td class="num"></td>
               <td class="num{{ ' envelope-neg' if colors and cell.closing < 0 else '' }}{{ ' envelope-pop-host' if cell.accounts else '' }}">{% if cell.accounts %}<input type="checkbox" class="envelope-pop-toggle" id="cash-{{ cell.month.strftime('%Y%m') }}"><label class="envelope-pop-label" for="cash-{{ cell.month.strftime('%Y%m') }}">{{ extension.money(cell.closing) }}</label><label class="envelope-pop-backdrop" for="cash-{{ cell.month.strftime('%Y%m') }}"></label><div class="envelope-detail">{% for account, balance in cell.accounts %}<div>{{ account }} &middot; {{ extension.money(balance) }}</div>{% endfor %}</div>{% else %}{{ extension.money(cell.closing) }}{% endif %}</td>
             {% endfor %}
