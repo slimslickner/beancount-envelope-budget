@@ -21,6 +21,7 @@ export default {
     discard_stray_popovers();
     track_scroll();
     scroll_to_window();
+    watch_month_strip();
     setup_collapse();
     setup_popovers();
     const api = ctx && ctx.api;
@@ -187,23 +188,54 @@ function setup_collapse() {
 }
 
 /**
- * Bring the visible window into view in the month strip.
+ * Centre the visible window in the month strip.
  *
- * The strip lists the budget's whole history, so at today's month — or after
- * jumping — the active months can sit off the right edge. Scrolling the strip
- * itself (rather than `scrollIntoView`) keeps them in sight without moving the
- * page.
+ * The strip lists the budget's whole history and is clipped to the nav's spare
+ * width, so the months on show adapt to the screen. Sliding the strip itself
+ * (rather than `scrollIntoView`) keeps the window in view without moving the
+ * page. The browser clamps the scroll at the budget's first month, so near the
+ * start the window rests against the left edge instead of centring.
  */
 function scroll_to_window() {
   const strip = document.querySelector(".envelope-months");
-  const active = strip && strip.querySelector(".envelope-month-visible");
-  if (!(strip instanceof HTMLElement) || !(active instanceof HTMLElement)) {
+  if (!(strip instanceof HTMLElement)) {
     return;
   }
+  const active = strip.querySelectorAll(".envelope-month-visible");
+  if (active.length === 0) {
+    return;
+  }
+  const first = active[0].getBoundingClientRect();
+  const last = active[active.length - 1].getBoundingClientRect();
   const strip_box = strip.getBoundingClientRect();
-  const active_box = active.getBoundingClientRect();
+  const width = last.right - first.left;
   strip.scrollLeft +=
-    active_box.left - strip_box.left - strip.clientWidth / 2 + active_box.width / 2;
+    first.left - strip_box.left - strip.clientWidth / 2 + width / 2;
+}
+
+// The observer that re-centres the month strip as its width changes. One per
+// report, replaced on every reload; null when there is no strip to watch.
+let month_strip_observer = null;
+
+/**
+ * Re-fit the month strip whenever the space it has to spare changes.
+ *
+ * A window resize or a sidebar collapse changes how many months fit, so the
+ * window has to be re-centred rather than left where the previous width put it.
+ */
+function watch_month_strip() {
+  const strip = document.querySelector(".envelope-months");
+  if (month_strip_observer) {
+    month_strip_observer.disconnect();
+    month_strip_observer = null;
+  }
+  if (!(strip instanceof HTMLElement)) {
+    return;
+  }
+  month_strip_observer = new ResizeObserver(() => {
+    scroll_to_window();
+  });
+  month_strip_observer.observe(strip);
 }
 
 // How much space to keep between a popover and the viewport edge, and between a
