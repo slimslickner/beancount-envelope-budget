@@ -165,14 +165,15 @@ def test_cli_history_prints_a_ledger(
 
 
 def test_cli_history_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """--json emits the months and their lines."""
+    """--json emits a list of envelopes, each with its months and lines."""
     path = tmp_path / "main.bean"
     path.write_text(_LEDGER, encoding="utf-8")
     assert cli.main(["history", str(path), "--envelope", "Groceries", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["envelope"] == "Groceries"
-    assert payload["months"][0]["closing"] == "380.00"
-    assert payload["months"][0]["lines"][1]["kind"] == "allocate"
+    assert isinstance(payload, list)
+    assert payload[0]["envelope"] == "Groceries"
+    assert payload[0]["months"][0]["closing"] == "380.00"
+    assert payload[0]["months"][0]["lines"][1]["kind"] == "allocate"
 
 
 def test_cli_history_no_match(

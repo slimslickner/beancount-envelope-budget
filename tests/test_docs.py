@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 
 import pytest
 
 from beancount_envelope_budget import cli, schema
 
-_DOCS_DIR = cli._docs_dir()
+_DOCS_DIR = Path(__file__).parents[1] / "docs"
 
 
 def _parsers() -> list[tuple[tuple[str, ...], argparse.ArgumentParser]]:

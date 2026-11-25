@@ -207,9 +207,9 @@ def test_cli_consolidate_prints_a_diff(
 def test_cli_consolidate_writes_and_is_idempotent(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """--write merges in place; a second run has nothing to do."""
+    """--apply merges in place; a second run has nothing to do."""
     path = _write_ledger(tmp_path)
-    assert cli.main(["consolidate", str(path), "--write"]) == 0
+    assert cli.main(["consolidate", str(path), "--apply"]) == 0
     assert "consolidated 1 envelope-month(s)" in capsys.readouterr().out
     written = path.read_text(encoding="utf-8")
     assert '2024-01-31 custom "envelope" "allocate" "Groceries" 650.00 USD' in written
@@ -312,9 +312,9 @@ def test_cli_clear_prints_a_diff(
 def test_cli_clear_writes_and_is_idempotent(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """--write deletes in place; a second run has nothing to do."""
+    """--apply deletes in place; a second run has nothing to do."""
     path = _write_ledger(tmp_path)
-    assert cli.main(["clear", str(path), "--month", "2024-01", "--write"]) == 0
+    assert cli.main(["clear", str(path), "--month", "2024-01", "--apply"]) == 0
     assert "cleared 2 allocation(s) in 1 envelope(s)" in capsys.readouterr().out
     written = path.read_text(encoding="utf-8")
     assert "allocate" not in written

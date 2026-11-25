@@ -82,6 +82,7 @@ def test_backfill_then_check(
     code = cli.main(
         [
             "fund",
+            "backfill",
             str(source),
             "--from",
             "2024-01",

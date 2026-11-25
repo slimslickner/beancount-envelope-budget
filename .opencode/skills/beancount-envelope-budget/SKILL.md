@@ -14,7 +14,7 @@ The full reference lives in `docs/cli.md`; the model is in `docs/concepts.md`; d
 - **Always run `check` first**, and again after any change.
 - `check`, `report` and `suggest` are **read-only**.
 - `fund` only **prints** directives: redirect its output into a file you `include`; never paste allocations by hand.
-- `pin`, `consolidate` and `clear` **print a diff** and change nothing. `pin --write`, `consolidate --write` and `clear --write` **edit the ledger in place**: show the diff first and get the user's approval before writing. `clear` deletes directives, so be especially careful.
+- `pin`, `consolidate` and `clear` **print a diff** and change nothing. `pin --apply`, `consolidate --apply` and `clear --apply` **edit the ledger in place**: show the diff first and get the user's approval before writing. `clear` deletes directives, so be especially careful.
 - Prefer `report --json` when you need to read numbers programmatically.
 - Show the exact command you ran and its exit code.
 
@@ -30,41 +30,41 @@ When working inside this repository, prefix commands with `uv run`.
 | `pool LEDGER [--all\|--month YYYY-MM\|--date YYYY-MM-DD] [--json]` | The pool's per-transaction ledger with the running balance after each line; a bare run opens on the pool's lowest month (or the latest when it never went negative). |
 | `history LEDGER --envelope REGEX [--json]` | One envelope's whole history as a vertical ledger, grouped by month: its `open` and plan directives, allocations, spending and `close`, each with the running balance. |
 | `suggest LEDGER` | The monthly amount each goal envelope (`goal` + `by`) needs. |
-| `fund LEDGER --from YYYY-MM --to YYYY-MM [--mode actuals\|overspend\|copy] [--envelopes REGEX] [--force]` | Print `allocate` directives to backfill or roll a range forward. |
-| `fund LEDGER --mode topup [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]` | Print `allocate` directives funding envelopes to their target, in priority order. |
-| `fund LEDGER --mode fully-fund\|fund-available [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]` | Print `allocate` directives funding every envelope to its plan or its overspend, whichever is greater; `fund-available` caps the run by the pool. |
-| `fund LEDGER --mode cleanup [--date YYYY-MM-DD] [--envelopes REGEX]` | Print negative `allocate` directives releasing any `up-to` envelope's balance above its ceiling back to the pool; other plan shapes are untouched. |
-| `pin LEDGER --account REGEX [--through YYYY-MM-DD] [--write]` | Freeze the resolved envelope onto existing postings so an account can be remapped without changing history. |
-| `consolidate LEDGER [--envelope REGEX] [--month YYYY-MM] [--write]` | Merge an envelope-month's several `allocate` directives into one, dated month-end (today, in the current month). Prints a diff; the net amount, the pool and the invariant are unchanged. |
-| `clear LEDGER [--envelope REGEX] [--month YYYY-MM] [--write]` | Delete every `allocate` directive in a month or matching an envelope, so the month can be funded again from scratch. At least one of `--month` or `--envelope` is required. Prints a diff; the funds return to the pool. |
-| `schema [--json]` | The directive, metadata and reserved-value schema. |
-| `completion SHELL` | Tab-completion snippet for bash or zsh. |
+| `fund backfill LEDGER --from YYYY-MM --to YYYY-MM [--mode actuals\|overspend\|copy] [--envelopes REGEX] [--force]` | Print `allocate` directives to backfill or roll a range forward. |
+| `fund month LEDGER --mode topup [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]` | Print `allocate` directives funding envelopes to their target, in priority order. |
+| `fund month LEDGER --mode fully-fund [--available] [--date YYYY-MM-DD] [--reserve AMOUNT] [--strict]` | Print `allocate` directives funding every envelope to its plan or its overspend, whichever is greater; `--available` caps the run by the pool. |
+| `fund month LEDGER --mode cleanup [--date YYYY-MM-DD] [--envelopes REGEX]` | Print negative `allocate` directives releasing any `up-to` envelope's balance above its ceiling back to the pool; other plan shapes are untouched. |
+| `pin LEDGER --account REGEX [--through YYYY-MM-DD] [--apply]` | Freeze the resolved envelope onto existing postings so an account can be remapped without changing history. |
+| `consolidate LEDGER [--envelope REGEX] [--month YYYY-MM] [--apply]` | Merge an envelope-month's several `allocate` directives into one, dated month-end (today, in the current month). Prints a diff; the net amount, the pool and the invariant are unchanged. |
+| `clear LEDGER [--envelope REGEX] [--month YYYY-MM] [--apply]` | Delete every `allocate` directive in a month or matching an envelope, so the month can be funded again from scratch. At least one of `--month` or `--envelope` is required. Prints a diff; the funds return to the pool. |
 
-`fund` modes:
+`fund backfill` modes (a month range):
 
 - `actuals` (default) — allocate each month's net spending, so closings equal openings. The backfill mode.
 - `overspend` — allocate only enough to bring a negative envelope back to zero.
 - `copy` — repeat the previous month's allocation (roll one month forward).
+
+`fund month` modes (a single month):
+
 - `topup` — fund each envelope to its target, in priority order, from the pool. A `monthly` envelope is a flow: it funds what is left of the month's amount after the month's allocations. A goal envelope's target is the on-track contribution for the run month. An `up-to` envelope funds what is left of the month's `monthly` allowance, never past the ceiling.
-- `fully-fund` — the month-level action: fund every envelope to its plan target or its overspend, whichever is greater, in priority order. Unlike `topup`, envelopes with no plan are still funded their overspend.
-- `fund-available` — the same as `fully-fund`, but stop before the pool would go negative; anything left unfunded prints as `; UNFUNDED`.
+- `fully-fund` — the month-level action: fund every envelope to its plan target or its overspend, whichever is greater, in priority order. Unlike `topup`, envelopes with no plan are still funded their overspend. Add `--available` to stop before the pool would go negative; anything left unfunded prints as `; UNFUNDED`.
 - `cleanup` — release any `up-to` envelope's balance above its ceiling back to the pool as a negative `allocate`, so the month reads on plan again. Only `up-to` envelopes are swept; a `monthly`/`avgN` flow is judged by its month's allocation, and a `goal` keeps its balance after spending. Re-running is safe: once the balance sits at the ceiling it prints nothing.
 
-The three range modes skip any envelope-month that already has an allocation; `--force` overrides. `topup`, `fully-fund`, `fund-available` and `cleanup` never skip, because they measure from current balances — rerun them after each paycheck and append the new output.
+The three backfill modes skip any envelope-month that already has an allocation; `--force` overrides. The month actions never skip, because they measure from current balances — rerun them after each paycheck and append the new output.
 
 An envelope's plan is its `monthly`, `up-to`, `priority`, `goal` and `by` metadata, set on `open` or changed from a date with `plan` (`custom "envelope" "plan" "<name>"` plus the same metadata), and cleared with `unplan`. `monthly` may be a number or `"avgN"`, the average of the last N completed months of spending. `up-to` pairs with `monthly` to cap the balance: it requires `monthly` and cannot be combined with `goal`.
 
-**`topup` needs a plan.** With no `monthly` (and no `goal` + `by`) it has no target to fund to and prints nothing. Use `fully-fund` for a whole month instead: it funds every envelope to its plan or its overspend, whichever is greater, and `fund-available` does the same while keeping the pool non-negative. To top spent envelopes back up without any plan directives over a range, use `overspend` — e.g. the current month: `fund LEDGER --from YYYY-MM --to YYYY-MM --mode overspend` brings negative envelopes back to zero. `actuals` funds each month's net spending, so months close flat.
+**`topup` needs a plan.** With no `monthly` (and no `goal` + `by`) it has no target to fund to and prints nothing. Use `fully-fund` for a whole month instead: it funds every envelope to its plan or its overspend, whichever is greater, and `fully-fund --available` does the same while keeping the pool non-negative. To top spent envelopes back up without any plan directives over a range, use `overspend` — e.g. the current month: `fund backfill LEDGER --from YYYY-MM --to YYYY-MM --mode overspend` brings negative envelopes back to zero. `actuals` funds each month's net spending, so months close flat.
 
 ## Which workflow?
 
 - **New ledger** → set up accounts and directives, then `check`. See `references/workflows.md#first-time-setup`.
-- **After a paycheck** → `fund --mode topup`, review, append, `check`. See `references/workflows.md#business-as-usual`.
-- **Existing history** → `fund --mode actuals` over the range, include the output, `check`. See `references/workflows.md#backfill-history`.
+- **After a paycheck** → `fund month --mode topup`, review, append, `check`. See `references/workflows.md#business-as-usual`.
+- **Existing history** → `fund backfill --mode actuals` over the range, include the output, `check`. See `references/workflows.md#backfill-history`.
 - **Moving an account to a new envelope** → `pin`, then change the metadata. See `references/workflows.md#remap-an-account`.
-- **Tidying up duplicate allocations** → `consolidate`, review the diff, then `--write`. See `references/workflows.md#tidy-up-allocations`.
-- **Cleaning up an over-full `up-to` envelope** → `fund --mode cleanup`, review, append, `check`. See `references/workflows.md#clean-up-an-up-to-overshoot`.
-- **Undoing a month's funding** → `clear --month YYYY-MM`, review the diff, then `--write`. See `references/workflows.md#clear-a-months-allocations`.
+- **Tidying up duplicate allocations** → `consolidate`, review the diff, then `--apply`. See `references/workflows.md#tidy-up-allocations`.
+- **Cleaning up an over-full `up-to` envelope** → `fund month --mode cleanup`, review, append, `check`. See `references/workflows.md#clean-up-an-up-to-overshoot`.
+- **Undoing a month's funding** → `clear --month YYYY-MM`, review the diff, then `--apply`. See `references/workflows.md#clear-a-months-allocations`.
 - **Reviewing one envelope's history** → `history LEDGER --envelope NAME`. See `references/workflows.md#review-an-envelope`.
 
 ## Pitfalls

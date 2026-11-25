@@ -10,7 +10,7 @@ _GATE_PARTS = (
     "ruff check",
     "ty check",
     "pytest",
-    "docs --check",
+    "scripts/docs.py --check",
 )
 
 

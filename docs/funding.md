@@ -34,8 +34,8 @@ A goal envelope is funded by its **cumulative contributions**: the goal-start mo
 ## How the figures are used
 
 - The **target** and **funded** amount drive the closing balance's colour and the ring's fill in the report, and the under/on/over verdict in `explain` and the Fava closing popover. Every ring fills in proportion to its target — a goal ring to its `goal`, an `up-to` ring to its ceiling, a plain `monthly` ring to its resolved monthly amount — reaching the top exactly on plan, with a dashed arc when short and a centre dot when over.
-- The **top-up** is the prefill on the add-allocation form and what `fund --mode topup` allocates.
-- The **envelope need** backs the month-level *fully fund* and *fund with available* actions and `fund --mode fully-fund` / `fund-available`, and `priority` orders them when the pool caps the run.
+- The **top-up** is the prefill on the add-allocation form and what `fund month --mode topup` allocates.
+- The **envelope need** backs the month-level *fully fund* and *fund with available* actions and `fund month --mode fully-fund` (with `--available`), and `priority` orders them when the pool caps the run.
 - `funded` is also what `suggest` and the over-funded note read for goal envelopes.
 
 ## Worked examples
@@ -86,7 +86,7 @@ the month read as under-funded, and the next funding run would refill it. A
 Cleanup is therefore the one deliberate exception to "balances always carry
 forward".
 
-Run it with `fund --mode cleanup --date YYYY-MM-DD`, or the month heading's
+Run it with `fund month --mode cleanup --date YYYY-MM-DD`, or the month heading's
 **Clean up month** action in a write-enabled Fava report; both emit the same
 negative `allocate` directives, so nothing is written until you redirect or save
 them. Re-running is safe: once the balance sits at the ceiling the amount is

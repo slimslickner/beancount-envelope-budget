@@ -270,6 +270,7 @@ def test_fund_write_appends_and_rechecks(
     code = cli.main(
         [
             "fund",
+            "backfill",
             str(path),
             "--from",
             "2024-01",
