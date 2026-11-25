@@ -1459,6 +1459,22 @@ def test_template_clips_the_month_strip() -> None:
     strip_css = html.split(".envelope-months {", 1)[1].split("}", 1)[0]
     assert "overflow: hidden" in strip_css
     assert "overflow-x: auto" not in strip_css
+    # A zero basis makes it take exactly the spare width, so the tabs keep
+    # theirs instead of being squeezed.
+    assert "flex: 1 1 0" in strip_css
+
+
+def test_template_keeps_the_view_tabs_on_one_line() -> None:
+    """The tabs hold their width and their labels never break, so only the
+    month strip compresses; the nav wraps them as a unit only as a last
+    resort, when the window cannot fit them even with the strip clipped."""
+    html = _render(_extension("basic.bean"), {"month": "2024-01", "months": "3"})
+    nav_css = html.split(".envelope-nav {", 1)[1].split("}", 1)[0]
+    assert "flex-wrap: wrap" in nav_css
+    tabs_css = html.split(".envelope-nav-tabs {", 1)[1].split("}", 1)[0]
+    assert "flex: 0 0 auto" in tabs_css
+    tab_css = html.split(".envelope-tab {", 1)[1].split("}", 1)[0]
+    assert "white-space: nowrap" in tab_css
 
 
 def test_template_popovers_size_to_content() -> None:

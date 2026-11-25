@@ -101,6 +101,10 @@
         display: flex;
         align-items: center;
         gap: 1rem;
+        /* The strip absorbs the squeeze and the tabs keep their natural width,
+           so the tabs only drop to a second line when the window is too narrow
+           to fit them even with the strip clipped away. */
+        flex-wrap: wrap;
         margin: 0;
         padding: 0.25rem 0;
         background: var(--background, #fff);
@@ -114,12 +118,14 @@
       /* The selectable month strip lists the budget's whole history; it is
          clipped to the width the nav has to spare, so the number of months on
          show adapts to the screen (fewer when narrow, more when wide) and the
-         report's JavaScript slides the visible window into the middle. */
+         report's JavaScript slides the visible window into the middle. A zero
+         basis means it takes exactly the spare width rather than stealing any
+         from the tabs beside it. */
       .envelope-months {
         display: flex;
         align-items: center;
         gap: 0.25rem;
-        flex: 1 1 auto;
+        flex: 1 1 0;
         min-width: 0;
         overflow: hidden;
       }
@@ -151,6 +157,9 @@
       .envelope-nav-tabs {
         display: flex;
         gap: 0.5rem;
+        /* Keep the tabs at their natural width so the month strip is the only
+           thing that shrinks; the labels are nowrap, so they never break. */
+        flex: 0 0 auto;
         margin-left: auto;
       }
       /* Sticky layering, low to high, so a row's own first cell always paints
@@ -722,6 +731,7 @@
         border: 1px solid rgba(128, 128, 128, 0.5);
         border-radius: 0.25rem;
         text-decoration: none;
+        white-space: nowrap;
       }
       .envelope-tab-active {
         background: var(--table-header-background, rgba(128, 128, 128, 0.15));
